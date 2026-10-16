@@ -119,7 +119,9 @@
 }
 
 .project-toolbar .filters {
-  flex: 1;
+  flex: 1 1 0;
+  /* Without this, a select's longest option (a long member name) sets the row's minimum width. */
+  min-width: 0;
 }
 
 .view-toggle {
@@ -267,4 +269,19 @@
   align-self: end;
   font-size: var(--text-sm);
   color: var(--ink-3);
+}
+
+@media (max-width: 640px) {
+  .project-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .project-toolbar .filters {
+    flex: none;
+  }
+
+  .view-toggle {
+    align-self: flex-start;
+  }
 }
