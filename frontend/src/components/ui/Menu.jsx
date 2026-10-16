@@ -3,13 +3,13 @@
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 
 /**
- * Dropdown menu. `trigger` is rendered as the trigger element (pass a <Button />).
+ * Dropdown menu. `trigger` is the element to render (e.g. <Button />); `triggerContent` goes inside it.
  * Items: { label, icon?, onSelect, tone?, disabled? } | { separator: true } | { group: 'Label' }.
  */
-export function Menu({ trigger, items, align = 'end' }) {
+export function Menu({ trigger, triggerContent, items, align = 'end' }) {
   return (
     <BaseMenu.Root>
-      <BaseMenu.Trigger render={trigger} />
+      <BaseMenu.Trigger render={trigger}>{triggerContent}</BaseMenu.Trigger>
       <BaseMenu.Portal>
         <BaseMenu.Positioner className="menu-positioner" sideOffset={6} align={align}>
           <BaseMenu.Popup className="menu-popup">

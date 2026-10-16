@@ -101,14 +101,15 @@ function SidebarContent({ onNavigate }) {
       <div className="sidebar-footer">
         <Menu
           align="start"
-          trigger={
-            <button type="button" className="user-card" aria-label="Account menu">
+          trigger={<button type="button" className="user-card" aria-label="Account menu" />}
+          triggerContent={
+            <>
               <Avatar user={user} />
               <span className="user-card-text">
                 <span className="user-card-name">{user?.name}</span>
                 <span className="user-card-role">{user?.role}</span>
               </span>
-            </button>
+            </>
           }
           items={[
             { label: 'Profile', icon: UserRound, onSelect: () => router.push('/profile') },
