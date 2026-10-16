@@ -1,6 +1,8 @@
 import { Geist } from 'next/font/google';
+import { Providers } from '@/components/Providers';
 import { APP_NAME } from '@/lib/brand';
 import './globals.css';
+import '@/components/ui/ui.css';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist', display: 'swap' });
 
@@ -18,7 +20,9 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={geist.variable}>
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

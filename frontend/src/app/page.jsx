@@ -1,8 +1,6 @@
+import { redirect } from 'next/navigation';
+
+// The app shell sends signed-out visitors on to /login.
 export default function HomePage() {
-  return (
-    <main style={{ padding: 'var(--gutter)' }}>
-      <h1>Taskline</h1>
-      <p>Frontend scaffold for Task Manager Application v1.0.</p>
-    </main>
-  );
+  redirect('/dashboard');
 }
