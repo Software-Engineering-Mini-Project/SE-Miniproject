@@ -6,32 +6,34 @@ import { readFilterString, readId, invalid } from '../utils/validation.js';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-async function generateDueReminders(now) {
+/** Create the caller's due-date reminders (TM-F-031). Only their own tasks are scanned. */
+async function generateDueReminders(now, userId) {
   const timestamp = now().getTime();
-  const tasks = await Task.find({ status: { $ne: 'Done' }, dueDate: { $ne: null }, assigneeIds: { $ne: [] } });
+  const tasks = await Task.find({ status: { $ne: 'Done' }, dueDate: { $ne: null }, assigneeIds: userId });
   const writes = [];
   for (const task of tasks) {
     if (!task.dueDate) continue;
     const dueEnd = Date.parse(`${task.dueDate}T23:59:59.999Z`);
     if (!Number.isFinite(dueEnd) || dueEnd <= timestamp || dueEnd > timestamp + REMINDER_WINDOW_MS) continue;
     const dedupeKey = `${task.id}:${task.dueDate}`;
-    for (const userId of task.assigneeIds) {
-      writes.push(Notification.updateOne(
-        { userId, taskId: task.id, type: 'due-date', dedupeKey },
-        {
-          $setOnInsert: {
-            userId,
-            taskId: task.id,
-            projectId: task.projectId,
-            type: 'due-date',
-            message: `"${task.title}" is due within 24 hours.`,
-            read: false,
-            dedupeKey,
-          },
+    writes.push(Notification.updateOne(
+      { userId, taskId: task.id, type: 'due-date', dedupeKey },
+      {
+        $setOnInsert: {
+          userId,
+          taskId: task.id,
+          projectId: task.projectId,
+          type: 'due-date',
+          message: `"${task.title}" is due within 24 hours.`,
+          read: false,
+          dedupeKey,
         },
-        { upsert: true },
-      ));
-    }
+      },
+      { upsert: true },
+    ).catch((error) => {
+      // A parallel request inserted the same reminder first; the unique index kept one.
+      if (error?.code !== 11000) throw error;
+    }));
   }
   await Promise.all(writes);
 }
@@ -51,7 +53,7 @@ export function createNotificationsRouter({ jwtSecret, now = () => new Date() } 
   const requireAuth = authenticate({ jwtSecret });
 
   router.get('/notifications', requireAuth, async (request, response) => {
-    await generateDueReminders(now);
+    await generateDueReminders(now, request.user.id);
     const page = readPositiveInteger(request.query, 'page', 1, Number.MAX_SAFE_INTEGER);
     const pageSize = readPositiveInteger(request.query, 'pageSize', 50, 100);
     const filter = { userId: request.user.id };
@@ -64,7 +66,7 @@ export function createNotificationsRouter({ jwtSecret, now = () => new Date() } 
   });
 
   router.patch('/notifications/:notificationId/read', requireAuth, async (request, response) => {
-    await generateDueReminders(now);
+    await generateDueReminders(now, request.user.id);
     const notificationId = readId(request.params.notificationId, 'Notification');
     const notification = await Notification.findOne({ _id: notificationId, userId: request.user.id });
     if (!notification) throw new HttpError(404, 'NOT_FOUND', 'Notification not found.');
