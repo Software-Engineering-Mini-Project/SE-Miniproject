@@ -1,0 +1,194 @@
+/*
+ * Design tokens and base styles for Task Manager v1.0.
+ * Light theme only: dark mode is out of v1.0 scope (SRS §11).
+ * Motion follows the design-engineering rules: strong ease-out curves,
+ * UI transitions under 300ms, transform/opacity only, reduced-motion fallbacks.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces: separated by tone steps, not lines or resting shadows */
+  --bg: #f3f3f0;
+  --surface: #ffffff;
+  --surface-2: #ebebe7;
+  --surface-3: #e0e0db;
+  --line: #d6d6cf;
+  --line-strong: #b9b9b1;
+
+  /* Ink */
+  --ink: #15161a;
+  --ink-2: #464952;
+  --ink-3: #6a6e77;
+  --ink-inverse: #ffffff;
+
+  /* One accent, used for primary actions and focus */
+  --accent: #2350e6;
+  --accent-hover: #1c42c4;
+  --accent-soft: #e5ebfd;
+  --accent-ink: #ffffff;
+
+  /* Task status (TM-F-012 / TM-F-023) */
+  --status-todo: #5f636c;
+  --status-todo-soft: #e7e7e3;
+  --status-progress: #a54d07;
+  --status-progress-soft: #fbeedd;
+  --status-done: #16723a;
+  --status-done-soft: #dff1e5;
+
+  /* Priority */
+  --priority-high: #b3261e;
+  --priority-medium: #a54d07;
+  --priority-low: #5f636c;
+
+  --danger: #b3261e;
+  --danger-soft: #fbe5e3;
+  --success: #16723a;
+
+  /* Type */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-display: clamp(2.5rem, 6vw, 4.75rem);
+
+  /* Space and shape */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+  --gutter: clamp(16px, 3vw, 32px);
+  --sidebar-width: 248px;
+  --topbar-height: 60px;
+
+  /* Elevation: only for things that truly float (menus, dialogs, dragged cards) */
+  --shadow-float: 0 1px 2px rgb(21 22 26 / 0.06), 0 8px 24px rgb(21 22 26 / 0.12);
+  --shadow-drag: 0 2px 4px rgb(21 22 26 / 0.08), 0 16px 32px rgb(21 22 26 / 0.18);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms;
+  --dur-fast: 160ms;
+  --dur-base: 220ms;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+img,
+svg {
+  display: block;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 100;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(60px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: opacity, color, background-color, border-color !important;
+    scroll-behavior: auto !important;
+  }
+}
