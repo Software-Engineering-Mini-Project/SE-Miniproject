@@ -1,0 +1,4 @@
+[
+  {"id":"project-alpha","name":"Alpha Project","description":"Core v1.0 delivery: authentication, task board and notifications.","ownerId":"user-lead-001","memberIds":["user-lead-001","user-member-001","user-member-002"],"createdAt":"2026-10-04T08:00:00.000Z","updatedAt":"2026-10-10T08:00:00.000Z"},
+  {"id":"project-beta","name":"Beta Project","description":"Quality track: performance, accessibility and release evidence.","ownerId":"user-admin-001","memberIds":["user-admin-001","user-lead-001"],"createdAt":"2026-10-05T08:00:00.000Z","updatedAt":"2026-10-11T08:00:00.000Z"}
+]

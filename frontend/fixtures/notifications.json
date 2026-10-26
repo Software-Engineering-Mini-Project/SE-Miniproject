@@ -1,0 +1,7 @@
+[
+  {"id":"notif-001","userId":"user-member-001","taskId":"task-001","type":"assignment","message":"You were assigned to \"Draft the API error envelope contract\".","read":true,"createdAt":"2026-10-04T09:00:00.000Z"},
+  {"id":"notif-002","userId":"user-member-001","taskId":"task-004","type":"assignment","message":"You were assigned to \"Connect the login form to the auth API\".","read":false,"createdAt":"2026-10-06T09:00:00.000Z"},
+  {"id":"notif-003","userId":"user-member-001","taskId":"task-004","type":"due-date","message":"\"Connect the login form to the auth API\" is due within 24 hours.","read":false,"createdAt":"2026-10-16T08:00:00.000Z"},
+  {"id":"notif-004","userId":"user-member-002","taskId":"task-005","type":"assignment","message":"You were assigned to \"Keyboard support for moving board cards\".","read":false,"createdAt":"2026-10-07T09:00:00.000Z"},
+  {"id":"notif-005","userId":"user-lead-001","taskId":"task-009","type":"due-date","message":"\"Write the accessibility checklist\" is past its due date.","read":false,"createdAt":"2026-10-15T08:00:00.000Z"}
+]

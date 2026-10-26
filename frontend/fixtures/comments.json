@@ -1,0 +1,6 @@
+[
+  {"id":"comment-001","taskId":"task-002","authorId":"user-lead-001","text":"Columns render from persisted status only; no client-side guesses.","createdAt":"2026-10-12T10:00:00.000Z"},
+  {"id":"comment-002","taskId":"task-002","authorId":"user-member-001","text":"Done for To Do and In Progress. Done column next.","createdAt":"2026-10-12T14:30:00.000Z"},
+  {"id":"comment-003","taskId":"task-004","authorId":"user-member-002","text":"Waiting on the final token expiry decision before wiring refresh.","createdAt":"2026-10-14T09:30:00.000Z"},
+  {"id":"comment-004","taskId":"task-005","authorId":"user-member-001","text":"<script>alert('x')</script>","createdAt":"2026-10-14T11:00:00.000Z"}
+]

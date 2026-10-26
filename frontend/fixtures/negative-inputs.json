@@ -1,0 +1,10 @@
+{
+  "duplicateEmail": "member@example.test",
+  "invalidIds": ["not-an-object-id", ""],
+  "invalidStatuses": ["Doing", "$ne", "DONE"],
+  "nonMemberAssignee": "user-outsider-001",
+  "noSqlInjectionLike": {"$ne": null},
+  "xssLookingComment": "<script>alert('x')</script>",
+  "csvFormulaLikeValues": ["=HYPERLINK(\"https://example.test\")", "+cmd|' /C calc'!A0"],
+  "jwtCases": ["expired-token-placeholder", "malformed.token.value"]
+}

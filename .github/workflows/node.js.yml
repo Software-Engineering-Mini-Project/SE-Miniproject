@@ -1,27 +1,80 @@
-name: Node.js CI
+# CI for the Task Manager app (STP v1.0 §5).
+# Order per team rules: install from lockfile → lint → unit tests → API tests → build → E2E smoke.
+# Suites that don't exist yet are reported as skipped, never faked as passing.
+
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: 1
+
 jobs:
-  verify:
+  backend:
+    name: Backend (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22.x, 24.x]
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run lint
-      - run: npm run build
+
+      - name: Install (from lockfile)
+        run: npm ci
+
+      # Placeholder: `node --check` syntax check until ESLint is added in issue #2.
+      - name: Lint
+        run: npm run lint --workspace backend
+
+      - name: API tests
+        run: npm test --workspace backend
+
+  frontend:
+    name: Frontend (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install (from lockfile)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspace frontend
+
+      - name: Unit + mock-API contract tests
+        run: npm test --workspace frontend
+
+      - name: Production build
+        run: npm run build --workspace frontend
+
+      - name: E2E smoke
+        run: echo "::notice title=E2E smoke::Not implemented yet (STP §5.3). Skipped, not passed."
