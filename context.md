@@ -51,11 +51,12 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 ## Current state
 
 - The web app is a Next.js 15 / React 19 app with auth screens, dashboard, projects, tasks/Kanban, comments, notifications, profile, CSV export, and a browser mock API.
-- The API Phase 0 foundation is implemented: Express app, validated environment, MongoDB startup, Mongoose models/indexes, safe JSON error envelopes, request IDs and structured request logging, fixture seeding, and health endpoint.
-- Authentication, authorization middleware, and product API routes are not complete. Continue in reviewable phases, starting with authentication, then implement the remaining endpoints to the API contract.
-- Phase 0 verification passed locally: clean `npm ci`, root lint, API tests (21), Web tests (26), and the Web production build.
+- The Express/Mongoose API implements authentication/profile, projects/members, tasks/search/status, comments, notifications/reminders, project summaries, CSV export, authorization, validation, and Admin write audit logging.
+- The web app's centralized API client now defaults to the real HTTP API at `http://localhost:4000/api`; opt into the browser mock with `NEXT_PUBLIC_API_MODE=mock`. All UI API calls go through `apps/web/src/lib/api/client.js`.
+- To use the real API locally, configure `apps/api/.env` with `MONGODB_URI` and a strong `JWT_SECRET`; configure `apps/web/.env.local` with `NEXT_PUBLIC_API_MODE=http` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`. Seed only a local/test database with `npm run seed --workspace @task-manager/api` (the seed clears selected collections).
+- Latest verification: workspace lint passed, API tests passed (26), Web tests passed (26), and the Web production build passed. The API integration tests use Supertest and `mongodb-memory-server`.
 - The `main` workflow runs API and Web jobs on Node 22 and 24, so GitHub shows four CI checks (two workspaces × two Node versions).
-- As of this update, PR [#13](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/13) is open from `feature/2-backend-foundation`; it includes the workspace layout and test extension refactor. Check GitHub for the current head commit.
+- PR [#13](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/13) is the active PR from `feature/2-backend-foundation`. Check GitHub for its current head and review state.
 
 ## Confirmed API contract choices
 
@@ -80,13 +81,14 @@ The user accepted the defaults below. Keep them consistent across API, tests, an
 ## Audit and admin scope
 
 - Do not build task activity history, a history UI, or a separate task-audit collection/endpoint.
-- SRS §2.2 requires Admin actions to be audited. After auth exists, the request logger must mark each authenticated Admin `POST`, `PATCH`, or `DELETE` as `audit: true`, recording timestamp, request ID, actor ID, role, method, route pattern, target IDs from the path, and response status.
-- Never log request bodies, passwords, tokens, or connection strings. Add a test for the Admin audit log in the auth phase.
+- SRS §2.2 requires Admin actions to be audited. The request logger marks each authenticated Admin `POST`, `PATCH`, or `DELETE` as `audit: true`, recording timestamp, request ID, actor ID, role, method, route pattern, target IDs from the path, and response status.
+- Never log request bodies, passwords, tokens, or connection strings. A route integration test checks the Admin audit log for the required fields and ensures secrets are omitted.
 - Admins have full access to project/task endpoints according to the authorization matrix. Do not add user/role management endpoints; that onboarding workflow needs a team decision before deployment. Admin users come from seed data for now.
 
 ## Open decisions and next work
 
 - The SRS copy reviewed from the `Templates` branch is v1.0 and marked as a working baseline; Issue #2 cites v1.3. Confirm which SRS version governs later API work before implementing contract-sensitive endpoints.
 - The Admin account onboarding and role-management workflow must be agreed before deployment.
-- Continue with Phase 1 authentication and authorization; include the Admin-write audit test in that phase. Then implement project/task and other contract endpoints in focused, reviewable phases.
+- Smoke test the complete UI flow against a configured local MongoDB using a seeded lead/member account. CI and automated tests cover the API and UI behavior, but do not replace a browser walkthrough.
+- Keep the browser mock available for frontend-only development; default API mode remains HTTP.
 - Keep `context.md`, README, API contract, and CI configuration current when lasting project decisions or structure changes.

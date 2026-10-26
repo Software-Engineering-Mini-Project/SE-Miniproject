@@ -3,15 +3,17 @@ import test from 'node:test';
 import { Task, User } from '../src/models/index.js';
 
 test('model JSON uses string id and never exposes Mongo internals or password hashes', () => {
-  const user = new User({
+  const model = new User({
     _id: 'user-member-001',
     name: 'Synthetic Member',
     email: 'member@example.test',
     emailNormalized: 'member@example.test',
     passwordHash: 'a-secret-hash',
     role: 'Member',
-  }).toJSON();
+  });
+  const user = model.toJSON();
 
+  assert.equal(model.id, 'user-member-001');
   assert.equal(user.id, 'user-member-001');
   assert.equal(user._id, undefined);
   assert.equal(user.__v, undefined);

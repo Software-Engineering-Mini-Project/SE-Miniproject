@@ -20,7 +20,7 @@ export function createSchema(definition, options = {}) {
   }, {
     timestamps: true,
     versionKey: false,
-    id: false,
+    id: true,
     toJSON: { transform: transformToApi },
     ...options,
   });

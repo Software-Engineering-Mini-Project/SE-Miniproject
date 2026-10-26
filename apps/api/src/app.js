@@ -4,6 +4,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
+import { createApiRouter } from './routes/index.js';
 import { HttpError } from './utils/http-error.js';
 
 const allowedMethods = ['GET', 'POST', 'PATCH', 'DELETE'];
@@ -23,7 +24,13 @@ function registerRoutes(app) {
 }
 
 /** Create an importable Express app. Database connection belongs to server.js. */
-export function createApp({ logger = console, now = () => new Date(), extendRoutes } = {}) {
+export function createApp({
+  logger = console,
+  now = () => new Date(),
+  extendRoutes,
+  jwtSecret = process.env.JWT_SECRET,
+  jwtExpiresIn = Number(process.env.JWT_EXPIRES_IN) || 7200,
+} = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -38,6 +45,7 @@ export function createApp({ logger = console, now = () => new Date(), extendRout
   app.use(express.json({ limit: '100kb' }));
 
   registerRoutes(app);
+  app.use('/api', createApiRouter({ jwtSecret, jwtExpiresIn, now }));
   extendRoutes?.(app);
 
   app.use((_request, _response, next) => {

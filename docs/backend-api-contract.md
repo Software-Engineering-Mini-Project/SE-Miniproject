@@ -10,9 +10,10 @@
 ## 1. Where things stand
 
 - **The frontend is built** (Next.js 15, React 19) in `apps/web/`. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
-- **The API foundation is in place, while the product endpoints are still being built.** The UI continues to use a **mock API that runs in the browser**: [`apps/web/src/lib/api/mock/server.js`](../apps/web/src/lib/api/mock/server.js). The mock is **not** the backend and must not be reused as one. It has no database and no real password hashing, and its tokens are not real JWTs.
+- **The API contract is implemented** in `apps/api/`, including auth, projects/members, tasks, comments, notifications, summaries, CSV export, access control, validation, and audit logging. The web app uses the real HTTP API by default via [`apps/web/src/lib/api/client.js`](../apps/web/src/lib/api/client.js).
+- The browser mock at [`apps/web/src/lib/api/mock/server.js`](../apps/web/src/lib/api/mock/server.js) remains available for frontend-only work (`NEXT_PUBLIC_API_MODE=mock`). It has no database and no real password hashing, and its tokens are not real JWTs.
 - **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. 19 contract tests check it, each named after an STP test ID ([`apps/web/tests/mock-api.test.mjs`](../apps/web/tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
-- **Your job:** build the Express + Mongoose API in `apps/api/` to this contract, settle the open decisions in §3 with me, then switch the frontend to your API (§12).
+- **For local use:** configure MongoDB and `JWT_SECRET`, seed a local/test database, then run both apps. The automated suite checks the API and mock against this contract; follow §12 for a browser smoke test against a live local database.
 
 Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll update this file and the frontend.
 
@@ -21,17 +22,17 @@ Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll 
 ## 2. Quick start
 
 ```bash
-# run the web app against the mock (no API needed), from the repository root
+# install dependencies from the repository root
 npm ci                 # once, after cloning
-npm run dev:web        # http://localhost:3000. Sign in with the demo account buttons.
-
-# with the API configured, start it in another terminal with: npm run dev:api
-# run the web app against YOUR backend
-# create apps/web/.env.local with:
-#   NEXT_PUBLIC_API_MODE=http
-#   NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
-npm run dev:web
+copy apps/api/.env.example to apps/api/.env
+# set MONGODB_URI and a strong JWT_SECRET in apps/api/.env
+copy apps/web/.env.example to apps/web/.env.local
+# set NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api in apps/web/.env.local
+npm run seed --workspace @task-manager/api  # clears selected collections; local/test DB only
+npm run dev
 ```
+
+The web app defaults to HTTP mode. To use the browser mock without starting MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `apps/web/.env.local` and run `npm run dev:web`.
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
@@ -383,15 +384,15 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ---
 
-## 12. Switching the frontend to your API
+## 12. Using the frontend with the API
 
 1. Run your API on `http://localhost:4000` with CORS allowing `http://localhost:3000`.
-2. Create `apps/web/.env.local`:
+2. Configure `apps/web/.env.local`:
    ```
    NEXT_PUBLIC_API_MODE=http
    NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
    ```
-3. From the repository root, run `npm run dev:web`, then register a user and sign in.
+3. Seed a local/test database with `npm run seed --workspace @task-manager/api`, then start both apps with `npm run dev`. In HTTP mode, sign in using a seeded account or register a new user. Seeded fixture users share password `Password123!`.
 4. Smoke test in this order:
    - register → sign in → dashboard
    - as lead@: open Alpha → create a task with an assignee → drag it across columns → reload (it must stay) → comment → export CSV
