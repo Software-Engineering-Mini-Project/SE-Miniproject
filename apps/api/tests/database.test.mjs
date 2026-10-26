@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { after, before, test } from 'node:test';
 import { FIXTURE_PASSWORD } from '../src/utils/seed-database.js';
 import { Comment, Notification, Project, Task, User } from '../src/models/index.js';
-import { startTestDatabase } from '../test-support/database.js';
+import { startTestDatabase } from '../test-support/database.mjs';
 
 let database;
 

@@ -1,15 +1,15 @@
 {
-  "name": "se-miniproject",
+  "name": "task-manager",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["frontend", "backend"],
+  "workspaces": ["apps/*"],
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
-    "dev:backend": "npm --workspace backend run dev",
-    "dev:frontend": "npm --workspace frontend run dev",
-    "build": "npm --workspace frontend run build",
-    "test": "npm --workspace backend test && npm --workspace frontend test",
-    "lint": "npm --workspace backend run lint && npm --workspace frontend run lint"
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm --workspace @task-manager/api run dev",
+    "dev:web": "npm --workspace @task-manager/web run dev",
+    "build": "npm --workspace @task-manager/web run build",
+    "test": "npm --workspace @task-manager/api test && npm --workspace @task-manager/web test",
+    "lint": "npm --workspace @task-manager/api run lint && npm --workspace @task-manager/web run lint"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

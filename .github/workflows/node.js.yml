@@ -22,8 +22,8 @@ env:
   NEXT_TELEMETRY_DISABLED: 1
 
 jobs:
-  backend:
-    name: Backend (Node ${{ matrix.node-version }})
+  api:
+    name: API (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -42,13 +42,13 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint --workspace backend
+        run: npm run lint --workspace @task-manager/api
 
       - name: API tests
-        run: npm test --workspace backend
+        run: npm test --workspace @task-manager/api
 
-  frontend:
-    name: Frontend (Node ${{ matrix.node-version }})
+  web:
+    name: Web (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -67,13 +67,13 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint --workspace frontend
+        run: npm run lint --workspace @task-manager/web
 
       - name: Unit + mock-API contract tests
-        run: npm test --workspace frontend
+        run: npm test --workspace @task-manager/web
 
       - name: Production build
-        run: npm run build --workspace frontend
+        run: npm run build --workspace @task-manager/web
 
       - name: E2E smoke
         run: echo "::notice title=E2E smoke::Not implemented yet (STP §5.3). Skipped, not passed."
