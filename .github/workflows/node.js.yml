@@ -1,6 +1,7 @@
 # CI for the Task Manager app (STP v1.0 §5).
 # Order per team rules: install from lockfile → lint → unit tests → API tests → build → E2E smoke.
 # Suites that don't exist yet are reported as skipped, never faked as passing.
+# Jobs: API and Web (Node 22 + 24), E2E smoke (Chromium, Node 22, mock API).
 
 name: CI
 
@@ -75,5 +76,40 @@ jobs:
       - name: Production build
         run: npm run build --workspace @task-manager/web
 
-      - name: E2E smoke
-        run: echo "::notice title=E2E smoke::Not implemented yet (STP §5.3). Skipped, not passed."
+  e2e:
+    name: E2E smoke (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The browser mock API, so no database is needed in CI. Build and test must use the same mode.
+      NEXT_PUBLIC_API_MODE: mock
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install (from lockfile)
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx --workspace @task-manager/web playwright install --with-deps chromium
+
+      - name: Production build (mock API)
+        run: npm run build --workspace @task-manager/web
+
+      - name: TC-E2E-01 critical journey
+        run: npm run test:e2e --workspace @task-manager/web
+
+      # TC-CI-01: keep the report on every run; screenshots, video and trace are added on failure.
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 14
