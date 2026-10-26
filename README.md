@@ -56,11 +56,21 @@ npm run lint
 npm run build
 ```
 
+End-to-end smoke test (TC-E2E-01, Playwright) against the browser mock, so no database is needed:
+
+```bash
+npx --workspace @task-manager/web playwright install chromium   # first time only
+NEXT_PUBLIC_API_MODE=mock npm run build --workspace @task-manager/web
+NEXT_PUBLIC_API_MODE=mock npm run test:e2e --workspace @task-manager/web
+```
+
+It starts the production build on port 3100 and walks the critical journey: register, log in as a lead, create a project, add a member, create and assign a task, move it on the board, reload, and check the assignee's notification. On failure, the screenshot, video and trace are in `apps/web/test-results/`.
+
 ## CI and deployment
 
-GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs four jobs: API lint and tests on Node 22 and 24, plus Web lint, tests, and production build on Node 22 and 24.
+GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs five jobs: API lint and tests on Node 22 and 24; Web lint, tests, and production build on Node 22 and 24; and **E2E smoke (Chromium)**, which runs the TC-E2E-01 journey against a mock-mode production build and keeps the Playwright report as a run artifact for 14 days.
 
-The workflow's E2E smoke step is currently a notice that E2E is not implemented; it does not run a browser test. This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
+This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
 
 ## Contribution workflow
 
