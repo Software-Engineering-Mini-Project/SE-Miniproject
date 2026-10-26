@@ -51,7 +51,19 @@ npm run lint
 npm run build
 ```
 
-GitHub Actions (`.github/workflows/node.js.yml`) runs separate **Backend** and **Frontend** jobs on Node 22 and 24 for pull requests targeting `main` and pushes to `main`: install from the lockfile, lint, tests, and the frontend production build. Suites that don't exist yet (E2E smoke) are reported as skipped, not passed.
+End-to-end smoke test (TC-E2E-01, Playwright). Run it after `npm run build`:
+
+```bash
+npx --workspace frontend playwright install chromium   # first time only
+npm run test:e2e --workspace frontend
+```
+
+It starts the production build on port 3100 and walks the critical journey: register, log in as a lead, create a project, add a member, create and assign a task, move it on the board, reload, and check the assignee's notification. On failure, the screenshot, video and trace are in `frontend/test-results/`.
+
+GitHub Actions (`.github/workflows/node.js.yml`) runs on pull requests targeting `main` and pushes to `main`:
+
+- **Backend** and **Frontend** jobs on Node 22 and 24: install from the lockfile, lint, tests, and the frontend production build.
+- **E2E smoke (Chromium)**: the TC-E2E-01 journey against the production build. The Playwright report is kept as a run artifact for 14 days.
 
 ## Contribution workflow
 
