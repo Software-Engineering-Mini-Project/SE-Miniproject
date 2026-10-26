@@ -48,9 +48,9 @@ Seed your **test** database from `apps/web/fixtures/*.json`. Hash `Password123!`
 
 ---
 
-## 3. Decisions we need to agree on
+## 3. Confirmed integration decisions
 
-The frontend currently assumes the values below. Each is marked `DECISION` in [`apps/web/src/lib/api/client.js`](../apps/web/src/lib/api/client.js). Tell me which ones you change. Most need a one-line change on my side.
+These values were confirmed by the project owner and are implemented by the frontend client and API. Keep changes synchronized across both sides.
 
 | # | Topic | Frontend assumes now | Notes |
 |---|---|---|---|
@@ -326,16 +326,16 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 
 ## 8. Security checklist (SRS §5, PRJ-SR-001..006)
 
-- [ ] Passwords hashed with **bcrypt** (cost ≥ 10). Never logged, never returned.
-- [ ] JWT signed with a secret from env (`JWT_SECRET`), with `exp` set. Reject missing, malformed, tampered and expired tokens with 401.
-- [ ] Login rate limit → 429 (e.g. `express-rate-limit`).
-- [ ] Strict type checks on every input. Reject objects where strings are expected (or use `express-mongo-sanitize` as well). No `$where`, no unescaped `$regex`.
-- [ ] `express.json({ limit: '100kb' })` body size limit. Paginate lists.
-- [ ] Central error middleware: map known errors to the envelope, return `500 INTERNAL_ERROR` with a generic message for everything else. **No stack traces in responses.**
-- [ ] Logs carry route, status, request id and user id. **No passwords, tokens, connection strings or full bodies.**
-- [ ] `helmet()`. HTTPS in deployment (TLS 1.2+, PRJ-SR-004).
-- [ ] CORS: allow origin `http://localhost:3000` (plus the deployed frontend URL), methods `GET, POST, PATCH, DELETE`, headers `Authorization, Content-Type`. Credentials are only needed if D2 switches to cookies.
-- [ ] Secrets only in `.env` (gitignored) and GitHub Actions secrets. Commit a `.env.example`.
+- [x] Passwords hashed with **bcrypt** (cost ≥ 10). Never logged, never returned.
+- [x] JWT signed with a secret from env (`JWT_SECRET`), with `exp` set. Reject missing, malformed, tampered and expired tokens with 401.
+- [x] Login rate limit → 429 (5 failed attempts per email per 60 seconds).
+- [x] Strict type checks on every input. Reject objects where strings are expected; escape regex input.
+- [x] `express.json({ limit: '100kb' })` body size limit. Paginate notification lists.
+- [x] Central error middleware: map known errors to the envelope, return `500 INTERNAL_ERROR` with a generic message for everything else. **No stack traces in responses.**
+- [x] Logs carry route, status, request ID and user ID. **No passwords, tokens, connection strings or full bodies.** Admin writes are audit marked.
+- [x] `helmet()` and configured CORS for the frontend origin, methods, and headers.
+- [ ] HTTPS in deployment (TLS 1.2+, PRJ-SR-004); this is a deployment configuration item.
+- [x] Secrets are read from environment variables; `.env.example` files document local configuration.
 
 ---
 
@@ -375,12 +375,11 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ---
 
-## 11. Things that need fixing now
+## 11. Maintenance notes
 
 1. **CI and workspaces:** the root `package.json` and lockfile manage both apps. GitHub Actions runs API and Web checks on Node 22 and 24; keep those workspace commands aligned with the package names in each app's `package.json`.
-2. **Settle the decisions in §3**, especially D1 (base path) and D2 (token transport), before you write the auth middleware.
-3. **Keep SAD §4 in sync** with whatever we decide here (SRS §3.2 asks for the final contract to live in the repo). This file can be that contract.
-4. **Check `id` vs `_id` and `dueDate` format first.** They're the two most likely sources of "the screen is blank" bugs when you switch the frontend over.
+2. **Keep SAD §4 in sync** with this contract when decisions change (SRS §3.2 asks for the final contract to live in the repo).
+3. **Resolve the SRS version question** before later work changes requirements: the reviewed copy is v1.0 while Issue #2 cites v1.3.
 
 ---
 
