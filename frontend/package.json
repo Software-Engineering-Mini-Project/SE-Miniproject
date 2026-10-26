@@ -1,10 +1,10 @@
 {
-  "name": "task-manager-web",
+  "name": "@se-miniproject/frontend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20.10"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev",
