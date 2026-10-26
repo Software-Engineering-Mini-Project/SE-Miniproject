@@ -56,7 +56,11 @@ npm run lint
 npm run build
 ```
 
-GitHub Actions (`.github/workflows/node.js.yml`) runs separate **API** and **Web** jobs on Node 22 and 24 for pull requests targeting `main` and pushes to `main`: install from the lockfile, lint, tests, and the web production build. Suites that don't exist yet (E2E smoke) are reported as skipped, not passed.
+## CI and deployment
+
+GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs four jobs: API lint and tests on Node 22 and 24, plus Web lint, tests, and production build on Node 22 and 24.
+
+The workflow's E2E smoke step is currently a notice that E2E is not implemented; it does not run a browser test. This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
 
 ## Contribution workflow
 
