@@ -21,16 +21,16 @@ Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll 
 ## 2. Quick start
 
 ```bash
-# run the frontend against the mock (no backend needed)
-cd frontend
-npm install
-npm run dev            # http://localhost:3000. Sign in with the demo account buttons.
+# run the web app against the mock (no API needed), from the repository root
+npm ci                 # once, after cloning
+npm run dev:web        # http://localhost:3000. Sign in with the demo account buttons.
 
-# run the frontend against YOUR backend
+# with the API configured, start it in another terminal with: npm run dev:api
+# run the web app against YOUR backend
 # create apps/web/.env.local with:
 #   NEXT_PUBLIC_API_MODE=http
 #   NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
-npm run dev
+npm run dev:web
 ```
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
@@ -391,7 +391,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
    NEXT_PUBLIC_API_MODE=http
    NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
    ```
-3. `cd frontend && npm run dev`, then register a user and sign in.
+3. From the repository root, run `npm run dev:web`, then register a user and sign in.
 4. Smoke test in this order:
    - register → sign in → dashboard
    - as lead@: open Alpha → create a task with an assignee → drag it across columns → reload (it must stay) → comment → export CSV

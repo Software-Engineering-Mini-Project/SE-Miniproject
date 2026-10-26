@@ -17,6 +17,8 @@ docs/          API contract and handoff notes
 .github/       GitHub Actions workflows
 ```
 
+See [context.md](context.md) for current architecture, agreed decisions, and next steps.
+
 ## Install
 
 From the repository root:
