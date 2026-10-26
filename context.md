@@ -8,7 +8,7 @@ This file gives contributors and coding agents the durable project context they 
 
 - Repository: `Software-Engineering-Mini-Project/SE-Miniproject`.
 - Build a Task Manager web application with an Express/Mongoose API.
-- Keep all project work inside this repository. **Do not inspect or modify the separate `TRSystem` project.**
+- Keep all project work inside this repository.
 - Use feature branches from the latest `main`; do not commit directly to `main`.
 - Pull requests target `main` and require a review approval before merging. A PR author cannot approve their own PR. Never merge on the user's behalf unless they explicitly ask.
 
