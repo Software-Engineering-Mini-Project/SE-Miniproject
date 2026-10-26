@@ -17,6 +17,8 @@ const TOKEN_TTL_SECONDS = 7200;
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 60_000;
 const failedLogins = new Map();
+// Unknown emails are checked against this hash so the response time doesn't reveal which emails are registered.
+const UNKNOWN_USER_HASH = bcrypt.hashSync('unknown-user-timing-equalizer', 12);
 
 function getAttemptBucket(email, now) {
   const bucket = failedLogins.get(email);
@@ -67,7 +69,7 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     }
 
     const user = await User.findOne({ emailNormalized: normalizedEmail }).select('+passwordHash');
-    const passwordMatches = user ? await bcrypt.compare(password, user.passwordHash) : false;
+    const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? UNKNOWN_USER_HASH) && Boolean(user);
     if (!user || !passwordMatches) {
       attempts.count += 1;
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');

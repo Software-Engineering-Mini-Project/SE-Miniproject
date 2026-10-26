@@ -22,7 +22,8 @@ function normalizeError(error) {
   if (error?.type === 'entity.too.large') {
     return { status: 413, errorCode: 'VALIDATION_ERROR', message: defaultMessages[413] };
   }
-  if (error?.code === 11000) {
+  // Only the unique email index means a duplicate account; other duplicate keys are unexpected.
+  if (error?.code === 11000 && error.keyPattern?.emailNormalized) {
     return {
       status: 409,
       errorCode: 'DUPLICATE_EMAIL',
@@ -54,6 +55,8 @@ export function errorHandler({ now = () => new Date() } = {}) {
   return (error, request, response, _next) => {
     const normalized = normalizeError(error);
     response.locals.errorCode = normalized.errorCode;
+    // The error name (e.g. TypeError) is safe to log; its message may contain data, so it is not.
+    if (normalized.status === 500) response.locals.errorName = error?.name || 'Error';
     const body = {
       errorCode: normalized.errorCode,
       message: normalized.message,

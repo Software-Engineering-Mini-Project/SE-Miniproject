@@ -84,7 +84,28 @@ test('unexpected errors return a generic 500 and logs omit the request body and 
   assert.ok(records[0].requestId);
   assert.equal(records[0].userId, null);
   assert.equal(records[0].errorCode, 'INTERNAL_ERROR');
+  assert.equal(records[0].errorName, 'Error');
   assert.doesNotMatch(JSON.stringify(records), /sensitive database|connection details|do-not-log|access_token/);
+});
+
+test('only a duplicate email is reported as DUPLICATE_EMAIL; other duplicate keys are a generic 500', async () => {
+  const duplicate = (keyPattern) => Object.assign(new Error('E11000 duplicate key'), { code: 11000, keyPattern });
+  const { app } = captureApp((router) => {
+    router.post('/api/__test/duplicate-email', () => {
+      throw duplicate({ emailNormalized: 1 });
+    });
+    router.post('/api/__test/duplicate-other', () => {
+      throw duplicate({ userId: 1, taskId: 1, dedupeKey: 1 });
+    });
+  });
+
+  const email = await request(app).post('/api/__test/duplicate-email');
+  assert.equal(email.status, 409);
+  assert.equal(email.body.errorCode, 'DUPLICATE_EMAIL');
+
+  const other = await request(app).post('/api/__test/duplicate-other');
+  assert.equal(other.status, 500);
+  assert.equal(other.body.errorCode, 'INTERNAL_ERROR');
 });
 
 test('request logging honors a safe caller request id and records route, status, and user id', async () => {
