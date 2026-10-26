@@ -50,6 +50,7 @@ export function requestLogger({ logger = console, now = () => new Date() } = {})
         });
       }
       if (response.locals.errorCode) record.errorCode = response.locals.errorCode;
+      if (response.locals.errorName) record.errorName = response.locals.errorName;
 
       writeLog(logger, record);
     });
