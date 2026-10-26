@@ -300,3 +300,39 @@ test('admin writes are audit-logged without request secrets or bodies', async ()
   assert.equal(record.status, 200);
   assert.doesNotMatch(JSON.stringify(record), /never-log-this|also-never-log-this|password|token/);
 });
+
+test('reading notifications creates due reminders only for the caller (TM-F-031)', async () => {
+  const task = await Task.create({
+    title: 'Reminder scope check',
+    projectId: 'project-beta',
+    assigneeIds: ['user-admin-001'],
+    dueDate: '2026-10-16',
+  });
+  try {
+    const memberRead = await request(app).get('/api/notifications').set('Authorization', `Bearer ${memberToken}`);
+    assert.equal(memberRead.status, 200);
+    assert.equal(await Notification.countDocuments({ taskId: task.id, type: 'due-date' }), 0);
+
+    const adminReads = await Promise.all(Array.from({ length: 5 }, () => (
+      request(app).get('/api/notifications').set('Authorization', `Bearer ${adminToken}`)
+    )));
+    assert.deepEqual(adminReads.map((response) => response.status), [200, 200, 200, 200, 200]);
+    assert.equal(await Notification.countDocuments({ taskId: task.id, userId: 'user-admin-001', type: 'due-date' }), 1);
+  } finally {
+    await Notification.deleteMany({ taskId: task.id });
+    await task.deleteOne();
+  }
+});
+
+test('login takes comparable time for unknown emails and wrong passwords (no account enumeration)', async () => {
+  const timeLogin = async (email) => {
+    const started = performance.now();
+    const response = await request(app).post('/api/auth/login').send({ email, password: 'Wrong-password-1' });
+    assert.equal(response.status, 401);
+    assert.equal(response.body.errorCode, 'INVALID_CREDENTIALS');
+    return performance.now() - started;
+  };
+  const unknownMs = await timeLogin('nobody.registered@example.test');
+  const knownMs = await timeLogin('outsider@example.test');
+  assert.ok(unknownMs > knownMs * 0.5, `unknown email ${unknownMs.toFixed(0)} ms vs wrong password ${knownMs.toFixed(0)} ms`);
+});
