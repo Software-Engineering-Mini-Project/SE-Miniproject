@@ -1,6 +1,6 @@
 # SE-Miniproject - Task Manager
 
-Starter repository for the Task Manager application. The project uses a React + Vite frontend and a Node.js + Express API, with a MongoDB/Mongoose data layer to be added in the backend foundation work.
+Starter repository for the Task Manager application. The project uses a React frontend built with Next.js (App Router) and a Node.js + Express API, with a MongoDB/Mongoose data layer to be added in the backend foundation work.
 
 ## Prerequisites
 
@@ -11,7 +11,8 @@ Starter repository for the Task Manager application. The project uses a React + 
 
 ```text
 backend/       Express API and backend tests
-frontend/      React application and frontend tests
+frontend/      Next.js (React) application, synthetic fixtures and frontend tests
+docs/          API contract and handoff notes
 .github/       GitHub Actions workflows
 ```
 
@@ -27,6 +28,8 @@ npm ci
 
 Copy `backend/.env.example` to `backend/.env` and `frontend/.env.example` to `frontend/.env.local` if you need to override the defaults. Do not commit local `.env` files or real credentials. The starter health endpoint does not require a database yet.
 
+By default the frontend runs against an in-browser mock API seeded from `frontend/fixtures/` (`NEXT_PUBLIC_API_MODE=mock`), so the UI works without a backend. Set `NEXT_PUBLIC_API_MODE=http` to call the real API at `NEXT_PUBLIC_API_BASE_URL`. See [docs/backend-api-contract.md](docs/backend-api-contract.md).
+
 ## Run locally
 
 Start both applications from the root:
@@ -35,7 +38,7 @@ Start both applications from the root:
 npm run dev
 ```
 
-- Frontend: <http://localhost:5173>
+- Frontend: <http://localhost:3000> (use the demo account buttons to sign in to the mock API)
 - API health check: <http://localhost:4000/api/health>
 
 You can also start each application separately with `npm run dev:frontend` or `npm run dev:backend`.
@@ -48,7 +51,7 @@ npm run lint
 npm run build
 ```
 
-GitHub Actions runs install, test, lint, and frontend build checks for pull requests targeting `main` and pushes to `main`.
+GitHub Actions (`.github/workflows/node.js.yml`) runs separate **Backend** and **Frontend** jobs on Node 22 and 24 for pull requests targeting `main` and pushes to `main`: install from the lockfile, lint, tests, and the frontend production build. Suites that don't exist yet (E2E smoke) are reported as skipped, not passed.
 
 ## Contribution workflow
 
@@ -59,4 +62,5 @@ GitHub Actions runs install, test, lint, and frontend build checks for pull requ
 
 ## Current scope
 
-This commit is a development skeleton: the frontend shell and API health endpoint are placeholders for feature issues. Authentication, task and project APIs, database integration, and product UI are not implemented yet.
+- **Frontend:** sign-in/register, dashboard, projects and members, Kanban board, task details and comments, my tasks with filters, notifications, profile, and CSV export, all running on the mock API.
+- **Backend:** health endpoint only. Authentication, task and project APIs, and MongoDB integration are still to do (issue #2 onwards), following [docs/backend-api-contract.md](docs/backend-api-contract.md).
