@@ -36,7 +36,7 @@ npm run dev
 ```
 
 - Frontend: <http://localhost:5173>
-- API health check: <http://localhost:3001/api/health>
+- API health check: <http://localhost:4000/api/health>
 
 You can also start each application separately with `npm run dev:frontend` or `npm run dev:backend`.
 
