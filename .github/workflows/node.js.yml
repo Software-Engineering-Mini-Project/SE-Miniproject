@@ -41,7 +41,6 @@ jobs:
       - name: Install (from lockfile)
         run: npm ci
 
-      # Placeholder: `node --check` syntax check until ESLint is added in issue #2.
       - name: Lint
         run: npm run lint --workspace backend
 
