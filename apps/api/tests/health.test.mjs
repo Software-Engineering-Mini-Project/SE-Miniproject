@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import app from '../src/app.js';
+import { createApp } from '../src/app.js';
+
+const app = createApp({ logger: () => {} });
 
 let server;
 let baseUrl;

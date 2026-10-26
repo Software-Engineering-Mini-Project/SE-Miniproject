@@ -1,6 +1,6 @@
 # SE-Miniproject - Task Manager
 
-Starter repository for the Task Manager application. The project uses a React frontend built with Next.js (App Router) and a Node.js + Express API, with a MongoDB/Mongoose data layer to be added in the backend foundation work.
+Task Manager application built as an npm workspaces monorepo. The web app uses Next.js (App Router); the API uses Node.js, Express, and MongoDB/Mongoose.
 
 ## Prerequisites
 
@@ -10,11 +10,14 @@ Starter repository for the Task Manager application. The project uses a React fr
 ## Repository layout
 
 ```text
-backend/       Express API and backend tests
-frontend/      Next.js (React) application, synthetic fixtures and frontend tests
+apps/
+  api/         Express API, MongoDB models, seed scripts, and API tests
+  web/         Next.js app, synthetic fixtures, and web tests
 docs/          API contract and handoff notes
 .github/       GitHub Actions workflows
 ```
+
+See [context.md](context.md) for current architecture, agreed decisions, and next steps.
 
 ## Install
 
@@ -26,9 +29,9 @@ npm ci
 
 ## Configure
 
-Copy `backend/.env.example` to `backend/.env` and `frontend/.env.example` to `frontend/.env.local` if you need to override the defaults. Do not commit local `.env` files or real credentials. The starter health endpoint does not require a database yet.
+Copy `apps/api/.env.example` to `apps/api/.env` and set `MONGODB_URI` and a strong `JWT_SECRET`. Copy `apps/web/.env.example` to `apps/web/.env.local`. Do not commit local `.env` files or real credentials. The API requires a valid MongoDB connection string to start.
 
-By default the frontend runs against an in-browser mock API seeded from `frontend/fixtures/` (`NEXT_PUBLIC_API_MODE=mock`), so the UI works without a backend. Set `NEXT_PUBLIC_API_MODE=http` to call the real API at `NEXT_PUBLIC_API_BASE_URL`. See [docs/backend-api-contract.md](docs/backend-api-contract.md).
+The web app uses the real API by default (`NEXT_PUBLIC_API_MODE=http`). To load the synthetic demo without a database, set `NEXT_PUBLIC_API_MODE=mock`; the browser mock uses fixtures from `apps/web/fixtures/`. See [docs/backend-api-contract.md](docs/backend-api-contract.md).
 
 ## Run locally
 
@@ -38,10 +41,12 @@ Start both applications from the root:
 npm run dev
 ```
 
-- Frontend: <http://localhost:3000> (use the demo account buttons to sign in to the mock API)
+To load the synthetic demo accounts and fixtures into the configured MongoDB during local development, run `npm run seed --workspace @task-manager/api`. **Seeding clears the selected database collections before inserting the demo data; use a local or test database only.** Demo password: `Password123!`.
+
+- Web app: <http://localhost:3000> (in HTTP mode, sign in with a seeded account; in mock mode, use the demo account buttons)
 - API health check: <http://localhost:4000/api/health>
 
-You can also start each application separately with `npm run dev:frontend` or `npm run dev:backend`.
+You can also start each application separately with `npm run dev:web` or `npm run dev:api`.
 
 ## Verify
 
@@ -51,7 +56,11 @@ npm run lint
 npm run build
 ```
 
-GitHub Actions (`.github/workflows/node.js.yml`) runs separate **Backend** and **Frontend** jobs on Node 22 and 24 for pull requests targeting `main` and pushes to `main`: install from the lockfile, lint, tests, and the frontend production build. Suites that don't exist yet (E2E smoke) are reported as skipped, not passed.
+## CI and deployment
+
+GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs four jobs: API lint and tests on Node 22 and 24, plus Web lint, tests, and production build on Node 22 and 24.
+
+The workflow's E2E smoke step is currently a notice that E2E is not implemented; it does not run a browser test. This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
 
 ## Contribution workflow
 
@@ -62,5 +71,5 @@ GitHub Actions (`.github/workflows/node.js.yml`) runs separate **Backend** and *
 
 ## Current scope
 
-- **Frontend:** sign-in/register, dashboard, projects and members, Kanban board, task details and comments, my tasks with filters, notifications, profile, and CSV export, all running on the mock API.
-- **Backend:** health endpoint only. Authentication, task and project APIs, and MongoDB integration are still to do (issue #2 onwards), following [docs/backend-api-contract.md](docs/backend-api-contract.md).
+- **Web:** sign-in/register, dashboard, projects and members, Kanban board, task details and comments, my tasks with filters, notifications, profile, and CSV export. HTTP mode is the default; fixture-backed mock mode remains available.
+- **API:** Express/Mongoose implementation of the contract endpoints described in [docs/backend-api-contract.md](docs/backend-api-contract.md), connected through the web app's centralized API client.
