@@ -56,7 +56,7 @@ npm run lint
 npm run build
 ```
 
-End-to-end smoke test (TC-E2E-01, Playwright) against the browser mock, so no database is needed:
+End-to-end tests (Playwright) against the browser mock, so no database is needed:
 
 ```bash
 npx --workspace @task-manager/web playwright install chromium   # first time only
@@ -64,11 +64,16 @@ NEXT_PUBLIC_API_MODE=mock npm run build --workspace @task-manager/web
 NEXT_PUBLIC_API_MODE=mock npm run test:e2e --workspace @task-manager/web
 ```
 
-It starts the production build on port 3100 and walks the critical journey: register, log in as a lead, create a project, add a member, create and assign a task, move it on the board, reload, and check the assignee's notification. On failure, the screenshot, video and trace are in `apps/web/test-results/`.
+It starts the production build on port 3100 and runs two suites:
+
+- **TC-E2E-01** (`e2e/critical-journey.spec.js`) walks the critical journey: register, log in as a lead, create a project, add a member, create and assign a task, move it on the board, reload, and check the assignee's notification.
+- **TC-UX-01** (`e2e/accessibility.spec.js`) runs an axe WCAG 2.1 A/AA scan and a horizontal-overflow check on the sign-in, registration and core app pages at mobile (390 px), tablet (768 px) and desktop (1280 px) widths, and checks the skip link and the mobile navigation drawer with the keyboard. It supports, but does not replace, the manual accessibility checklist (TM-NF-004).
+
+To run them against the real API instead, start the API with a seeded local or test database and build and test without `NEXT_PUBLIC_API_MODE=mock`; the API's `CORS_ORIGIN` must include `http://localhost:3100`. On failure, the screenshot, video and trace are in `apps/web/test-results/`.
 
 ## CI and deployment
 
-GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs five jobs: API lint and tests on Node 22 and 24; Web lint, tests, and production build on Node 22 and 24; and **E2E smoke (Chromium)**, which runs the TC-E2E-01 journey against a mock-mode production build and keeps the Playwright report as a run artifact for 14 days.
+GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs five jobs: API lint and tests on Node 22 and 24; Web lint, tests, and production build on Node 22 and 24; and **E2E smoke (Chromium)**, which runs the TC-E2E-01 journey and the TC-UX-01 accessibility checks against a mock-mode production build and keeps the Playwright report as a run artifact for 14 days.
 
 This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
 
