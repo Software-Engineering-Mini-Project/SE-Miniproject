@@ -1,6 +1,6 @@
 # Task Manager project context
 
-Last updated: 2026-10-26
+Last updated: 2026-10-30
 
 This file gives contributors and coding agents the durable project context they need to continue work. The detailed endpoint contract is in [docs/backend-api-contract.md](docs/backend-api-contract.md); do not duplicate that document here.
 
@@ -54,9 +54,12 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 - The Express/Mongoose API implements authentication/profile, projects/members, tasks/search/status, comments, notifications/reminders, project summaries, CSV export, authorization, validation, and Admin write audit logging.
 - The web app's centralized API client now defaults to the real HTTP API at `http://localhost:4000/api`; opt into the browser mock with `NEXT_PUBLIC_API_MODE=mock`. All UI API calls go through `apps/web/src/lib/api/client.js`.
 - To use the real API locally, configure `apps/api/.env` with `MONGODB_URI` and a strong `JWT_SECRET`; configure `apps/web/.env.local` with `NEXT_PUBLIC_API_MODE=http` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`. Seed only a local/test database with `npm run seed --workspace @task-manager/api` (the seed clears selected collections).
-- Latest verification: workspace lint passed, API tests passed (26), Web tests passed (26), and the Web production build passed. The API integration tests use Supertest and `mongodb-memory-server`.
+- Latest integrated acceptance report: [Issue #19, `main` at `1f1c0b2`](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192). It records API tests (29/29), web tests (26/26), lint, production build, seeded local MongoDB, mock and real-API Playwright journeys, and access-boundary checks as passing.
 - The `main` workflow runs API and Web jobs on Node 22 and 24, so GitHub shows four CI checks (two workspaces × two Node versions).
-- PR [#13](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/13) is the active PR from `feature/2-backend-foundation`. Check GitHub for its current head and review state.
+- The CI workflow also runs the E2E Chromium smoke job, for five jobs total. The latest main CI run recorded in Issue #19 is [40378483982](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/40378483982), all five green.
+- Issue #4's CI and synthetic test-data work is implemented; its issue discussion requests Trisha's QA verification before closure.
+- Issue #5 task creation is implemented on `main`. Focused `TC-Task-01` API coverage is in [PR #25](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/25), which has a successful five-job CI run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680) and is awaiting review.
+- The Issues #1–#6 evidence and requirement mapping are recorded in [docs/requirements-traceability.md](docs/requirements-traceability.md). The approved SRS, SAD, STP, and a separate test register are not currently committed in this repository, so unverified formal IDs are not invented.
 
 ## Confirmed API contract choices
 
@@ -87,8 +90,9 @@ The user accepted the defaults below. Keep them consistent across API, tests, an
 
 ## Open decisions and next work
 
-- The SRS copy reviewed from the `Templates` branch is v1.0 and marked as a working baseline; Issue #2 cites v1.3. Confirm which SRS version governs later API work before implementing contract-sensitive endpoints.
 - The Admin account onboarding and role-management workflow must be agreed before deployment.
-- Smoke test the complete UI flow against a configured local MongoDB using a seeded lead/member account. CI and automated tests cover the API and UI behavior, but do not replace a browser walkthrough.
+- Obtain the approved SRS/RTM/STP documents and reconcile the working traceability register with their exact IDs and wording.
+- Have the assigned QA contributor verify Issue #4's evidence and record the sign-off before its owner closes the issue.
+- Complete manual accessibility checks listed in Issue #23; automated checks do not replace screen-reader, browser, and zoom verification.
 - Keep the browser mock available for frontend-only development; default API mode remains HTTP.
 - Keep `context.md`, README, API contract, and CI configuration current when lasting project decisions or structure changes.
