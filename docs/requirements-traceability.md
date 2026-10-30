@@ -58,7 +58,17 @@ The automated verification above supplements the existing real-API + seeded-Mong
 ## Coverage gaps and open actions
 
 - The `Templates` branch has an SRS v1.0 explicitly marked approval-pending, plus SAD/STP v1.0 that reference it; issue descriptions cite SRS v1.3. The team must identify the approved governing baseline and add its SRS/RTM/STP to the shared repository before formal mappings can be finalized.
-- No formal test ID was found for setup reproducibility or the backend/frontend foundation smoke checks. Propose these cases to the test-register owner and assign IDs there before referring to them as formal cases.
+- The existing automated checks cover setup (`npm ci`, lint, tests, build), API health/configuration/database failure, and frontend fixture/mock behavior, but the issue evidence and approved test register provide no formal IDs for these foundation checks. Proposed test-register entries: clean-checkout installation and verification; API health/configuration and failed-database startup; frontend fixture-backed initial load and error state. Assign IDs only after the approved STP/test-register owner accepts them.
 - Issue #4 is awaiting the QA verification requested from Trisha. The implementation and automated CI/E2E evidence are recorded above; the sign-off is not claimed here.
-- Issue #5's focused API test is awaiting review/merge in PR #25. Its CI run is green.
 - No confirmed defect for Issues #1–#6 was identified in the cited acceptance pass. This is not a statement about issues outside this scope.
+
+## Sprint status snapshot (2026-10-30)
+
+| Status | Issues | Evidence / next action |
+|---|---|---|
+| Completed implementation and automated evidence | #1–#3; #4 CI, fixtures and E2E; #5 task creation and focused API coverage | Closed foundation issues; fresh test results above; existing integrated acceptance report. |
+| Verification follow-up | #4 | Automated checks pass. Record Trisha's requested QA verification in the team test register before the issue owner closes it. |
+| Traceability follow-up | #6 | Issue-level evidence is documented. Confirm the approved SRS/STP baseline, reconcile full requirement mappings, and accept/assign IDs to the proposed foundation test-register entries. |
+| Defects | #1–#6 | No confirmed failure or defect surfaced in the verified suites; no bug issue was created. |
+
+The GitHub Project board still needs its owner to reflect these statuses if its fields/cards are not already current; this repository register is the reviewed evidence snapshot, not a claim that board fields were edited.
