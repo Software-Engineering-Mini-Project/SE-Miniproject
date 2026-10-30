@@ -1,0 +1,74 @@
+# Requirement traceability and test evidence: Issues #1–#6
+
+Last reviewed: 2026-10-30  
+Repository: `Software-Engineering-Mini-Project/SE-Miniproject`  
+Baseline: `main` at `1f1c0b2` (full SHA `1f1c0b2f10958b607141f5293fd706e734249b5c`)
+
+This register records what can be verified from the issue descriptions, repository tests, CI, and the integrated acceptance report. A candidate SRS/SAD/STP set exists on the `Templates` branch, but it is not an approved baseline: its SRS is v1.0 and explicitly says approval is pending, while Issues #2 and #4–#6 cite SRS v1.3. The SAD v1.0 also names SRS v1.0 as its requirements source. Until the team supplies or approves the governing SRS v1.3 and resolves this version mismatch, the register uses only IDs explicitly present in the issues or acceptance evidence and does not present candidate-document mappings as approved traceability.
+
+## Source baseline review
+
+| Source | What was verified | Status / impact |
+|---|---|---|
+| `Templates/SRS_TaskManagerApplication.docx` on `Templates` | Version 1.0; the document says approval is pending. It includes an RTM, but it is not identified as the issue-cited v1.3 baseline. | Candidate only. Do not treat its mappings or wording as approved for v1.3. |
+| `Templates/SAD_TaskManagerApplication.docx` on `Templates` | Version 1.0; names SRS v1.0 and STP v1.0 as its sources. | Candidate only; its stated baseline conflicts with issue descriptions citing SRS v1.3. |
+| `Templates/STP_TaskManagerApplication.docx` on `Templates` | Version 1.0; contains test-case definitions and a traceability section. | Candidate only until the team confirms it is the governing test plan and aligns it with the approved SRS. |
+
+The `Templates` files are not present on `main` or in this PR's base. This review records their existence and approval/version status; it does not copy or silently promote draft documents into the product baseline.
+
+## Issue traceability
+
+| Issue | Requirement / test IDs available | Evidence | Result and remaining work |
+|---|---|---|---|
+| [#1 Repository and development setup](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/1) | No functional requirement or formal test ID is specified in the issue. | [`README.md`](../README.md) documents prerequisites, install, configuration, run, lint, tests, build, and E2E commands. [Integrated acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192): clean clone and `npm ci` passed. | Closed. Setup was verified from a clean checkout in the acceptance report. Add a formal setup smoke-test ID to the approved STP/test register if the team requires one. |
+| [#2 Backend foundation](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/2) | Issue cites SRS v1.3 / SAD v1.0, but specifies no functional or test-case ID. | API tests: [`health.test.mjs`](../apps/api/tests/health.test.mjs), [`database.test.mjs`](../apps/api/tests/database.test.mjs), [`server.test.mjs`](../apps/api/tests/server.test.mjs), [`config.test.mjs`](../apps/api/tests/config.test.mjs), and [`app.test.mjs`](../apps/api/tests/app.test.mjs). CI run [40378483982](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/40378483982). | Closed. Health, configuration, database failure handling, API tests, and secret-safe logging passed the integrated acceptance pass. No formal STP test ID was found in the repository. |
+| [#3 Frontend foundation](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/3) | `TM-NF-004` is cited by the issue. No formal test-case ID is specified there. | Web tests: [`mock-api.test.mjs`](../apps/web/tests/mock-api.test.mjs) and [`fixtures.test.mjs`](../apps/web/tests/fixtures.test.mjs). Automated responsive/accessibility work is tracked in [PR #24](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/24) and identified as `TC-UX-01` in the acceptance report. | Closed. Automated checks passed. Manual keyboard, screen-reader, browser, and zoom checks are tracked separately in [Issue #23](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/23); do not treat those manual checks as completed by CI. |
+| [#4 CI and synthetic test data](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/4) | `TC-CI-01`, `TC-E2E-01` (IDs recorded in the issue discussion). | [CI workflow](../.github/workflows/node.js.yml); latest checks on PR #26's verification commit [d6f0819](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41091014861) all passed. Earlier main run [40378483982](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/40378483982) also passed all five jobs. Synthetic data is under [`apps/web/fixtures/`](../apps/web/fixtures/) and is shared by the API seed/test setup. Mock and real API + seeded MongoDB journeys are recorded in the [integrated acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192); the mock Playwright journey was also rerun locally on the #5 branch. | Implementation and automated evidence complete, including a fresh independent test run on 2026-10-30. Trisha's explicitly requested QA sign-off remains separate and is not claimed by this register. |
+| [#5 Task creation](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/5) | `TM-F-010` → `TC-Task-01` (IDs recorded in the issue). | Focused API integration test in [PR #25](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/25) verifies successful creation, returned fields, MongoDB persistence, project-list visibility, assignment notification, invalid input, and authorization. The [integrated acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192) records the UI journey against real API + MongoDB. | Feature acceptance is evidenced on `main`; focused test coverage is in PR #25 and its CI is green. Await PR review/merge before considering the test addition delivered. |
+| [#6 Requirement traceability and test evidence](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/6) | IDs above are copied from issue/evidence sources; no IDs are assigned by this document. | This register, the linked source tests, CI runs, PRs, the [integrated acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192), and the candidate-document review above. | Issue-level traceability and available test evidence are recorded. Full SRS-to-test-case reconciliation is blocked on the team confirming/providing the approved SRS v1.3 and governing STP/RTM. Trisha's #4 QA sign-off is also pending. |
+
+## Recorded test outcomes
+
+| Test / check | Result | Evidence |
+|---|---|---|
+| `TC-E2E-01`, mock API | Pass | Local and CI acceptance evidence in [Issue #19](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192); CI run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680). |
+| `TC-E2E-01`, real API + seeded MongoDB | Pass | Register, project creation, member addition, task assignment, status movement, reload, and notification verified in [Issue #19](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192). |
+| `TC-CI-01` | Pass | Five CI jobs passed in main run [40378483982](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/40378483982) and PR run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680). |
+| `TC-Task-01` API creation coverage | Pass | API suite passed 30/30 locally; focused test is in [PR #25](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/25), whose CI run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680) passed. |
+| API unit/integration suite | Pass, 29/29 on baseline | [Issue #19 acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192); PR #25 adds one focused test and its suite passed 30/30. |
+| Web unit/contract suite | Pass, 26/26 | [Issue #19 acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192) and PR #25 CI run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680). |
+| Lint and web production build | Pass | Main CI run [40378483982](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/40378483982) and PR #25 CI run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680). |
+| `TC-UX-01` automated responsive/accessibility checks | Pass after fixes | [PR #24](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/24) and the [Issue #19 acceptance report](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192). Manual accessibility checks remain distinct. |
+
+## Independent verification run (2026-10-30)
+
+These checks were rerun while taking over the implementation/QA tasks. The #6 documentation changes do not alter application code.
+
+| Scope / ref | Check | Result |
+|---|---|---|
+| Traceability branch `docs/4-6-requirements-traceability` | `npm test` | Pass: API 29/29; Web 26/26. |
+| Traceability branch `docs/4-6-requirements-traceability` | `npm run lint`, `npm run build`, `git diff --check` | Pass. |
+| Task-creation branch `feature/5-task-creation-pr` at `3a58be0` | API test suite | Pass: 30/30, including the focused `TC-Task-01` persistence, validation, and authorization test. |
+| Task-creation branch `feature/5-task-creation-pr` | API lint | Pass. |
+| Task-creation branch, mock API mode | `TC-E2E-01` Playwright critical journey | Pass: 1/1; register/login, create project/member/task, move task, reload, and verify notification. |
+| PR #26 head `d6f0819d88b219fbca11be518f3df65d92f98203` | GitHub Actions CI run [41091014861](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41091014861) | Pass: API Node 22/24, Web Node 22/24, and Chromium E2E (5/5). |
+
+The automated verification above supplements the existing real-API + seeded-MongoDB acceptance evidence in [Issue #19](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192). It is not represented as Trisha's personal QA sign-off.
+
+## Coverage gaps and open actions
+
+- The `Templates` branch has an SRS v1.0 explicitly marked approval-pending, plus SAD/STP v1.0 that reference it; issue descriptions cite SRS v1.3. The team must identify the approved governing baseline and add its SRS/RTM/STP to the shared repository before formal mappings can be finalized.
+- The existing automated checks cover setup (`npm ci`, lint, tests, build), API health/configuration/database failure, and frontend fixture/mock behavior, but the issue evidence and approved test register provide no formal IDs for these foundation checks. Proposed test-register entries: clean-checkout installation and verification; API health/configuration and failed-database startup; frontend fixture-backed initial load and error state. Assign IDs only after the approved STP/test-register owner accepts them.
+- Issue #4 is awaiting the QA verification requested from Trisha. The implementation and automated CI/E2E evidence are recorded above; the sign-off is not claimed here.
+- No confirmed defect for Issues #1–#6 was identified in the cited acceptance pass. This is not a statement about issues outside this scope.
+
+## Sprint status snapshot (2026-10-30)
+
+| Status | Issues | Evidence / next action |
+|---|---|---|
+| Completed implementation and automated evidence | #1–#3; #4 CI, fixtures and E2E; #5 task creation and focused API coverage | Closed foundation issues; fresh test results above; existing integrated acceptance report. |
+| Verification follow-up | #4 | Automated checks pass. Record Trisha's requested QA verification in the team test register before the issue owner closes it. |
+| Traceability follow-up | #6 | Issue-level evidence is documented. Confirm the approved SRS/STP baseline, reconcile full requirement mappings, and accept/assign IDs to the proposed foundation test-register entries. |
+| Defects | #1–#6 | No confirmed failure or defect surfaced in the verified suites; no bug issue was created. |
+
+The GitHub Project board still needs its owner to reflect these statuses if its fields/cards are not already current; this repository register is the reviewed evidence snapshot, not a claim that board fields were edited.
