@@ -58,7 +58,7 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 - To use the real API locally, configure `apps/api/.env` with `MONGODB_URI` and a strong `JWT_SECRET`; configure `apps/web/.env.local` with `NEXT_PUBLIC_API_MODE=http` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`. Seed only a local/test database with `npm run seed --workspace @task-manager/api` (the seed clears selected collections).
 - Latest verification on `test/ui-feature-unit-coverage`: API tests passed (29), web fixture/mock API tests passed (26), web component tests passed (22), workspace lint passed, and the Web production build passed. The UI V8 report showed 49.65% statements / 51.67% lines across the included UI source files; substantial untested paths remain, especially project view and shell/UI components.
 - The `main` workflow runs API and Web jobs on Node 22 and 24, so GitHub shows four CI checks (two workspaces × two Node versions).
-- PRs #24 (accessibility), #25 (API task-creation test), and #26 (documentation) were open when this update began. The UI test work is on a dedicated branch so it does not mix with those PR scopes; check GitHub for current review and merge state.
+- PRs #24 (accessibility), #25 (API task-creation test), #26 (documentation), and #28 (UI component unit coverage) were open when this update was written. PR #28 is from `test/ui-feature-unit-coverage`; check GitHub for current review and merge state.
 
 ## Confirmed API contract choices
 
