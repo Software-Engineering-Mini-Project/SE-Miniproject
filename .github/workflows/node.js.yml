@@ -100,7 +100,7 @@ jobs:
       - name: Production build (mock API)
         run: npm run build --workspace @task-manager/web
 
-      - name: TC-E2E-01 critical journey
+      - name: TC-E2E-01 critical journey and TC-UX-01 accessibility
         run: npm run test:e2e --workspace @task-manager/web
 
       # TC-CI-01: keep the report on every run; screenshots, video and trace are added on failure.
