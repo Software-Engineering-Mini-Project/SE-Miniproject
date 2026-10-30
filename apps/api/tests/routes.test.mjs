@@ -283,6 +283,123 @@ test('task, search, status, comment, summary, CSV, and reminder endpoints intero
   assert.equal(await Notification.findOne({ taskId }), null);
 });
 
+test('TC-Task-02 edits task fields, persists changes, and enforces manager authorization', async (t) => {
+  const created = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(leadToken))
+    .send({ title: 'TC-Task-02 editable task', description: 'Before edit.' });
+  assert.equal(created.status, 201, created.text);
+  const taskId = created.body.id;
+  t.after(async () => {
+    await Notification.deleteMany({ taskId });
+    await Task.deleteOne({ _id: taskId });
+  });
+
+  const invalidTitle = await request(app)
+    .patch(`/api/tasks/${taskId}`)
+    .set(auth(leadToken))
+    .send({ title: '   ' });
+  assert.equal(invalidTitle.status, 400);
+  assert.equal(invalidTitle.body.errorCode, 'VALIDATION_ERROR');
+  assert.equal(invalidTitle.body.fields.title, 'Title is required.');
+
+  const invalidDate = await request(app)
+    .patch(`/api/tasks/${taskId}`)
+    .set(auth(leadToken))
+    .send({ dueDate: '2026-02-30' });
+  assert.equal(invalidDate.status, 400);
+  assert.equal(invalidDate.body.errorCode, 'VALIDATION_ERROR');
+
+  const memberEdit = await request(app)
+    .patch(`/api/tasks/${taskId}`)
+    .set(auth(memberToken))
+    .send({ title: 'Member cannot edit task fields.' });
+  assert.equal(memberEdit.status, 403);
+  assert.equal(memberEdit.body.errorCode, 'FORBIDDEN');
+
+  const outsiderEdit = await request(app)
+    .patch(`/api/tasks/${taskId}`)
+    .set(auth(outsiderToken))
+    .send({ title: 'Outsider cannot edit task fields.' });
+  assert.equal(outsiderEdit.status, 403);
+
+  const edited = await request(app)
+    .patch(`/api/tasks/${taskId}`)
+    .set(auth(leadToken))
+    .send({
+      title: 'TC-Task-02 edited task',
+      description: 'After edit.',
+      dueDate: '2026-11-15',
+      priority: 'High',
+      assigneeIds: ['user-member-001'],
+    });
+  assert.equal(edited.status, 200, edited.text);
+  assert.deepEqual({
+    title: edited.body.title,
+    description: edited.body.description,
+    dueDate: edited.body.dueDate,
+    priority: edited.body.priority,
+    status: edited.body.status,
+    assigneeIds: edited.body.assigneeIds,
+  }, {
+    title: 'TC-Task-02 edited task',
+    description: 'After edit.',
+    dueDate: '2026-11-15',
+    priority: 'High',
+    status: 'To Do',
+    assigneeIds: ['user-member-001'],
+  });
+
+  const persisted = await request(app).get(`/api/tasks/${taskId}`).set(auth(memberToken));
+  assert.equal(persisted.status, 200, persisted.text);
+  assert.equal(persisted.body.title, 'TC-Task-02 edited task');
+  assert.equal(persisted.body.description, 'After edit.');
+});
+
+test('TC-Task-03 updates status for project members and rejects invalid or unauthorized changes', async (t) => {
+  const created = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(leadToken))
+    .send({ title: 'TC-Task-03 status task' });
+  assert.equal(created.status, 201, created.text);
+  const taskId = created.body.id;
+  t.after(async () => {
+    await Notification.deleteMany({ taskId });
+    await Task.deleteOne({ _id: taskId });
+  });
+
+  const unauthenticated = await request(app).patch(`/api/tasks/${taskId}/status`).send({ status: 'In Progress' });
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(unauthenticated.body.errorCode, 'UNAUTHENTICATED');
+
+  const invalid = await request(app)
+    .patch(`/api/tasks/${taskId}/status`)
+    .set(auth(memberToken))
+    .send({ status: 'Doing' });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.errorCode, 'VALIDATION_ERROR');
+  assert.equal(invalid.body.fields.status, 'Choose To Do, In Progress, Done.');
+
+  const outsider = await request(app)
+    .patch(`/api/tasks/${taskId}/status`)
+    .set(auth(outsiderToken))
+    .send({ status: 'In Progress' });
+  assert.equal(outsider.status, 403);
+  assert.equal(outsider.body.errorCode, 'FORBIDDEN');
+
+  const updated = await request(app)
+    .patch(`/api/tasks/${taskId}/status`)
+    .set(auth(memberToken))
+    .send({ status: 'In Progress' });
+  assert.equal(updated.status, 200, updated.text);
+  assert.equal(updated.body.taskId, taskId);
+  assert.equal(updated.body.status, 'In Progress');
+
+  const persisted = await request(app).get(`/api/tasks/${taskId}`).set(auth(leadToken));
+  assert.equal(persisted.status, 200, persisted.text);
+  assert.equal(persisted.body.status, 'In Progress');
+});
+
 test('admin writes are audit-logged without request secrets or bodies', async () => {
   logRecords.length = 0;
   const response = await request(app)
