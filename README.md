@@ -56,6 +56,14 @@ npm run lint
 npm run build
 ```
 
+The web test command includes Node-based fixture/mock API tests and React component tests written in `.mjs` with Vitest and Testing Library. To generate a local V8 coverage report for the UI components, run:
+
+```bash
+npm run test:coverage --workspace @task-manager/web
+```
+
+The HTML report is written to `apps/web/coverage/` (ignored by Git).
+
 End-to-end smoke test (TC-E2E-01, Playwright) against the browser mock, so no database is needed:
 
 ```bash
