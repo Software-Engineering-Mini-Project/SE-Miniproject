@@ -28,10 +28,10 @@ function Stat({ label, value, tone, hint }) {
   return (
     <div className="stat" data-tone={tone}>
       <dt>{label}</dt>
-      <dd className="tabular">
+      <dd className="stat-value tabular">
         <NumberFlow value={value} />
       </dd>
-      {hint ? <p className="stat-hint">{hint}</p> : null}
+      {hint ? <dd className="stat-hint">{hint}</dd> : null}
     </div>
   );
 }
