@@ -91,7 +91,7 @@ The user accepted the defaults below. Keep them consistent across API, tests, an
 ## Open decisions and next work
 
 - The Admin account onboarding and role-management workflow must be agreed before deployment.
-- Obtain the approved SRS/RTM/STP documents and reconcile the working traceability register with their exact IDs and wording.
+- Resolve the source-document version mismatch before finalizing formal RTM mappings: `Templates` contains an approval-pending SRS v1.0, while Issues #2 and #4–#6 cite SRS v1.3; its SAD/STP v1.0 reference that SRS v1.0 candidate.
 - Have the assigned QA contributor verify Issue #4's evidence and record the sign-off before its owner closes the issue.
 - Complete manual accessibility checks listed in Issue #23; automated checks do not replace screen-reader, browser, and zoom verification.
 - Keep the browser mock available for frontend-only development; default API mode remains HTTP.
