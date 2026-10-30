@@ -101,10 +101,12 @@ function SidebarContent({ onNavigate }) {
       <div className="sidebar-footer">
         <Menu
           align="start"
-          trigger={<button type="button" className="user-card" aria-label="Account menu" />}
+          trigger={<button type="button" className="user-card" />}
           triggerContent={
             <>
-              <Avatar user={user} />
+              {/* Named by its visible text (WCAG 2.5.3), so screen readers also hear who is signed in. */}
+              <span className="visually-hidden">Account menu: </span>
+              <Avatar user={user} decorative />
               <span className="user-card-text">
                 <span className="user-card-name">{user?.name}</span>
                 <span className="user-card-role">{user?.role}</span>
