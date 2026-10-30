@@ -1,4 +1,7 @@
 .board {
+  /* Contain absolutely positioned children (visually hidden labels), so they scroll with the
+     board on narrow screens instead of widening the page. */
+  position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(260px, 1fr));
   gap: 14px;
