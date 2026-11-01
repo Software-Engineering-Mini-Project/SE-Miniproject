@@ -1,0 +1,59 @@
+name: CI - ${{ github.event_name }}
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_API_MODE: mock
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Lint API and web
+        run: npm run lint
+
+      - name: Run API and web unit and contract tests
+        run: npm test
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Install Chromium for Playwright
+        run: npx --workspace @task-manager/web playwright install --with-deps chromium
+
+      - name: Run all browser end-to-end tests
+        run: npm run test:e2e --workspace @task-manager/web
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.event_name }}
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 14
