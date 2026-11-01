@@ -8,8 +8,10 @@
     "dev:api": "npm --workspace @task-manager/api run dev",
     "dev:web": "npm --workspace @task-manager/web run dev",
     "build": "npm --workspace @task-manager/web run build",
-    "test": "npm --workspace @task-manager/api test && npm --workspace @task-manager/web test",
-    "lint": "npm --workspace @task-manager/api run lint && npm --workspace @task-manager/web run lint"
+    "test": "npm run test:deploy && npm --workspace @task-manager/api test && npm --workspace @task-manager/web test",
+    "test:deploy": "node --test scripts/deploy-staging.test.mjs",
+    "lint": "npm --workspace @task-manager/api run lint && npm --workspace @task-manager/web run lint && npm run lint:deploy",
+    "lint:deploy": "eslint --config apps/api/eslint.config.js scripts"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
