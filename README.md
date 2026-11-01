@@ -83,3 +83,5 @@ This repository has **CI configured, but no continuous deployment (CD) workflow*
 
 - **Web:** sign-in/register, dashboard, projects and members, Kanban board, task details and comments, my tasks with filters, notifications, profile, and CSV export. HTTP mode is the default; fixture-backed mock mode remains available.
 - **API:** Express/Mongoose implementation of the contract endpoints described in [docs/backend-api-contract.md](docs/backend-api-contract.md), connected through the web app's centralized API client.
+
+Admin onboarding and recovery are pending owner approval; see [the proposal](docs/admin-onboarding-proposal.md).
