@@ -52,3 +52,12 @@ npm test
 ```
 
 The deployment script has injectable fetch, clock, and wait functions so its gating, hook calls, exact SHA, queued/in-progress/live/failed deployment handling, health responses, and failure handling can be tested without contacting Render.
+
+## Teammate setup and access
+
+- Local developers: copy `apps/api/.env.example` to `apps/api/.env` and `apps/web/.env.example` to `apps/web/.env.local`. Set a unique local `JWT_SECRET` (at least 32 characters). Use a disposable database, especially before running the destructive seed script. Browser mock mode needs no database.
+- Staging operators: `.env.staging.example` is a **names-only reference**, not a file loaded by GitHub Actions or Render. Configure values in the appropriate dashboard. The `NEXT_PUBLIC_` web values are public and baked into the frontend at build time; rebuild and redeploy after changing them. Never put credentials in them.
+- Use an Atlas database account limited to the staging database and staging cluster. Add the Render API service's current outbound CIDR ranges from its Connect > Outbound tab to the Atlas IP access list. Those ranges are shared by Render services in the region, so database credentials and least-privilege roles remain essential. Verify the list in Render rather than hard-coding it; do not open access to all IP addresses.
+- Render API keys are sensitive and may have broad access. Use a scoped, read-only key if available for deployment-status reads; otherwise have the workspace owner review the key's effective permissions before using it. Never commit or send the key, deploy-hook URLs, MongoDB URI, or passwords in chat.
+- The two free web services share the workspace's free instance-hour and bandwidth allowances. Monitor usage and service sleep behavior; see [Render's free service limits](https://render.com/docs/free). Do not add a paid plan or billing details as part of routine setup.
+- Each teammate should receive only the access needed for their role through the provider's normal invitation controls. Do not share accounts or paste secrets into issues or PRs.

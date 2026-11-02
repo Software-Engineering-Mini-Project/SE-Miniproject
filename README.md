@@ -80,9 +80,9 @@ To run against the real API, start the API with a seeded local or test database 
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on branch pushes and pull requests targeting `main`. Its single verification job installs from the lockfile, runs API and web lint and tests, builds the web app, and runs all Playwright end-to-end tests on Node 22. It uploads the Playwright report and test results for 14 days.
 
-This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
+An opt-in staging workflow is configured in `.github/workflows/deploy-staging.yml`. It deploys only after successful CI on `main` when the GitHub staging environment is configured and enabled. See [the staging setup guide](docs/staging-deployment.md) and [configuration template](.env.staging.example).
 
-The proposed staging target is documented in [docs/staging-target-decision.md](docs/staging-target-decision.md). It remains a team proposal until reviewed and accepted; no provider services or credentials have been provisioned.
+The Render and MongoDB Atlas staging approach is documented in [docs/staging-target-decision.md](docs/staging-target-decision.md). Provisioning and successful deployment must be verified separately.
 
 ## Contribution workflow
 
