@@ -1,6 +1,5 @@
 import bcrypt from 'bcryptjs';
 import { createHmac } from 'node:crypto';
-import { isIP } from 'node:net';
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { LoginAttempt, User } from '../models/index.js';
@@ -23,9 +22,9 @@ const FAILED_LOGIN_WINDOW_MS = 60_000;
 const UNKNOWN_USER_HASH = bcrypt.hashSync('unknown-user-timing-equalizer', 12);
 
 function clientIp(request) {
-  const forwardedIp = request.get('x-forwarded-for')?.split(',')[0]?.trim();
-  if (forwardedIp && isIP(forwardedIp)) return forwardedIp;
-  return request.socket?.remoteAddress || 'unknown';
+  // Express derives `ip` from X-Forwarded-For only when the socket peer is in
+  // the explicitly trusted proxy ranges configured in createApp().
+  return request.ip || request.socket?.remoteAddress || 'unknown';
 }
 
 function limiterKeys(email, ip, secret) {
@@ -65,13 +64,13 @@ async function recordFailedLogin(key, timestamp) {
     try {
       await LoginAttempt.updateOne(
         { _id: key },
-        { $inc: { attempts: 1 }, $set: { expiresAt }, $setOnInsert: { windowStartedAt: timestamp } },
+        { $inc: { attempts: 1 }, $setOnInsert: { windowStartedAt: timestamp, expiresAt } },
         { upsert: true },
       );
     } catch (error) {
       // Another replica may insert the same bucket between the upsert check and write.
       if (error?.code !== 11000) throw error;
-      await LoginAttempt.updateOne({ _id: key }, { $inc: { attempts: 1 }, $set: { expiresAt } });
+      await LoginAttempt.updateOne({ _id: key }, { $inc: { attempts: 1 } });
     }
   } catch {
     throw new HttpError(503, 'AUTH_RATE_LIMIT_UNAVAILABLE', 'Sign-in is temporarily unavailable. Try again.');
