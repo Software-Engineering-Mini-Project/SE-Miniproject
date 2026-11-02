@@ -17,7 +17,7 @@ docs/          API contract and handoff notes
 .github/       GitHub Actions workflows
 ```
 
-See [context.md](context.md) for current architecture, agreed decisions, and next steps.
+See [context.md](context.md) for current architecture, agreed decisions, and next steps. The working [requirements traceability and test evidence register](docs/requirements-traceability.md) records evidence for Issues #1–#6.
 
 ## Install
 

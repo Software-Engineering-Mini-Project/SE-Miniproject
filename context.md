@@ -56,9 +56,11 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 - The Express/Mongoose API implements authentication/profile, projects/members, tasks/search/status, comments, notifications/reminders, project summaries, CSV export, authorization, validation, and Admin write audit logging.
 - The web app's centralized API client now defaults to the real HTTP API at `http://localhost:4000/api`; opt into the browser mock with `NEXT_PUBLIC_API_MODE=mock`. All UI API calls go through `apps/web/src/lib/api/client.js`.
 - To use the real API locally, configure `apps/api/.env` with `MONGODB_URI` and a strong `JWT_SECRET`; configure `apps/web/.env.local` with `NEXT_PUBLIC_API_MODE=http` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`. Seed only a local/test database with `npm run seed --workspace @task-manager/api` (the seed clears selected collections).
-- Latest verification on `test/ui-feature-unit-coverage`: API tests passed (29), web fixture/mock API tests passed (26), web component tests passed (22), workspace lint passed, and the Web production build passed. The UI V8 report showed 49.65% statements / 51.67% lines across the included UI source files; substantial untested paths remain, especially project view and shell/UI components.
-- The `main` workflow runs API and Web jobs on Node 22 and 24, so GitHub shows four CI checks (two workspaces × two Node versions).
-- PRs #24 (accessibility), #25 (API task-creation test), #26 (documentation), and #28 (UI component unit coverage) were open when this update was written. PR #28 is from `test/ui-feature-unit-coverage`; check GitHub for current review and merge state.
+- Earlier integrated acceptance evidence is recorded in [Issue #19](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192) for baseline `1f1c0b2`; later changes require their own verification.
+- CI uses `.github/workflows/ci.yml`: one verification job for each push or pull request event, covering lint, tests, build and Chromium E2E. A branch with an open PR can therefore have a push check and a PR check.
+- UI component coverage was added in PR #28; its historical V8 report recorded 49.65% statements and 51.67% lines across the included UI sources, with uncovered paths remaining.
+- Issue #4's CI and synthetic data work is implemented; the requested QA sign-off remains separate.
+- Issue #5 and its focused task-creation test in PR #25 are merged. The Issues #1–#6 evidence register is [docs/requirements-traceability.md](docs/requirements-traceability.md); formal traceability remains subject to confirmation of the governing source documents.
 
 ## Confirmed API contract choices
 
@@ -89,8 +91,9 @@ The user accepted the defaults below. Keep them consistent across API, tests, an
 
 ## Open decisions and next work
 
-- The SRS copy reviewed from the `Templates` branch is v1.0 and marked as a working baseline; Issue #2 cites v1.3. Confirm which SRS version governs later API work before implementing contract-sensitive endpoints.
 - The Admin account onboarding and role-management workflow must be agreed before deployment.
-- Smoke test the complete UI flow against a configured local MongoDB using a seeded lead/member account. CI and automated tests cover the API and UI behavior, but do not replace a browser walkthrough.
+- Resolve the source-document version mismatch before finalizing formal RTM mappings: `Templates` contains an approval-pending SRS v1.0, while Issues #2 and #4–#6 cite SRS v1.3; its SAD/STP v1.0 reference that SRS v1.0 candidate.
+- Have the assigned QA contributor verify Issue #4's evidence and record the sign-off before its owner closes the issue.
+- Complete manual accessibility checks listed in Issue #23; automated checks do not replace screen-reader, browser, and zoom verification.
 - Keep the browser mock available for frontend-only development; default API mode remains HTTP.
 - Keep `context.md`, README, API contract, and CI configuration current when lasting project decisions or structure changes.
