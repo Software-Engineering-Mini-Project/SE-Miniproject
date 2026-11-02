@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: task-manager-api-staging
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    autoDeployTrigger: off
+    buildCommand: npm ci
+    startCommand: npm run start --workspace @task-manager/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: '7200'
+      - key: CORS_ORIGIN
+        sync: false
+
+  - type: web
+    name: task-manager-web-staging
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    autoDeployTrigger: off
+    buildCommand: npm ci && npm run build --workspace @task-manager/web
+    startCommand: npm run start --workspace @task-manager/web
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: NEXT_TELEMETRY_DISABLED
+        value: '1'
+      - key: NEXT_PUBLIC_API_MODE
+        value: http
+      - key: NEXT_PUBLIC_API_BASE_URL
+        sync: false
