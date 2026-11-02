@@ -34,6 +34,9 @@
 
 .stat dd {
   margin: 0;
+}
+
+.stat-value {
   font-size: clamp(2rem, 3.4vw, 2.75rem);
   font-weight: 700;
   line-height: 1.05;
@@ -45,15 +48,15 @@
 }
 
 .stat[data-tone='danger'] dt,
-.stat[data-tone='danger'] dd {
+.stat[data-tone='danger'] .stat-value {
   color: var(--danger);
 }
 
-.stat[data-tone='warn'] dd {
+.stat[data-tone='warn'] .stat-value {
   color: var(--status-progress);
 }
 
-.stat[data-tone='good'] dd {
+.stat[data-tone='good'] .stat-value {
   color: var(--status-done);
 }
 

@@ -208,10 +208,14 @@ export function ProjectView({ projectId }) {
           {p.description ? <p className="page-description">{p.description}</p> : null}
         </div>
         <div className="page-actions">
-          <button type="button" className="members-button" onClick={() => setMembersOpen(true)} aria-label={`Members: ${p.members.length}`}>
-            <AvatarStack users={p.members} max={4} />
+          {/* Named by its content, not aria-label, so the visible initials need not be in the name (WCAG 2.5.3). */}
+          <button type="button" className="members-button" onClick={() => setMembersOpen(true)}>
+            <AvatarStack users={p.members} max={4} decorative />
             <Users size={15} aria-hidden="true" />
-            <span className="tabular">{p.members.length}</span>
+            <span className="tabular" aria-hidden="true">
+              {p.members.length}
+            </span>
+            <span className="visually-hidden">Members: {p.members.length}</span>
           </button>
           <Button onClick={handleExport} loading={exporting}>
             <Download size={16} /> Export CSV

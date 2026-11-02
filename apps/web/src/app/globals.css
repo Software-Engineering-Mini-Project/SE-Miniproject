@@ -19,7 +19,7 @@
   /* Ink */
   --ink: #15161a;
   --ink-2: #464952;
-  --ink-3: #6a6e77;
+  --ink-3: #5f636c; /* 4.5:1 or better on --bg, --surface, --surface-2 and --surface-3 */
   --ink-inverse: #ffffff;
 
   /* One accent, used for primary actions and focus */

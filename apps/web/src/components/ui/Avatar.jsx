@@ -17,22 +17,26 @@ function colourFor(seed = '') {
   return PALETTE[hash % PALETTE.length];
 }
 
-export function Avatar({ user, size = 'md', title }) {
+export function Avatar({ user, size = 'md', title, decorative = false }) {
   const [bg, ink] = colourFor(user?.id || user?.name);
   const label = title ?? user?.name ?? 'Unknown user';
+  const a11y = decorative ? { 'aria-hidden': true } : { title: label, 'aria-label': label, role: 'img' };
   return (
-    <span className="avatar" data-size={size} style={{ '--avatar-bg': bg, '--avatar-ink': ink }} title={label} aria-label={label} role="img">
+    <span className="avatar" data-size={size} style={{ '--avatar-bg': bg, '--avatar-ink': ink }} {...a11y}>
       {initials(user?.name)}
     </span>
   );
 }
 
-export function AvatarStack({ users = [], max = 3, size = 'sm' }) {
+// `decorative`: hide from assistive tech when the surrounding control already has a label
+// (its visible initials would otherwise not match that label, WCAG 2.5.3).
+export function AvatarStack({ users = [], max = 3, size = 'sm', decorative = false }) {
   const shown = users.slice(0, max);
   const extra = users.length - shown.length;
   if (users.length === 0) return null;
+  const a11y = decorative ? { 'aria-hidden': true } : { 'aria-label': users.map((u) => u.name).join(', '), role: 'group' };
   return (
-    <span className="avatar-stack" aria-label={users.map((u) => u.name).join(', ')} role="group">
+    <span className="avatar-stack" {...a11y}>
       {shown.map((user) => (
         <Avatar key={user.id} user={user} size={size} />
       ))}

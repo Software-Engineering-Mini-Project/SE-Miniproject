@@ -44,6 +44,8 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 
 - Both workspaces use ESM (`"type": "module"`). Existing source modules use `.js` (and the web app also uses `.jsx`).
 - All test files use `.test.mjs`; use `.mjs` for new Node test helpers as well. The API uses Node's built-in `node:test`, Supertest, and `mongodb-memory-server`.
+- The web tests include Node-based fixture/mock API tests and Vitest + React Testing Library component tests under `apps/web/tests/ui/`. `npm test` runs both web suites; `npm run test:coverage --workspace @task-manager/web` generates a local V8 coverage report.
+- UI component tests mock Next navigation and the API boundary. Cover important user actions, permissions, validation, and error handling; do not treat aggregate coverage as full feature verification.
 - Keep fixture data synthetic (`example.test`). API seeding reads fixtures from `apps/web/fixtures/` and hashes the demo password.
 - Use the workspace names in scripts and CI; update root scripts, CI, documentation, imports, and links whenever app paths or workspace names change.
 - The user requested unit tests and their execution. Run the relevant tests and fix failures when implementing backend phases.
@@ -54,12 +56,11 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 - The Express/Mongoose API implements authentication/profile, projects/members, tasks/search/status, comments, notifications/reminders, project summaries, CSV export, authorization, validation, and Admin write audit logging.
 - The web app's centralized API client now defaults to the real HTTP API at `http://localhost:4000/api`; opt into the browser mock with `NEXT_PUBLIC_API_MODE=mock`. All UI API calls go through `apps/web/src/lib/api/client.js`.
 - To use the real API locally, configure `apps/api/.env` with `MONGODB_URI` and a strong `JWT_SECRET`; configure `apps/web/.env.local` with `NEXT_PUBLIC_API_MODE=http` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`. Seed only a local/test database with `npm run seed --workspace @task-manager/api` (the seed clears selected collections).
-- Latest integrated acceptance report: [Issue #19, `main` at `1f1c0b2`](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192). It records API tests (29/29), web tests (26/26), lint, production build, seeded local MongoDB, mock and real-API Playwright journeys, and access-boundary checks as passing.
-- The `main` workflow runs API and Web jobs on Node 22 and 24, so GitHub shows four CI checks (two workspaces × two Node versions).
-- The CI workflow also runs the E2E Chromium smoke job, for five jobs total. The latest main CI run recorded in Issue #19 is [40378483982](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/40378483982), all five green.
-- Issue #4's CI and synthetic test-data work is implemented; its issue discussion requests Trisha's QA verification before closure.
-- Issue #5 task creation is implemented on `main`. Focused `TC-Task-01` API coverage is in [PR #25](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/25), which has a successful five-job CI run [41082128680](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41082128680) and is awaiting review.
-- The Issues #1–#6 evidence and requirement mapping are recorded in [docs/requirements-traceability.md](docs/requirements-traceability.md). The approved SRS, SAD, STP, and a separate test register are not currently committed in this repository, so unverified formal IDs are not invented.
+- Earlier integrated acceptance evidence is recorded in [Issue #19](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19#issuecomment-6521151192) for baseline `1f1c0b2`; later changes require their own verification.
+- CI uses `.github/workflows/ci.yml`: one verification job for each push or pull request event, covering lint, tests, build and Chromium E2E. A branch with an open PR can therefore have a push check and a PR check.
+- UI component coverage was added in PR #28; its historical V8 report recorded 49.65% statements and 51.67% lines across the included UI sources, with uncovered paths remaining.
+- Issue #4's CI and synthetic data work is implemented; the requested QA sign-off remains separate.
+- Issue #5 and its focused task-creation test in PR #25 are merged. The Issues #1–#6 evidence register is [docs/requirements-traceability.md](docs/requirements-traceability.md); formal traceability remains subject to confirmation of the governing source documents.
 
 ## Confirmed API contract choices
 
