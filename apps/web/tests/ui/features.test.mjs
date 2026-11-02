@@ -16,7 +16,7 @@ const state = vi.hoisted(() => {
       users: { updateMe: fn() },
       members: { add: fn(), remove: fn() },
       tasks: { search: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
-      comments: { list: fn(), create: fn() },
+      comments: { list: fn(), create: fn(), remove: fn() },
       notifications: { list: fn(), markRead: fn() },
       projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn() },
     },
@@ -424,6 +424,21 @@ describe('comments and notifications', () => {
     await waitFor(() => expect(state.api.comments.create).toHaveBeenCalledWith(task.id, created.text));
     expect(query.setData).toHaveBeenCalledWith(expect.any(Function));
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('lets a project lead confirm deletion of a comment and updates the list', async () => {
+    const user = userEvent.setup();
+    const existing = { id: 'comment-1', text: 'Remove this note', authorId: member.id, author: member, createdAt: '2026-10-30T12:00:00.000Z' };
+    const query = setupQuery(`comments:${task.id}`, [existing], { setData: vi.fn() });
+    state.api.comments.remove.mockResolvedValue(undefined);
+    render(h(CommentThread, { taskId: task.id }));
+
+    await user.click(screen.getByRole('button', { name: 'Delete comment by Mina Member' }));
+    expect(screen.getByRole('dialog', { name: 'Delete comment?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete comment', exact: true }));
+
+    await waitFor(() => expect(state.api.comments.remove).toHaveBeenCalledWith(task.id, existing.id));
+    expect(query.setData).toHaveBeenCalledWith(expect.any(Function));
   });
 
   it('filters notifications to unread items and marks unread notifications read', async () => {

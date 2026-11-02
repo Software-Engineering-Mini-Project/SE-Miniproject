@@ -249,6 +249,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 |---|---|---|---|---|
 | `GET /tasks/:taskId/comments` | member | | `200 Comment[]`, **oldest first**, each with `author` (D6) | `403`, `404` |
 | `POST /tasks/:taskId/comments` | member | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
+| `DELETE /tasks/:taskId/comments/:commentId` | comment author, project Lead, or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
 
 Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip or HTML-encode it on the way in. The frontend renders it as plain text, so it can't run. The fixture comment `comment-004` covers this case.
 

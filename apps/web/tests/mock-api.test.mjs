@@ -180,6 +180,11 @@ test('TC-COMM-01 comments persist with author; empty, oversized and outsider req
   assertEnvelope(call('POST', '/tasks/task-002/comments', { token: member, body: { text: '   ' } }), 400, 'VALIDATION_ERROR');
   assertEnvelope(call('POST', '/tasks/task-002/comments', { token: member, body: { text: 'x'.repeat(1001) } }), 400, 'VALIDATION_ERROR');
   assertEnvelope(call('POST', '/tasks/task-002/comments', { token: login('outsider@example.test'), body: { text: 'hi' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('DELETE', '/tasks/task-002/comments/comment-001', { token: member }), 403, 'FORBIDDEN');
+  assertEnvelope(call('DELETE', `/tasks/task-001/comments/${posted.data.id}`, { token: member }), 404, 'NOT_FOUND');
+  assert.equal(call('DELETE', `/tasks/task-002/comments/${posted.data.id}`, { token: member }).status, 204);
+  const lead = login('lead@example.test');
+  assert.equal(call('DELETE', '/tasks/task-002/comments/comment-001', { token: lead }).status, 204);
 });
 
 test('TC-SEARCH-01 filters combine and only authorized tasks are returned', () => {
