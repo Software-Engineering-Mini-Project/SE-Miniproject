@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pencil, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
@@ -23,10 +23,6 @@ export function TaskSheet({ task, members, canManage, open, onOpenChange, onStat
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    setEditing(false);
-  }, [task?.id]);
 
   if (!task) return null;
   const assignees = task.assigneeIds.map((id) => members.find((m) => m.id === id)).filter(Boolean);

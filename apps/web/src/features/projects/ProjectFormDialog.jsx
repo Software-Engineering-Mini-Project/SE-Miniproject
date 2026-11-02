@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { ApiError, describeError } from '@/lib/api/errors';
 import { LIMITS } from '@/lib/constants';
@@ -10,19 +10,15 @@ import { Field } from '@/components/ui/Field';
 
 /** Create or edit a project (TM-F-020). */
 export function ProjectFormDialog({ open, onOpenChange, project, onSubmit }) {
-  const [values, setValues] = useState({ name: '', description: '' });
+  if (!open) return null;
+  return <ProjectFormDialogContent onOpenChange={onOpenChange} project={project} onSubmit={onSubmit} />;
+}
+
+function ProjectFormDialogContent({ onOpenChange, project, onSubmit }) {
+  const [values, setValues] = useState(() => ({ name: project?.name || '', description: project?.description || '' }));
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setValues({ name: project?.name || '', description: project?.description || '' });
-      setErrors({});
-      setFormError(null);
-      setSaving(false);
-    }
-  }, [open, project]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -44,7 +40,7 @@ export function ProjectFormDialog({ open, onOpenChange, project, onSubmit }) {
 
   return (
     <Modal
-      open={open}
+      open
       onOpenChange={onOpenChange}
       title={project ? 'Edit project' : 'New project'}
       description={project ? undefined : 'You become the owner and can add members next.'}
