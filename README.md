@@ -64,7 +64,7 @@ npm run test:coverage --workspace @task-manager/web
 
 The HTML report is written to `apps/web/coverage/` (ignored by Git).
 
-End-to-end smoke test (TC-E2E-01, Playwright) against the browser mock, so no database is needed:
+End-to-end browser tests (Playwright) use the browser mock by default, so no database is needed:
 
 ```bash
 npx --workspace @task-manager/web playwright install chromium   # first time only
@@ -72,11 +72,13 @@ NEXT_PUBLIC_API_MODE=mock npm run build --workspace @task-manager/web
 NEXT_PUBLIC_API_MODE=mock npm run test:e2e --workspace @task-manager/web
 ```
 
-It starts the production build on port 3100 and walks the critical journey: register, log in as a lead, create a project, add a member, create and assign a task, move it on the board, reload, and check the assignee's notification. On failure, the screenshot, video and trace are in `apps/web/test-results/`.
+The suite covers the critical task-manager journey and issue-focused browser flows for authentication/profile, project membership, task edits/status changes, and reporting. It also includes **TC-UX-01**: axe WCAG 2.1 A/AA and horizontal-overflow checks on sign-in, registration, dashboard, projects, the board, tasks, notifications, profile, and the task dialog at mobile (390 px), tablet (768 px), and desktop (1280 px) widths. Keyboard checks cover the skip link and mobile navigation drawer. Automated checks support, but do not replace, the manual accessibility checklist.
+
+To run against the real API, start the API with a seeded local or test database and build and test without `NEXT_PUBLIC_API_MODE=mock`; set the API's `CORS_ORIGIN` to include `http://localhost:3100`. On failure, the screenshot, video and trace are in `apps/web/test-results/`.
 
 ## CI and deployment
 
-GitHub Actions (`.github/workflows/node.js.yml`) runs automatically for pull requests targeting `main` and pushes to `main`. You can also start it manually with GitHub Actions' **Run workflow** button. It runs five jobs: API lint and tests on Node 22 and 24; Web lint, tests, and production build on Node 22 and 24; and **E2E smoke (Chromium)**, which runs the TC-E2E-01 journey against a mock-mode production build and keeps the Playwright report as a run artifact for 14 days.
+GitHub Actions (`.github/workflows/ci.yml`) runs on branch pushes and pull requests targeting `main`. Its single verification job installs from the lockfile, runs API and web lint and tests, builds the web app, and runs all Playwright end-to-end tests on Node 22. It uploads the Playwright report and test results for 14 days.
 
 This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
 
