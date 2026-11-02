@@ -11,8 +11,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Give every main push its own group so later merges cannot cancel its CI.
+  # PRs and non-main branch pushes still cancel superseded runs.
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha || github.ref) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   verify:
