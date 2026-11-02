@@ -18,22 +18,20 @@ const ORDER = ['b', 'a', 'e', 'c'];
 
 export function AuthShowcase() {
   const [cards, setCards] = useState(START);
-  const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const timer = setInterval(() => setStep((s) => s + 1), 2600);
+    let step = 0;
+    const timer = setInterval(() => {
+      step += 1;
+      const id = ORDER[(step - 1) % ORDER.length];
+      setCards((current) => {
+        const allDone = current.every((card) => card.column === 2);
+        if (allDone) return START;
+        return current.map((card) => (card.id === id && card.column < 2 ? { ...card, column: card.column + 1 } : card));
+      });
+    }, 2600);
     return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (step === 0) return;
-    const id = ORDER[(step - 1) % ORDER.length];
-    setCards((current) => {
-      const allDone = current.every((c) => c.column === 2);
-      if (allDone) return START;
-      return current.map((c) => (c.id === id && c.column < 2 ? { ...c, column: c.column + 1 } : c));
-    });
-  }, [step]);
 
   return (
     <aside className="auth-showcase" aria-hidden="true">

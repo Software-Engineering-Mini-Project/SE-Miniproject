@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NumberFlow from '@number-flow/react';
 import { Download, FolderX, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
@@ -34,6 +34,15 @@ function readView() {
   } catch {
     return 'board';
   }
+}
+
+function subscribeToView(onChange) {
+  window.addEventListener('storage', onChange);
+  window.addEventListener('taskline:project-view-change', onChange);
+  return () => {
+    window.removeEventListener('storage', onChange);
+    window.removeEventListener('taskline:project-view-change', onChange);
+  };
 }
 
 function downloadText(filename, text, type) {
@@ -86,15 +95,13 @@ export function ProjectView({ projectId }) {
   const project = useQuery(`project:${projectId}`, () => api.projects.get(projectId));
   const tasks = useQuery(`tasks:${projectId}`, () => api.tasks.listByProject(projectId));
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [view, setView] = useState('board');
+  const view = useSyncExternalStore(subscribeToView, readView, () => 'board');
   const [createStatus, setCreateStatus] = useState(null);
   const [membersOpen, setMembersOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
-
-  useEffect(() => setView(readView()), []);
 
   const selectedId = params.get('task');
   const selectedTask = tasks.data?.find((t) => t.id === selectedId) || null;
@@ -106,12 +113,12 @@ export function ProjectView({ projectId }) {
   const closeTask = useCallback(() => router.replace(`/projects/${projectId}`, { scroll: false }), [router, projectId]);
 
   const changeView = (next) => {
-    setView(next);
     try {
       window.localStorage.setItem(VIEW_KEY, next);
     } catch {
       // Preference only.
     }
+    window.dispatchEvent(new Event('taskline:project-view-change'));
   };
 
   const visibleTasks = useMemo(() => applyFilters(tasks.data || [], filters), [tasks.data, filters]);
@@ -284,6 +291,7 @@ export function ProjectView({ projectId }) {
       )}
 
       <TaskSheet
+        key={selectedTask?.id || 'no-task'}
         task={selectedTask}
         members={p.members}
         canManage={canManage}

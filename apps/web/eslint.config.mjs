@@ -1,12 +1,17 @@
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { FlatCompat } from '@eslint/eslintrc';
-
-const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
+import { globalIgnores } from 'eslint/config';
+import nextVitals from 'eslint-config-next/core-web-vitals';
 
 const config = [
-  { ignores: ['.next/**', 'node_modules/**', 'out/**', 'coverage/**', 'playwright-report/**', 'test-results/**'] },
-  ...compat.extends('next/core-web-vitals'),
+  ...nextVitals,
+  globalIgnores([
+    '.next/**',
+    'node_modules/**',
+    'out/**',
+    'coverage/**',
+    'playwright-report/**',
+    'test-results/**',
+    'next-env.d.ts',
+  ]),
 ];
 
 export default config;

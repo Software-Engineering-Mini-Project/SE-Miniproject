@@ -130,7 +130,8 @@ export function AppShell({ children }) {
   const pathname = usePathname();
   const status = useSession((s) => s.status);
   const { loadProjects, loadUnread } = useWorkspace();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawer, setDrawer] = useState({ pathname, open: false });
+  const drawerOpen = drawer.pathname === pathname && drawer.open;
 
   useEffect(() => {
     if (status === 'anonymous') router.replace(`/login?next=${encodeURIComponent(pathname)}`);
@@ -145,10 +146,6 @@ export function AppShell({ children }) {
     }, 60_000);
     return () => clearInterval(timer);
   }, [status, loadProjects, loadUnread]);
-
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [pathname]);
 
   if (status !== 'authenticated') {
     return (
@@ -170,7 +167,7 @@ export function AppShell({ children }) {
       </aside>
 
       <header className="topbar">
-        <Dialog.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <Dialog.Root open={drawerOpen} onOpenChange={(open) => setDrawer({ pathname, open })}>
           <Dialog.Trigger render={<Button variant="ghost" iconOnly aria-label="Open navigation" />}>
             <MenuIcon size={20} />
           </Dialog.Trigger>
