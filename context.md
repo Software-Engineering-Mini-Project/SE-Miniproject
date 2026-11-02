@@ -1,6 +1,6 @@
 # Task Manager project context
 
-Last updated: 2026-10-26
+Last updated: 2026-10-30
 
 This file gives contributors and coding agents the durable project context they need to continue work. The detailed endpoint contract is in [docs/backend-api-contract.md](docs/backend-api-contract.md); do not duplicate that document here.
 
@@ -44,6 +44,8 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 
 - Both workspaces use ESM (`"type": "module"`). Existing source modules use `.js` (and the web app also uses `.jsx`).
 - All test files use `.test.mjs`; use `.mjs` for new Node test helpers as well. The API uses Node's built-in `node:test`, Supertest, and `mongodb-memory-server`.
+- The web tests include Node-based fixture/mock API tests and Vitest + React Testing Library component tests under `apps/web/tests/ui/`. `npm test` runs both web suites; `npm run test:coverage --workspace @task-manager/web` generates a local V8 coverage report.
+- UI component tests mock Next navigation and the API boundary. Cover important user actions, permissions, validation, and error handling; do not treat aggregate coverage as full feature verification.
 - Keep fixture data synthetic (`example.test`). API seeding reads fixtures from `apps/web/fixtures/` and hashes the demo password.
 - Use the workspace names in scripts and CI; update root scripts, CI, documentation, imports, and links whenever app paths or workspace names change.
 - The user requested unit tests and their execution. Run the relevant tests and fix failures when implementing backend phases.
@@ -54,9 +56,9 @@ API local configuration: copy `apps/api/.env.example` to `apps/api/.env` and set
 - The Express/Mongoose API implements authentication/profile, projects/members, tasks/search/status, comments, notifications/reminders, project summaries, CSV export, authorization, validation, and Admin write audit logging.
 - The web app's centralized API client now defaults to the real HTTP API at `http://localhost:4000/api`; opt into the browser mock with `NEXT_PUBLIC_API_MODE=mock`. All UI API calls go through `apps/web/src/lib/api/client.js`.
 - To use the real API locally, configure `apps/api/.env` with `MONGODB_URI` and a strong `JWT_SECRET`; configure `apps/web/.env.local` with `NEXT_PUBLIC_API_MODE=http` and `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`. Seed only a local/test database with `npm run seed --workspace @task-manager/api` (the seed clears selected collections).
-- Latest verification: workspace lint passed, API tests passed (26), Web tests passed (26), and the Web production build passed. The API integration tests use Supertest and `mongodb-memory-server`.
+- Latest verification on `test/ui-feature-unit-coverage`: API tests passed (29), web fixture/mock API tests passed (26), web component tests passed (22), workspace lint passed, and the Web production build passed. The UI V8 report showed 49.65% statements / 51.67% lines across the included UI source files; substantial untested paths remain, especially project view and shell/UI components.
 - The `main` workflow runs API and Web jobs on Node 22 and 24, so GitHub shows four CI checks (two workspaces × two Node versions).
-- PR [#13](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/13) is the active PR from `feature/2-backend-foundation`. Check GitHub for its current head and review state.
+- PRs #24 (accessibility), #25 (API task-creation test), #26 (documentation), and #28 (UI component unit coverage) were open when this update was written. PR #28 is from `test/ui-feature-unit-coverage`; check GitHub for current review and merge state.
 
 ## Confirmed API contract choices
 
