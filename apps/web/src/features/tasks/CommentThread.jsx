@@ -10,13 +10,19 @@ import { useQuery } from '@/lib/hooks/useQuery';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { ErrorState, Skeleton } from '@/components/ui/States';
+import { Modal } from '@/components/ui/Dialog';
+import { useSession } from '@/lib/session';
 
 /** Task comments (TM-F-032). Text is rendered as text, never as HTML. */
 export function CommentThread({ taskId }) {
   const comments = useQuery(`comments:${taskId}`, () => api.comments.list(taskId));
+  const user = useSession((session) => session.user);
   const [text, setText] = useState('');
   const [error, setError] = useState(null);
   const [posting, setPosting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const remaining = LIMITS.commentMax - text.length;
 
   async function post() {
@@ -34,6 +40,21 @@ export function CommentThread({ taskId }) {
       setError(describeError(err));
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function removeComment() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.comments.remove(taskId, deleteTarget.id);
+      comments.setData((list) => (list || []).filter((comment) => comment.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(describeError(err));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -74,6 +95,19 @@ export function CommentThread({ taskId }) {
                 </p>
                 <p className="comment-text">{comment.text}</p>
               </div>
+              {user && (user.id === comment.authorId || user.role === 'Lead' || user.role === 'Admin') ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Delete comment by ${comment.author?.name || 'former member'}`}
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteTarget(comment);
+                  }}
+                >
+                  Delete
+                </Button>
+              ) : null}
             </li>
           ))}
         </ol>
@@ -114,6 +148,20 @@ export function CommentThread({ taskId }) {
           </Button>
         </div>
       </form>
+      <Modal
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        title="Delete comment?"
+        description="This comment will be removed from the task."
+      >
+        {deleteError ? <p className="field-error" role="alert">{deleteError}</p> : null}
+        <div className="dialog-actions">
+          <Button variant="secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button variant="danger" loading={deleting} onClick={removeComment}>Delete comment</Button>
+        </div>
+      </Modal>
     </section>
   );
 }

@@ -148,6 +148,7 @@ export const api = {
     /** @returns {Promise<Comment[]>} TM-F-032. DECISION: each comment embeds `author`. */
     list: (taskId) => request('GET', `/tasks/${enc(taskId)}/comments`),
     create: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/comments`, { body: { text } }),
+    remove: (taskId, commentId) => request('DELETE', `/tasks/${enc(taskId)}/comments/${enc(commentId)}`),
   },
   notifications: {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */

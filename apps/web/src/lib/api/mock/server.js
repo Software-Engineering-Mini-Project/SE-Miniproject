@@ -508,6 +508,17 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [201, { ...clone(comment), author: memberDto(user) }];
     }],
 
+    ['DELETE', '/tasks/:taskId/comments/:commentId', ({ user, params }) => {
+      const { task, project } = taskFor(user, params.taskId);
+      idParam(params.commentId, 'comment');
+      const index = db.comments.findIndex((comment) => comment.id === params.commentId && comment.taskId === task.id);
+      if (index < 0) notFound('Comment');
+      const comment = db.comments[index];
+      if (comment.authorId !== user.id && !canManage(user, project)) forbidden('You cannot delete this comment.');
+      db.comments.splice(index, 1);
+      return [204, null];
+    }],
+
     ['GET', '/notifications', ({ user, query }) => {
       generateDueReminders(user);
       const page = Math.max(1, Number.parseInt(query.page, 10) || 1);

@@ -321,6 +321,28 @@ test('task, search, status, comment, summary, CSV, and reminder endpoints intero
   assert.equal(blankComment.status, 400);
   const outsiderComment = await request(app).get(`/api/tasks/${taskId}/comments`).set(auth(outsiderToken));
   assert.equal(outsiderComment.status, 403);
+  const memberCannotDeleteAnotherAuthorsComment = await request(app)
+    .delete('/api/tasks/task-002/comments/comment-001')
+    .set(auth(memberToken));
+  assert.equal(memberCannotDeleteAnotherAuthorsComment.status, 403);
+  const commentOnWrongTask = await request(app)
+    .delete(`/api/tasks/task-002/comments/${comment.body.id}`)
+    .set(auth(memberToken));
+  assert.equal(commentOnWrongTask.status, 404);
+  const missingComment = await request(app)
+    .delete(`/api/tasks/${taskId}/comments/comment-missing-001`)
+    .set(auth(memberToken));
+  assert.equal(missingComment.status, 404);
+  const ownCommentDeleted = await request(app)
+    .delete(`/api/tasks/${taskId}/comments/${comment.body.id}`)
+    .set(auth(memberToken));
+  assert.equal(ownCommentDeleted.status, 204);
+  assert.equal(await Comment.findById(comment.body.id), null);
+  const leadDeletesComment = await request(app)
+    .delete('/api/tasks/task-002/comments/comment-001')
+    .set(auth(leadToken));
+  assert.equal(leadDeletesComment.status, 204);
+  assert.equal(await Comment.findById('comment-001'), null);
 
   const summary = await request(app).get('/api/projects/project-alpha/summary').set(auth(memberToken));
   assert.equal(summary.status, 200);
