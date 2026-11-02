@@ -33,6 +33,10 @@ export function createApp({
 } = {}) {
   const app = express();
   app.disable('x-powered-by');
+  // Trust only the private/loopback proxy ranges used by the hosting edge. A
+  // direct public client is therefore identified by its socket address, not
+  // by a caller-supplied X-Forwarded-For value.
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
   app.use(helmet());
   app.use(cors({
     origin(origin, callback) {

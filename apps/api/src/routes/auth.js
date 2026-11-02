@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
+import { createHmac } from 'node:crypto';
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import { User } from '../models/index.js';
+import { LoginAttempt, User } from '../models/index.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { userDto } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
@@ -14,26 +15,65 @@ import {
 } from '../utils/validation.js';
 
 const TOKEN_TTL_SECONDS = 7200;
-const FAILED_LOGIN_LIMIT = 5;
+const FAILED_LOGIN_PAIR_LIMIT = 5;
+const FAILED_LOGIN_IP_LIMIT = 60;
 const FAILED_LOGIN_WINDOW_MS = 60_000;
-const failedLogins = new Map();
 // Unknown emails are checked against this hash so the response time doesn't reveal which emails are registered.
 const UNKNOWN_USER_HASH = bcrypt.hashSync('unknown-user-timing-equalizer', 12);
 
-function getAttemptBucket(email, now) {
-  const bucket = failedLogins.get(email);
-  if (!bucket || now - bucket.startedAt >= FAILED_LOGIN_WINDOW_MS) {
-    const fresh = { startedAt: now, count: 0 };
-    failedLogins.set(email, fresh);
-    return fresh;
-  }
-  return bucket;
+function clientIp(request) {
+  // Express derives `ip` from X-Forwarded-For only when the socket peer is in
+  // the explicitly trusted proxy ranges configured in createApp().
+  return request.ip || request.socket?.remoteAddress || 'unknown';
 }
 
-function pruneLoginBuckets(now) {
-  if (failedLogins.size < 5000) return;
-  for (const [email, bucket] of failedLogins) {
-    if (now - bucket.startedAt >= FAILED_LOGIN_WINDOW_MS) failedLogins.delete(email);
+function limiterKeys(email, ip, secret) {
+  const digest = (value) => createHmac('sha256', secret).update(value).digest('hex');
+  return {
+    pair: digest(`pair\0${email}\0${ip}`),
+    ip: digest(`ip\0${ip}`),
+  };
+}
+
+async function checkLoginLimit(keys, timestamp) {
+  try {
+    const attempts = await LoginAttempt.find({
+      _id: { $in: [keys.pair, keys.ip] },
+      expiresAt: { $gt: timestamp },
+    }).select('_id attempts').lean();
+    const counts = new Map(attempts.map((attempt) => [attempt._id, attempt.attempts]));
+    if ((counts.get(keys.pair) ?? 0) >= FAILED_LOGIN_PAIR_LIMIT
+      || (counts.get(keys.ip) ?? 0) >= FAILED_LOGIN_IP_LIMIT) {
+      throw new HttpError(429, 'RATE_LIMITED', 'Too many failed login attempts. Wait a minute and try again.');
+    }
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(503, 'AUTH_RATE_LIMIT_UNAVAILABLE', 'Sign-in is temporarily unavailable. Try again.');
+  }
+}
+
+async function recordFailedLogin(key, timestamp) {
+  const expiresAt = new Date(timestamp.getTime() + FAILED_LOGIN_WINDOW_MS);
+  try {
+    const reset = await LoginAttempt.updateOne(
+      { _id: key, expiresAt: { $lte: timestamp } },
+      { $set: { attempts: 1, windowStartedAt: timestamp, expiresAt } },
+    );
+    if (reset.matchedCount > 0) return;
+
+    try {
+      await LoginAttempt.updateOne(
+        { _id: key },
+        { $inc: { attempts: 1 }, $setOnInsert: { windowStartedAt: timestamp, expiresAt } },
+        { upsert: true },
+      );
+    } catch (error) {
+      // Another replica may insert the same bucket between the upsert check and write.
+      if (error?.code !== 11000) throw error;
+      await LoginAttempt.updateOne({ _id: key }, { $inc: { attempts: 1 } });
+    }
+  } catch {
+    throw new HttpError(503, 'AUTH_RATE_LIMIT_UNAVAILABLE', 'Sign-in is temporarily unavailable. Try again.');
   }
 }
 
@@ -61,21 +101,20 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     const email = readEmail(body);
     const password = readString(body, 'password', { min: 1, max: 128, trim: false, label: 'Password' });
     const normalizedEmail = normalizeEmail(email);
-    const timestamp = now().getTime();
-    pruneLoginBuckets(timestamp);
-    const attempts = getAttemptBucket(normalizedEmail, timestamp);
-    if (attempts.count >= FAILED_LOGIN_LIMIT) {
-      throw new HttpError(429, 'RATE_LIMITED', 'Too many failed login attempts. Wait a minute and try again.');
-    }
+    const timestamp = now();
+    const keys = limiterKeys(normalizedEmail, clientIp(request), jwtSecret);
+    await checkLoginLimit(keys, timestamp);
 
     const user = await User.findOne({ emailNormalized: normalizedEmail }).select('+passwordHash');
     const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? UNKNOWN_USER_HASH) && Boolean(user);
     if (!user || !passwordMatches) {
-      attempts.count += 1;
+      await Promise.all([
+        recordFailedLogin(keys.pair, timestamp),
+        recordFailedLogin(keys.ip, timestamp),
+      ]);
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
     }
 
-    failedLogins.delete(normalizedEmail);
     const token = jwt.sign({}, jwtSecret, {
       subject: user.id,
       expiresIn: jwtExpiresIn,

@@ -4,7 +4,7 @@ import { after, before, test } from 'node:test';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { createApp } from '../src/app.js';
-import { Comment, Notification, Project, Task, User } from '../src/models/index.js';
+import { Comment, LoginAttempt, Notification, Project, Task, User } from '../src/models/index.js';
 import { startTestDatabase } from '../test-support/database.mjs';
 
 const JWT_SECRET = 'route-tests-use-a-secret-long-enough-for-hs256';
@@ -111,15 +111,60 @@ test('authentication errors and failed-login throttling return stable envelopes'
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const response = await request(app).post('/api/auth/login').send({
       email: 'rate-limit@example.test', password: 'WrongPassword123',
-    });
+    }).set('X-Forwarded-For', '198.51.100.40');
     assert.equal(response.status, 401);
     assert.equal(response.body.errorCode, 'INVALID_CREDENTIALS');
   }
   const throttled = await request(app).post('/api/auth/login').send({
     email: 'rate-limit@example.test', password: 'WrongPassword123',
-  });
+  }).set('X-Forwarded-For', '198.51.100.40');
   assert.equal(throttled.status, 429);
   assert.equal(throttled.body.errorCode, 'RATE_LIMITED');
+
+  const restartedApp = createApp({ jwtSecret: JWT_SECRET, now: () => FIXED_NOW, logger: () => {} });
+  const afterRestart = await request(restartedApp).post('/api/auth/login').send({
+    email: 'rate-limit@example.test', password: 'WrongPassword123',
+  }).set('X-Forwarded-For', '198.51.100.40');
+  assert.equal(afterRestart.status, 429, 'the shared database preserves the limit across app instances');
+
+  const afterWindowApp = createApp({
+    jwtSecret: JWT_SECRET,
+    now: () => new Date(FIXED_NOW.getTime() + 60_001),
+    logger: () => {},
+  });
+  const afterWindow = await request(afterWindowApp).post('/api/auth/login').send({
+    email: 'rate-limit@example.test', password: 'WrongPassword123',
+  }).set('X-Forwarded-For', '198.51.100.40');
+  assert.equal(afterWindow.status, 401, 'the account/IP limit expires after its window');
+});
+
+test('failed login throttling also limits account spraying from one forwarded client IP', async () => {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const response = await request(app).post('/api/auth/login').send({
+      email: `spray-${attempt}@example.test`, password: 'WrongPassword123',
+    }).set('X-Forwarded-For', '198.51.100.66');
+    assert.equal(response.status, 401, `failed login ${attempt + 1}`);
+  }
+  const limited = await request(app).post('/api/auth/login').send({
+    email: 'spray-final@example.test', password: 'WrongPassword123',
+  }).set('X-Forwarded-For', '198.51.100.66');
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.errorCode, 'RATE_LIMITED');
+});
+
+test('login fails closed with a generic response when the shared limiter store is unavailable', async () => {
+  const originalFind = LoginAttempt.find;
+  LoginAttempt.find = () => { throw new Error('private database detail'); };
+  try {
+    const response = await request(app).post('/api/auth/login').send({
+      email: 'limiter-unavailable@example.test', password: 'WrongPassword123',
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.body.errorCode, 'AUTH_RATE_LIMIT_UNAVAILABLE');
+    assert.equal(JSON.stringify(response.body).includes('private database detail'), false);
+  } finally {
+    LoginAttempt.find = originalFind;
+  }
 });
 
 test('project and member endpoints enforce roles, membership, and cascades', async () => {
