@@ -82,6 +82,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on branch pushes and pull reque
 
 This repository has **CI configured, but no continuous deployment (CD) workflow**. Deployments must be performed manually until a hosting provider and deployment credentials are configured.
 
+The proposed staging target is documented in [docs/staging-target-decision.md](docs/staging-target-decision.md). It remains a team proposal until reviewed and accepted; no provider services or credentials have been provisioned.
+
 ## Contribution workflow
 
 1. Create a feature branch from the latest `main`.
