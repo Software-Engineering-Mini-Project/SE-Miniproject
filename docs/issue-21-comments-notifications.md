@@ -28,6 +28,7 @@ Status: implementation and automated evidence reviewed against the repository co
 - Web unit/contract suite: 26/26 passed.
 - The full `npm test` command did not complete locally because `vitest` is missing from the existing `node_modules`; the component suite, including the new confirmation-flow test, must be run by CI after lockfile installation.
 - The first sandboxed attempt also could not bind localhost/start its temporary MongoDB; the API suite passed on retry with local process access.
+- The first CI run identified a missing `comments.remove` mock in the UI test harness; the stub is now present and the two CI checks are rerunning.
 
 ## Acceptance gaps and source limits
 

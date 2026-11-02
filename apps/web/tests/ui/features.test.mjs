@@ -16,7 +16,7 @@ const state = vi.hoisted(() => {
       users: { updateMe: fn() },
       members: { add: fn(), remove: fn() },
       tasks: { search: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
-      comments: { list: fn(), create: fn() },
+      comments: { list: fn(), create: fn(), remove: fn() },
       notifications: { list: fn(), markRead: fn() },
       projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn() },
     },
