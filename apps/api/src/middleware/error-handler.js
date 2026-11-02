@@ -39,6 +39,9 @@ function normalizeError(error) {
       fields: errorFields(error),
     };
   }
+  if (error?.status === 503 && error?.code === 'AUTH_RATE_LIMIT_UNAVAILABLE') {
+    return { status: 503, errorCode: error.code, message: error.message };
+  }
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) {
     const status = error.status;
     return {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Task, User } from '../src/models/index.js';
+import { LoginAttempt, Task, User } from '../src/models/index.js';
 
 test('model JSON uses string id and never exposes Mongo internals or password hashes', () => {
   const model = new User({
@@ -30,4 +30,20 @@ test('task JSON preserves date-only values and normalizes an absent due date to 
 
   assert.equal(dueTask.dueDate, '2026-10-17');
   assert.equal(noDueDateTask.dueDate, null);
+});
+
+test('login attempt records expire automatically and retain only a keyed digest', () => {
+  const key = 'a'.repeat(64);
+  const attempt = new LoginAttempt({
+    _id: key,
+    attempts: 1,
+    windowStartedAt: new Date('2026-10-16T12:00:00.000Z'),
+    expiresAt: new Date('2026-10-16T12:01:00.000Z'),
+  }).toJSON();
+  const ttlIndex = LoginAttempt.schema.indexes().find(([fields]) => fields.expiresAt === 1);
+
+  assert.equal(attempt.id, key);
+  assert.equal(JSON.stringify(attempt).includes('@example'), false);
+  assert.equal(JSON.stringify(attempt).includes('198.51.100'), false);
+  assert.deepEqual(ttlIndex, [{ expiresAt: 1 }, { expireAfterSeconds: 0 }]);
 });
