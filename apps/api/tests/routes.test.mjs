@@ -188,6 +188,79 @@ test('project and member endpoints enforce roles, membership, and cascades', asy
   assert.equal(await Notification.findOne({ taskId: projectTask.id }), null);
 });
 
+test('TC-Task-01 creates a task through the API, persists it, and enforces validation and authorization', async (t) => {
+  const response = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(leadToken))
+    .send({
+      title: 'TC-Task-01 persistent task creation',
+      description: 'A task created through the API and stored in MongoDB.',
+      dueDate: '2026-10-30',
+      priority: 'High',
+      status: 'To Do',
+      assigneeIds: ['user-member-001'],
+    });
+
+  assert.equal(response.status, 201, response.text);
+  t.after(async () => {
+    await Notification.deleteMany({ taskId: response.body.id });
+    await Task.deleteOne({ _id: response.body.id });
+  });
+  assert.deepEqual({
+    title: response.body.title,
+    description: response.body.description,
+    dueDate: response.body.dueDate,
+    priority: response.body.priority,
+    status: response.body.status,
+    projectId: response.body.projectId,
+    assigneeIds: response.body.assigneeIds,
+  }, {
+    title: 'TC-Task-01 persistent task creation',
+    description: 'A task created through the API and stored in MongoDB.',
+    dueDate: '2026-10-30',
+    priority: 'High',
+    status: 'To Do',
+    projectId: 'project-alpha',
+    assigneeIds: ['user-member-001'],
+  });
+
+  const persisted = await Task.findById(response.body.id);
+  assert.ok(persisted, 'the created task should be stored in MongoDB');
+  assert.equal(persisted.title, response.body.title);
+
+  const listed = await request(app)
+    .get('/api/projects/project-alpha/tasks')
+    .set(auth(memberToken));
+  assert.equal(listed.status, 200, listed.text);
+  assert.ok(listed.body.some((task) => task.id === response.body.id));
+
+  const assignment = await Notification.findOne({ taskId: response.body.id, userId: 'user-member-001' });
+  assert.equal(assignment?.type, 'assignment');
+  assert.equal(assignment?.projectId, 'project-alpha');
+
+  const missingTitle = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(leadToken))
+    .send({ description: 'Missing title' });
+  assert.equal(missingTitle.status, 400);
+  assert.equal(missingTitle.body.errorCode, 'VALIDATION_ERROR');
+  assert.equal(missingTitle.body.fields.title, 'Title is required.');
+
+  const invalidDate = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(leadToken))
+    .send({ title: 'Invalid date', dueDate: '2026-02-30' });
+  assert.equal(invalidDate.status, 400);
+  assert.equal(invalidDate.body.errorCode, 'VALIDATION_ERROR');
+
+  const forbidden = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(memberToken))
+    .send({ title: 'Member cannot create tasks' });
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.body.errorCode, 'FORBIDDEN');
+});
+
 test('task, search, status, comment, summary, CSV, and reminder endpoints interoperate', async () => {
   const created = await request(app).post('/api/projects/project-alpha/tasks').set(auth(leadToken)).send({
     title: '=Review release export',
