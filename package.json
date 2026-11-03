@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "node server/main.js",
     "seed": "node scripts/seed.js",
+    "db:indexes": "node scripts/sync-indexes.js",
     "lint": "eslint .",
     "test": "npm run test:deploy && npm run test:api && npm run test:web",
     "test:deploy": "node --test scripts/deploy-staging.test.mjs",

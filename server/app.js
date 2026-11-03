@@ -2,7 +2,6 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import mongoose from 'mongoose';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { createApiRouter } from './routes/index.js';
@@ -10,40 +9,12 @@ import { HttpError } from './utils/http-error.js';
 
 const allowedMethods = ['GET', 'POST', 'PATCH', 'DELETE'];
 const allowedHeaders = ['Authorization', 'Content-Type'];
-let vercelMongoConnection;
 
 function getAllowedOrigins() {
   return (process.env.CORS_ORIGIN || 'http://localhost:3000')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-}
-
-async function ensureVercelDatabase(_request, _response, next) {
-  if (process.env.VERCEL !== '1') {
-    next();
-    return;
-  }
-
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      if (!vercelMongoConnection || mongoose.connection.readyState === 0) {
-        const mongoUri = process.env.MONGODB_URI?.trim();
-        if (!mongoUri) throw new Error('MONGODB_URI is required');
-
-        vercelMongoConnection = mongoose.connect(mongoUri, {
-          serverSelectionTimeoutMS: 5000,
-        }).catch((error) => {
-          vercelMongoConnection = undefined;
-          throw error;
-        });
-      }
-      await vercelMongoConnection;
-    }
-    next();
-  } catch (error) {
-    next(error);
-  }
 }
 
 function registerRoutes(app) {
@@ -78,13 +49,8 @@ export function createApp({
   }));
   app.use(requestLogger({ logger, now }));
   app.use(express.json({ limit: '100kb' }));
-  for (const middleware of beforeRoutes) app.use(middleware);
-
-  // Vercel invokes the app without running server.js, so connect lazily and
-  // reuse Mongoose's connection across warm function invocations.
-  app.use(ensureVercelDatabase);
-
   registerRoutes(app);
+  for (const middleware of beforeRoutes) app.use(middleware);
   app.use('/api', createApiRouter({ jwtSecret, jwtExpiresIn, now }));
   extendRoutes?.(app);
 

@@ -5,13 +5,14 @@ import projects from '../../fixtures/projects.json' with { type: 'json' };
 import tasks from '../../fixtures/tasks.json' with { type: 'json' };
 import users from '../../fixtures/users.json' with { type: 'json' };
 import { Comment, models, Notification, Project, Task, User } from '../models/index.js';
+import { BCRYPT_COST } from './password.js';
 
 export const FIXTURE_PASSWORD = 'Password123!';
 
 export async function seedDatabase() {
   await Promise.all(models.map((model) => model.deleteMany({})));
 
-  const passwordHash = await bcrypt.hash(FIXTURE_PASSWORD, 12);
+  const passwordHash = await bcrypt.hash(FIXTURE_PASSWORD, BCRYPT_COST);
   await User.insertMany(users.map(({ id, ...user }) => ({
     ...user,
     _id: id,

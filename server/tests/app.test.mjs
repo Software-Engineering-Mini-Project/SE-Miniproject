@@ -25,6 +25,13 @@ test('health endpoint returns a predictable JSON success response without Expres
   assert.ok(response.headers['x-content-type-options']);
 });
 
+test('health responds without waiting for database middleware', async () => {
+  const app = createApp({ beforeRoutes: [(_req, res) => res.status(503).end()] });
+  const response = await request(app).get('/api/health');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { status: 'ok' });
+});
+
 test('unknown routes return the common JSON 404 envelope', async () => {
   const { app } = captureApp();
   const response = await request(app).get('/api/not-a-route');

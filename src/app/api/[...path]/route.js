@@ -8,16 +8,21 @@ const handler = serverless(app);
 
 async function handle(request) {
   const url = new URL(request.url);
-  const body = ['GET', 'HEAD'].includes(request.method) ? null : Buffer.from(await request.arrayBuffer()).toString('base64');
+  const contentType = request.headers.get('content-type') || '';
+  const isText = /^(text\/|application\/(?:json|[^;]+\+json|x-www-form-urlencoded))/i.test(contentType);
+  const hasBody = !['GET', 'HEAD'].includes(request.method);
+  const body = !hasBody ? null : isText ? await request.text() : Buffer.from(await request.arrayBuffer()).toString('base64');
+  const sourceIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip')?.trim() || '127.0.0.1';
   const result = await handler({
     httpMethod: request.method,
     path: url.pathname,
     queryStringParameters: Object.fromEntries(url.searchParams),
     multiValueQueryStringParameters: Object.fromEntries([...new Set(url.searchParams.keys())].map((key) => [key, url.searchParams.getAll(key)])),
     headers: Object.fromEntries(request.headers),
-    requestContext: { identity: { sourceIp: '127.0.0.1' } },
+    requestContext: { identity: { sourceIp } },
     body,
-    isBase64Encoded: body !== null,
+    isBase64Encoded: hasBody && !isText,
   }, {});
   const headers = new Headers(result.headers);
   for (const [key, values] of Object.entries(result.multiValueHeaders || {})) {

@@ -60,10 +60,10 @@ export const useSession = create((set, get) => ({
   },
 
   async signIn(email, password) {
-    const { token, expiresIn } = await api.auth.login({ email, password });
+    const { token, expiresIn, user: loginUser } = await api.auth.login({ email, password });
     writeStoredToken(token, expiresIn);
     set({ token, reason: null });
-    const user = await api.auth.me();
+    const user = loginUser ?? await api.auth.me();
     set({ user, status: 'authenticated' });
     return user;
   },

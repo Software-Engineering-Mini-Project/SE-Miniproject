@@ -6,6 +6,7 @@ import { LoginAttempt, User } from '../models/index.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { userDto } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
+import { BCRYPT_COST } from '../utils/password.js';
 import {
   normalizeEmail,
   readEmail,
@@ -19,7 +20,7 @@ const FAILED_LOGIN_PAIR_LIMIT = 5;
 const FAILED_LOGIN_IP_LIMIT = 60;
 const FAILED_LOGIN_WINDOW_MS = 60_000;
 // Unknown emails are checked against this hash so the response time doesn't reveal which emails are registered.
-const UNKNOWN_USER_HASH = bcrypt.hashSync('unknown-user-timing-equalizer', 12);
+const UNKNOWN_USER_HASH = '$2b$10$xWxI5wQNvlNQCxUJcnmUY.I5F3udThG6cKMGToEf0fRdYraRNZ5KO';
 
 function clientIp(request) {
   // Express derives `ip` from X-Forwarded-For only when the socket peer is in
@@ -85,7 +86,7 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     const name = readString(body, 'name', { max: 80, label: 'Name' });
     const email = readEmail(body);
     const password = readPassword(body);
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
     const user = await User.create({
       name,
       email,
@@ -96,17 +97,36 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     response.status(201).json({ userId: user.id, email: user.email });
   });
 
-  router.post('/login', async (request, response) => {
+  router.post('/login', (request, response, next) => {
+    const start = performance.now();
+    response.locals.loginTiming = { db: 0, bcrypt: 0 };
+    const writeHead = response.writeHead;
+    response.writeHead = function (...args) {
+      const timing = response.locals.loginTiming;
+      response.setHeader('Server-Timing', `db;dur=${timing.db.toFixed(1)}, bcrypt;dur=${timing.bcrypt.toFixed(1)}, total;dur=${(performance.now() - start).toFixed(1)}`);
+      return writeHead.apply(this, args);
+    };
+    next();
+  }, async (request, response) => {
     const body = requireObject(request.body);
     const email = readEmail(body);
     const password = readString(body, 'password', { min: 1, max: 128, trim: false, label: 'Password' });
     const normalizedEmail = normalizeEmail(email);
     const timestamp = now();
     const keys = limiterKeys(normalizedEmail, clientIp(request), jwtSecret);
-    await checkLoginLimit(keys, timestamp);
-
-    const user = await User.findOne({ emailNormalized: normalizedEmail }).select('+passwordHash');
+    const dbStart = performance.now();
+    let user;
+    try {
+      [, user] = await Promise.all([
+        checkLoginLimit(keys, timestamp),
+        User.findOne({ emailNormalized: normalizedEmail }).select('+passwordHash'),
+      ]);
+    } finally {
+      response.locals.loginTiming.db = performance.now() - dbStart;
+    }
+    const bcryptStart = performance.now();
     const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? UNKNOWN_USER_HASH) && Boolean(user);
+    response.locals.loginTiming.bcrypt = performance.now() - bcryptStart;
     if (!user || !passwordMatches) {
       await Promise.all([
         recordFailedLogin(keys.pair, timestamp),
@@ -115,12 +135,19 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
     }
 
+    if (bcrypt.getRounds(user.passwordHash) > BCRYPT_COST) {
+      const oldHash = user.passwordHash;
+      bcrypt.hash(password, BCRYPT_COST)
+        .then((passwordHash) => User.updateOne({ _id: user._id, passwordHash: oldHash }, { $set: { passwordHash } }))
+        .catch(() => console.error(JSON.stringify({ event: 'password_rehash_failed' })));
+    }
+
     const token = jwt.sign({}, jwtSecret, {
       subject: user.id,
       expiresIn: jwtExpiresIn,
       algorithm: 'HS256',
     });
-    response.json({ token, expiresIn: jwtExpiresIn });
+    response.json({ token, expiresIn: jwtExpiresIn, user: userDto(user) });
   });
 
   router.get('/me', authenticate({ jwtSecret }), (request, response) => response.json(userDto(request.authUser)));
@@ -152,7 +179,7 @@ export async function updateCurrentUser(user, rawBody) {
         currentPassword: 'Current password is incorrect.',
       });
     }
-    changes.passwordHash = await bcrypt.hash(next, 12);
+    changes.passwordHash = await bcrypt.hash(next, BCRYPT_COST);
   }
 
   if (Object.keys(changes).length === 0) {
