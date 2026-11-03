@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   # Give every main push its own group so later merges cannot cancel its CI.
-  # PRs cancel superseded runs.
+  # PRs and non-main branch pushes still cancel superseded runs.
   group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha || github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
