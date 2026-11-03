@@ -364,6 +364,19 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, list];
     }],
 
+    ['GET', '/dashboard', ({ user }) => {
+      const projects = db.projects.filter((project) => isMember(user, project));
+      const projectIds = new Set(projects.map((project) => project.id));
+      const visibleTasks = db.tasks.filter((task) => projectIds.has(task.projectId));
+      const summaries = projects.map((project) => {
+        const tasks = visibleTasks.filter((task) => task.projectId === project.id);
+        const counts = Object.fromEntries(TASK_STATUSES.map((status) => [status, tasks.filter((task) => task.status === status).length]));
+        return { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter(isOverdue).length };
+      });
+      const myTasks = visibleTasks.filter((task) => task.assigneeIds.includes(user.id)).slice(0, 500);
+      return [200, { projects: summaries, myTasks }];
+    }],
+
     ['POST', '/projects', ({ user, body }) => {
       if (user.role === 'Member') forbidden('Only leads and admins can create projects.');
       const name = str(body, 'name', { max: LIMITS.projectNameMax, label: 'Project name' });
@@ -542,6 +555,17 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       notification.read = true;
       const { dedupeKey: _dedupeKey, ...rest } = notification;
       return [200, clone(rest)];
+    }],
+
+    ['PATCH', '/notifications/read-all', ({ user }) => {
+      let updated = 0;
+      for (const notification of db.notifications) {
+        if (notification.userId === user.id && !notification.read) {
+          notification.read = true;
+          updated += 1;
+        }
+      }
+      return [200, { updated }];
     }],
 
     ['GET', '/projects/:projectId/summary', ({ user, params }) => {

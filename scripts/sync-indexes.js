@@ -6,8 +6,9 @@ try {
   const { mongoUri } = loadEnvironment();
   await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000, autoIndex: false });
   for (const model of models) {
-    await model.syncIndexes();
-    console.info(`Indexes synchronized: ${model.modelName}`);
+    // This reconciles the dashboard task aggregate and unread-notification indexes in each target database.
+    const changes = await model.syncIndexes();
+    console.info(JSON.stringify({ event: 'indexes_synchronized', model: model.modelName, changes }));
   }
 } catch (error) {
   console.error(JSON.stringify({ event: 'index_sync_failed', errorType: error?.name, variable: error?.variable }));

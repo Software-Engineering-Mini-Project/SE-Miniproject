@@ -14,10 +14,14 @@ export function canManageProject(user, project) {
   return isAdmin(user) || (user.role === 'Lead' && project.memberIds.includes(user.id));
 }
 
-export async function getProjectForUser(user, rawProjectId, { manage = false } = {}) {
+export async function getProjectForUser(user, rawProjectId, { manage = false, lean = false } = {}) {
   const projectId = readId(rawProjectId, 'Project');
-  const project = await Project.findById(projectId);
+  const query = Project.findById(projectId);
+  const project = lean
+    ? await query.select('_id name description ownerId memberIds createdAt updatedAt').lean()
+    : await query;
   if (!project) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
+  if (lean) project.id = String(project._id);
   if (!isProjectMember(user, project)) {
     throw new HttpError(403, 'FORBIDDEN', 'You are not a member of this project.');
   }
@@ -27,11 +31,15 @@ export async function getProjectForUser(user, rawProjectId, { manage = false } =
   return project;
 }
 
-export async function getTaskForUser(user, rawTaskId, { manage = false } = {}) {
+export async function getTaskForUser(user, rawTaskId, { manage = false, lean = false } = {}) {
   const taskId = readId(rawTaskId, 'Task');
-  const task = await Task.findById(taskId);
+  const query = Task.findById(taskId);
+  const task = lean
+    ? await query.select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt').lean()
+    : await query;
   if (!task) throw new HttpError(404, 'NOT_FOUND', 'Task not found.');
-  const project = await getProjectForUser(user, task.projectId, { manage });
+  if (lean) task.id = String(task._id);
+  const project = await getProjectForUser(user, task.projectId, { manage, lean });
   return { task, project };
 }
 

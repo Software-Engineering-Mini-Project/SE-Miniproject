@@ -17,8 +17,9 @@ const state = vi.hoisted(() => {
       members: { add: fn(), remove: fn() },
       tasks: { search: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
       comments: { list: fn(), create: fn(), remove: fn() },
-      notifications: { list: fn(), markRead: fn() },
+      notifications: { list: fn(), markRead: fn(), markAllRead: fn() },
       projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn() },
+      dashboard: { get: fn() },
     },
     toast: { success: fn(), error: fn() },
   };
@@ -151,6 +152,7 @@ beforeEach(() => {
     upsertProject: vi.fn(),
     removeProject: vi.fn(),
     loadUnread: vi.fn(),
+    loadDashboard: vi.fn(),
   };
 });
 
@@ -450,7 +452,7 @@ describe('comments and notifications', () => {
       ],
       unreadCount: 1,
     });
-    state.api.notifications.markRead.mockResolvedValue({});
+    state.api.notifications.markAllRead.mockResolvedValue({ updated: 1 });
     render(h(NotificationsPage));
 
     await user.click(screen.getByRole('button', { name: 'Unread (1)' }));
@@ -459,7 +461,7 @@ describe('comments and notifications', () => {
     await user.click(screen.getByRole('button', { name: 'All' }));
     await user.click(screen.getByRole('button', { name: 'Mark all as read' }));
 
-    await waitFor(() => expect(state.api.notifications.markRead).toHaveBeenCalledWith('notice-1'));
+    await waitFor(() => expect(state.api.notifications.markAllRead).toHaveBeenCalledOnce());
     expect(state.workspace.setUnread).toHaveBeenCalledWith(0);
     expect(state.toast.success).toHaveBeenCalledWith('All caught up.');
   });
@@ -468,17 +470,19 @@ describe('comments and notifications', () => {
 describe('dashboard, cross-project search, and profile', () => {
   it('shows dashboard task counts for the signed-in user and project summaries', () => {
     state.queries.set(`dashboard:${lead.id}`, {
-      data: [
+      data: {
+        myTasks: [
         { ...task, id: 'mine-open', title: 'Open and due', assigneeIds: [lead.id], dueDate: '2026-11-01', status: 'To Do' },
         { ...task, id: 'mine-done', title: 'Finished', assigneeIds: [lead.id], dueDate: null, status: 'Done' },
         { ...task, id: 'other', title: 'Other person task', assigneeIds: [member.id], dueDate: '2026-11-01' },
-      ],
+        ],
+        projects: [{ projectId: project.id, total: 2, overdue: 0, counts: { 'To Do': 1, 'In Progress': 0, Done: 1 } }],
+      },
       error: null,
       loading: false,
       setData: vi.fn(),
       reload: vi.fn(),
     });
-    state.queries.set(`summary:${project.id}`, { data: { total: 2, overdue: 0, counts: { 'To Do': 1, 'In Progress': 0, Done: 1 } }, error: null, loading: false });
     render(h(Dashboard));
 
     expect(screen.getByRole('heading', { name: /Lena/ })).toBeInTheDocument();

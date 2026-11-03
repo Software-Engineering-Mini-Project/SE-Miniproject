@@ -11,8 +11,11 @@ export function createCommentsRouter({ jwtSecret, now = () => new Date() } = {})
   const requireAuth = authenticate({ jwtSecret });
 
   router.get('/tasks/:taskId/comments', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId);
-    const comments = await Comment.find({ taskId: task.id }).sort({ createdAt: 1 });
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { lean: true });
+    const comments = await Comment.find({ taskId: task.id })
+      .select('_id taskId authorId text createdAt updatedAt')
+      .sort({ createdAt: 1, _id: 1 })
+      .lean();
     response.json(await commentDtos(comments));
   });
 

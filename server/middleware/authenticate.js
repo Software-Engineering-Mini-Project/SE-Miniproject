@@ -26,7 +26,7 @@ export function authenticate({ jwtSecret }) {
       return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
     }
 
-    const user = await User.findById(payload.sub).select('_id name email role createdAt updatedAt').lean();
+    const user = await User.findById(payload.sub).select('_id name email role').lean();
     if (!user) return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
 
     const id = String(user._id);

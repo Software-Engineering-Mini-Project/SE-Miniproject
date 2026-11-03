@@ -23,6 +23,14 @@ test('health endpoint returns a predictable JSON success response without Expres
   assert.equal(response.headers['x-powered-by'], undefined);
   assert.ok(response.headers['x-request-id']);
   assert.ok(response.headers['x-content-type-options']);
+  assert.match(response.headers['server-timing'], /db;dur=.*total;dur=/);
+});
+
+test('Server-Timing includes database and total durations on every API response', async () => {
+  const { app } = captureApp((router) => router.get('/api/__test/timing', (_request, response) => response.json({ ok: true })));
+  const response = await request(app).get('/api/__test/timing');
+  assert.equal(response.status, 200);
+  assert.match(response.headers['server-timing'], /^db;dur=\d+\.\d, total;dur=\d+\.\d$/);
 });
 
 test('health responds without waiting for database middleware', async () => {

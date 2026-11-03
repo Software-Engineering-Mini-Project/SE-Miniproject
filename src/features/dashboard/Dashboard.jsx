@@ -4,11 +4,11 @@ import { useMemo } from 'react';
 import Link from 'next/link';
 import NumberFlow from '@number-flow/react';
 import { ArrowRight, CalendarCheck2, FolderKanban } from 'lucide-react';
-import { api } from '@/lib/api/client';
 import { TASK_STATUSES } from '@/lib/constants';
 import { daysUntil, firstName, isOverdue, plural } from '@/lib/format';
-import { useQuery } from '@/lib/hooks/useQuery';
 import { useSession } from '@/lib/session';
+import { useQuery } from '@/lib/hooks/useQuery';
+import { api } from '@/lib/api/client';
 import { useWorkspace } from '@/lib/workspace';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
 import { DueTag, PriorityTag } from '@/components/ui/Tags';
@@ -36,10 +36,8 @@ function Stat({ label, value, tone, hint }) {
   );
 }
 
-function ProjectSummaryRow({ project }) {
-  // TM-F-041: counts come from the summary endpoint, scoped to authorized projects.
-  const summary = useQuery(`summary:${project.id}`, () => api.projects.summary(project.id));
-  const s = summary.data;
+function ProjectSummaryRow({ project, summary }) {
+  const s = summary;
   const total = s?.total || 1;
   return (
     <li>
@@ -57,8 +55,6 @@ function ProjectSummaryRow({ project }) {
               {s.overdue ? <strong> · {s.overdue} overdue</strong> : null}
             </span>
           </>
-        ) : summary.error ? (
-          <span className="project-summary-counts">Summary unavailable</span>
         ) : (
           <Skeleton width="100%" height={8} />
         )}
@@ -71,10 +67,12 @@ function ProjectSummaryRow({ project }) {
 export function Dashboard() {
   const user = useSession((s) => s.user);
   const projects = useWorkspace((s) => s.projects);
-  const tasks = useQuery(user ? `dashboard:${user.id}` : null, () => api.tasks.search({}));
+  const dashboard = useQuery(user ? `dashboard:${user.id}` : null, () => api.dashboard.get());
+  const tasks = dashboard.data?.myTasks;
+  const summariesByProjectId = useMemo(() => new Map((dashboard.data?.projects || []).map((item) => [item.projectId, item])), [dashboard.data]);
   const projectsById = useMemo(() => new Map((projects || []).map((p) => [p.id, p])), [projects]);
 
-  const mine = useMemo(() => (tasks.data || []).filter((t) => t.assigneeIds.includes(user?.id)), [tasks.data, user]);
+  const mine = useMemo(() => (tasks || []).filter((t) => t.assigneeIds.includes(user?.id)), [tasks, user]);
   const open = mine.filter((t) => t.status !== 'Done');
   const overdue = open.filter(isOverdue);
   const dueThisWeek = open.filter((t) => {
@@ -95,11 +93,11 @@ export function Dashboard() {
         </h1>
       </header>
 
-      {tasks.error ? (
-        <ErrorState error={tasks.error} onRetry={tasks.reload} />
+      {dashboard.error ? (
+        <ErrorState error={dashboard.error} onRetry={dashboard.reload} />
       ) : (
         <>
-          <dl className="stats" aria-busy={!tasks.data}>
+          <dl className="stats" aria-busy={!dashboard.data}>
             <Stat label="Assigned to you" value={open.length} hint="Not done yet" />
             <Stat label="Due in 7 days" value={dueThisWeek.length} tone={dueThisWeek.length ? 'warn' : undefined} />
             <Stat label="Overdue" value={overdue.length} tone={overdue.length ? 'danger' : undefined} />
@@ -114,7 +112,7 @@ export function Dashboard() {
                   All my tasks
                 </Link>
               </div>
-              {!tasks.data ? (
+              {!dashboard.data ? (
                 <div className="attention-list">
                   {[0, 1, 2].map((i) => (
                     <Skeleton key={i} height={52} />
@@ -151,7 +149,7 @@ export function Dashboard() {
                   View all
                 </Link>
               </div>
-              {projects === null ? (
+              {projects === null || !dashboard.data ? (
                 <div className="attention-list">
                   {[0, 1].map((i) => (
                     <Skeleton key={i} height={52} />
@@ -165,7 +163,7 @@ export function Dashboard() {
                 <>
                   <ul className="project-summaries">
                     {projects.map((project) => (
-                      <ProjectSummaryRow key={project.id} project={project} />
+                      <ProjectSummaryRow key={project.id} project={project} summary={summariesByProjectId.get(project.id)} />
                     ))}
                   </ul>
                   <p className="panel-foot">{plural(projects.length, 'project')} you can access</p>

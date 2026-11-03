@@ -11,7 +11,8 @@ const notificationSchema = createSchema({
   dedupeKey: { type: String, default: null },
 });
 
-notificationSchema.index({ userId: 1, read: 1, createdAt: -1 });
+notificationSchema.index({ userId: 1, read: 1 });
+notificationSchema.index({ userId: 1, createdAt: -1, _id: -1 });
 notificationSchema.index(
   { userId: 1, taskId: 1, dedupeKey: 1 },
   { unique: true, partialFilterExpression: { type: 'due-date', dedupeKey: { $type: 'string' } } },

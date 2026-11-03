@@ -101,17 +101,20 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   const requireAuth = authenticate({ jwtSecret });
 
   router.get('/projects/:projectId/tasks/export.csv', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId);
+    const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
     const filters = readTaskFilters(request.query);
-    const tasks = await Task.find(combineFilters({ projectId: project.id }, filters)).sort({ createdAt: 1 });
+    const tasks = (await Task.find(combineFilters({ projectId: project.id }, filters))
+      .select('_id title status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .sort({ createdAt: 1, _id: 1 })
+      .lean()).map(toApi);
     const userIds = [...new Set(tasks.flatMap((task) => task.assigneeIds))];
-    const users = await User.find({ _id: { $in: userIds } });
-    const usersById = new Map(users.map((user) => [user.id, user]));
+    const users = await User.find({ _id: { $in: userIds } }).select('_id name').lean();
+    const usersById = new Map(users.map((user) => [String(user._id), user]));
     response.type('text/csv; charset=utf-8').send(tasksToCsv(tasks, usersById));
   });
 
   router.get('/projects/:projectId/tasks', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId);
+    const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
     const filters = readTaskFilters(request.query);
     const options = readListOptions(request.query);
     const tasks = await Task.find(combineFilters({ projectId: project.id }, filters))
@@ -144,8 +147,8 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     } else if (isAdmin(request.user)) {
       projectIds = null;
     } else {
-      const projects = await Project.find({ memberIds: request.user.id }).select('_id');
-      projectIds = projects.map((project) => project.id);
+      const projects = await Project.find({ memberIds: request.user.id }).select('_id').lean();
+      projectIds = projects.map((project) => String(project._id));
     }
     if (projectIds && projectIds.length === 0) return response.json([]);
     const query = projectIds ? combineFilters({ projectId: { $in: projectIds } }, filters) : combineFilters({}, filters);
@@ -159,8 +162,8 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.get('/tasks/:taskId', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId);
-    response.json(task);
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { lean: true });
+    response.json(toApi(task));
   });
 
   router.patch('/tasks/:taskId', requireAuth, async (request, response) => {

@@ -46,12 +46,11 @@ export function NotificationsPage() {
     if (notification.projectId) router.push(`/projects/${notification.projectId}?task=${notification.taskId}`);
   }
 
-  // No bulk endpoint in SRS 3.2, so mark each one individually.
   async function markAll() {
     setMarkingAll(true);
     const ids = unread.map((n) => n.id);
     try {
-      await Promise.all(ids.map((id) => api.notifications.markRead(id)));
+      await api.notifications.markAllRead();
       markLocal(ids);
       toast.success('All caught up.');
     } catch (error) {
