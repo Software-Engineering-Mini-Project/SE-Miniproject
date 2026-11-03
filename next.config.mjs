@@ -4,9 +4,9 @@ const nextConfig = {
   poweredByHeader: false,
   async headers() {
     const scriptSrc = process.env.NODE_ENV === 'development'
-      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-      : "script-src 'self' 'unsafe-inline'";
-    const csp = ["default-src 'self'", scriptSrc, "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self' data:", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'"].join('; ');
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com"
+      : "script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com";
+    const csp = ["default-src 'self'", scriptSrc, "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self' data:", "connect-src 'self' https://vitals.vercel-insights.com", "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'"].join('; ');
     return [{ source: '/:path*', headers: [
       { key: 'Content-Security-Policy', value: csp },
       { key: 'X-Frame-Options', value: 'DENY' },

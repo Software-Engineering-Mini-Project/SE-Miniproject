@@ -129,7 +129,8 @@ export function AppShell({ children }) {
   const router = useRouter();
   const pathname = usePathname();
   const status = useSession((s) => s.status);
-  const { loadProjects, loadUnread } = useWorkspace();
+  const userId = useSession((s) => s.user?.id);
+  const { loadProjects, loadUnread, loadDashboard } = useWorkspace();
   const [drawer, setDrawer] = useState({ pathname, open: false });
   const drawerOpen = drawer.pathname === pathname && drawer.open;
 
@@ -139,13 +140,12 @@ export function AppShell({ children }) {
 
   useEffect(() => {
     if (status !== 'authenticated') return undefined;
-    loadProjects();
-    loadUnread();
+    Promise.all([loadProjects(), loadUnread(), loadDashboard(userId)]);
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') loadUnread();
     }, 60_000);
     return () => clearInterval(timer);
-  }, [status, loadProjects, loadUnread]);
+  }, [status, userId, loadProjects, loadUnread, loadDashboard]);
 
   if (status !== 'authenticated') {
     return (

@@ -1,4 +1,5 @@
 import { Geist } from 'next/font/google';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Providers } from '@/components/Providers';
 import { APP_NAME } from '@/lib/brand';
 import './globals.css';
@@ -22,6 +23,7 @@ export default function RootLayout({ children }) {
     <html lang="en" className={geist.variable}>
       <body>
         <Providers>{children}</Providers>
+        <SpeedInsights />
       </body>
     </html>
   );

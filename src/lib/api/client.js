@@ -83,6 +83,9 @@ async function mockTransport(method, path, { body, token, query }) {
 }
 
 async function request(method, path, { body, query, accept, auth = true } = {}) {
+  if (typeof window !== 'undefined' && typeof window.__taskManagerApiRequestObserver === 'function') {
+    window.__taskManagerApiRequestObserver({ method, path });
+  }
   const token = auth ? tokenProvider() : null;
   const transport = API_MODE === 'http' ? httpTransport : mockTransport;
   const { status, data } = await transport(method, path, { body, token, query, accept });
@@ -122,6 +125,10 @@ export const api = {
     exportCsv: (projectId, filters) =>
       request('GET', `/projects/${enc(projectId)}/tasks/export.csv`, { query: filters, accept: 'text/csv' }),
   },
+  dashboard: {
+    /** @returns {Promise<{ projects: ProjectSummary[], myTasks: Task[] }>} */
+    get: () => request('GET', '/dashboard'),
+  },
   members: {
     /** @returns {Promise<Member[]>} */
     list: (projectId) => request('GET', `/projects/${enc(projectId)}/members`),
@@ -154,6 +161,7 @@ export const api = {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */
     list: (page = 1) => request('GET', '/notifications', { query: { page } }),
     markRead: (notificationId) => request('PATCH', `/notifications/${enc(notificationId)}/read`),
+    markAllRead: () => request('PATCH', '/notifications/read-all'),
   },
 };
 

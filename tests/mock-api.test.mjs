@@ -100,6 +100,26 @@ test('TC-PROJ-01 leads create projects; members cannot; outsiders see no project
   assert.deepEqual(call('GET', '/projects', { token: login('outsider@example.test') }).data, []);
 });
 
+test('dashboard returns project aggregates and only the caller accessible tasks', () => {
+  const { call, login } = setup();
+  const lead = call('GET', '/dashboard', { token: login('lead@example.test') });
+  assert.deepEqual(lead.data.projects.map((project) => project.projectId), ['project-alpha', 'project-beta']);
+  assert.equal(lead.data.projects.find((project) => project.projectId === 'project-alpha').total, 7);
+  assert.ok(lead.data.myTasks.every((task) => task.assigneeIds.includes('user-lead-001')));
+  const outsider = call('GET', '/dashboard', { token: login('outsider@example.test') });
+  assert.deepEqual(outsider.data, { projects: [], myTasks: [] });
+});
+
+test('PATCH /notifications/read-all marks only the current caller unread items', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const before = call('GET', '/notifications', { token: lead }).data;
+  const updated = call('PATCH', '/notifications/read-all', { token: lead });
+  assert.deepEqual(updated.data, { updated: before.unreadCount });
+  assert.equal(call('GET', '/notifications', { token: lead }).data.unreadCount, 0);
+  assert.ok(call('GET', '/notifications', { token: login('member@example.test') }).data.unreadCount > 0);
+});
+
 test('TC-PROJ-02 / TC-SEC-03 membership rules and horizontal access', () => {
   const { call, login } = setup();
   const lead = login('lead@example.test');

@@ -113,6 +113,51 @@ test('registration is limited to five attempts per client IP per ten minutes', a
   assert.equal(await User.exists({ emailNormalized: 'register-limit-six@example.test' }), null);
 });
 
+test('dashboard aggregates project totals and my tasks with membership scoping', async () => {
+  const lead = await request(app).get('/api/dashboard').set(auth(leadToken));
+  assert.equal(lead.status, 200, lead.text);
+  const alpha = lead.body.projects.find((project) => project.projectId === 'project-alpha');
+  const beta = lead.body.projects.find((project) => project.projectId === 'project-beta');
+  assert.deepEqual(alpha, {
+    projectId: 'project-alpha',
+    total: 7,
+    counts: { 'To Do': 3, 'In Progress': 2, Done: 2 },
+    overdue: 1,
+  });
+  assert.deepEqual(beta, {
+    projectId: 'project-beta',
+    total: 3,
+    counts: { 'To Do': 1, 'In Progress': 1, Done: 1 },
+    overdue: 1,
+  });
+  assert.ok(lead.body.myTasks.every((task) => task.assigneeIds.includes('user-lead-001')));
+  assert.ok(lead.body.myTasks.some((task) => task.id === 'task-009'));
+
+  const member = await request(app).get('/api/dashboard').set(auth(memberToken));
+  assert.deepEqual(member.body.projects.map((project) => project.projectId), ['project-alpha']);
+  assert.ok(member.body.myTasks.every((task) => task.projectId === 'project-alpha'));
+  const outsider = await request(app).get('/api/dashboard').set(auth(outsiderToken));
+  assert.deepEqual(outsider.body, { projects: [], myTasks: [] });
+});
+
+test('read-all updates only the signed-in user unread notifications in one operation', async () => {
+  const records = await Notification.insertMany([
+    { userId: 'user-outsider-001', taskId: 'task-001', type: 'assignment', message: 'Unread one', read: false },
+    { userId: 'user-outsider-001', taskId: 'task-001', type: 'assignment', message: 'Unread two', read: false },
+    { userId: 'user-outsider-001', taskId: 'task-001', type: 'assignment', message: 'Already read', read: true },
+    { userId: 'user-member-001', taskId: 'task-001', type: 'assignment', message: 'Other user', read: false },
+  ]);
+  try {
+    const response = await request(app).patch('/api/notifications/read-all').set(auth(outsiderToken));
+    assert.equal(response.status, 200, response.text);
+    assert.deepEqual(response.body, { updated: 2 });
+    assert.equal(await Notification.countDocuments({ _id: { $in: records.slice(0, 3).map((record) => record.id) }, read: false }), 0);
+    assert.equal(await Notification.countDocuments({ _id: records[3].id, read: false }), 1);
+  } finally {
+    await Notification.deleteMany({ _id: { $in: records.map((record) => record.id) } });
+  }
+});
+
 test('task and project lists are paginated, lean-safe, and capped for legacy callers', async () => {
   const pageA = await request(app).get('/api/projects?page=1&pageSize=1').set(auth(leadToken));
   assert.equal(pageA.status, 200);

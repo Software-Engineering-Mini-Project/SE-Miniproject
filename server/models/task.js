@@ -11,7 +11,7 @@ const taskSchema = createSchema({
   assigneeIds: [{ type: String, ref: 'User' }],
 });
 
-taskSchema.index({ projectId: 1, status: 1 });
+taskSchema.index({ projectId: 1, status: 1, dueDate: 1 });
 taskSchema.index({ assigneeIds: 1 });
 taskSchema.index({ dueDate: 1, status: 1 });
 

@@ -12,6 +12,10 @@ export function clearQueryCache() {
   inFlight.clear();
 }
 
+export function prefetchQuery(key, fetcher) {
+  return fetchQuery(key, fetcher);
+}
+
 function fetchQuery(key, fetcher) {
   const existing = inFlight.get(key);
   if (existing) return existing;

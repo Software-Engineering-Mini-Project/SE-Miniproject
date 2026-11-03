@@ -1,9 +1,10 @@
 'use client';
 
-// Workspace-level data shared by the shell and pages: the user's projects and unread count.
+// Workspace-level data shared by the shell and pages after sign-in.
 
 import { create } from 'zustand';
 import { api } from './api/client.js';
+import { prefetchQuery } from './hooks/useQuery.js';
 
 export const useWorkspace = create((set, get) => ({
   projects: null,
@@ -36,6 +37,15 @@ export const useWorkspace = create((set, get) => ({
       const page = await api.notifications.list(1);
       set({ unreadCount: page.unreadCount ?? page.items.filter((n) => !n.read).length });
       return page;
+    } catch {
+      return null;
+    }
+  },
+
+  async loadDashboard(userId) {
+    if (!userId) return null;
+    try {
+      return await prefetchQuery(`dashboard:${userId}`, () => api.dashboard.get());
     } catch {
       return null;
     }

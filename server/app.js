@@ -4,6 +4,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
+import { serverTiming } from './middleware/server-timing.js';
 import { createApiRouter } from './routes/index.js';
 import { HttpError } from './utils/http-error.js';
 
@@ -35,6 +36,7 @@ export function createApp({
 } = {}) {
   const app = express();
   app.disable('x-powered-by');
+  app.use(serverTiming());
   // Trust only the private/loopback proxy ranges used by the hosting edge. A
   // direct public client is therefore identified by its socket address, not
   // by a caller-supplied X-Forwarded-For value.

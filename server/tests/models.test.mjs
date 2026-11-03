@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LoginAttempt, Task, User } from '../models/index.js';
+import { LoginAttempt, Notification, Task, User } from '../models/index.js';
 
 test('model JSON uses string id and never exposes Mongo internals or password hashes', () => {
   const model = new User({
@@ -30,6 +30,13 @@ test('task JSON preserves date-only values and normalizes an absent due date to 
 
   assert.equal(dueTask.dueDate, '2026-10-17');
   assert.equal(noDueDateTask.dueDate, null);
+});
+
+test('dashboard and unread-notification queries have supporting compound indexes', () => {
+  const taskIndexes = Task.schema.indexes().map(([fields]) => fields);
+  const notificationIndexes = Notification.schema.indexes().map(([fields]) => fields);
+  assert.ok(taskIndexes.some((fields) => fields.projectId === 1 && fields.status === 1 && fields.dueDate === 1));
+  assert.ok(notificationIndexes.some((fields) => fields.userId === 1 && fields.read === 1 && Object.keys(fields).length === 2));
 });
 
 test('login attempt records expire automatically and retain only a keyed digest', () => {

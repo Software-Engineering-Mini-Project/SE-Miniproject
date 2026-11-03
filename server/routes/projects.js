@@ -5,6 +5,7 @@ import { getProjectForUser, isAdmin, requireProjectLead } from '../services/acce
 import { memberDto, projectDto, projectDtos } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
 import { readListOptions } from '../utils/pagination.js';
+import { getProjectSummaries } from '../services/task-aggregates.js';
 import { normalizeEmail, readEmail, readId, readString, requireObject } from '../utils/validation.js';
 
 export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {}) {
@@ -38,7 +39,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
   });
 
   router.get('/projects/:projectId', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId);
+    const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
     response.json(await projectDto(project));
   });
 
@@ -70,9 +71,9 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
   });
 
   router.get('/projects/:projectId/members', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId);
-    const users = await User.find({ _id: { $in: project.memberIds } });
-    const usersById = new Map(users.map((user) => [user.id, memberDto(user)]));
+    const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
+    const users = await User.find({ _id: { $in: project.memberIds } }).select('_id name email role').lean();
+    const usersById = new Map(users.map((user) => [String(user._id), memberDto(user)]));
     response.json(project.memberIds.map(String).map((id) => usersById.get(id)).filter(Boolean));
   });
 
@@ -105,19 +106,9 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
   });
 
   router.get('/projects/:projectId/summary', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId);
-    const tasks = await Task.find({ projectId: project.id });
-    const counts = { 'To Do': 0, 'In Progress': 0, Done: 0 };
-    let overdue = 0;
-    const timestamp = now().getTime();
-    for (const task of tasks) {
-      counts[task.status] += 1;
-      if (task.status !== 'Done' && task.dueDate) {
-        const dueEnd = Date.parse(`${task.dueDate}T23:59:59.999Z`);
-        if (dueEnd < timestamp) overdue += 1;
-      }
-    }
-    response.json({ projectId: project.id, total: tasks.length, counts, overdue });
+    const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
+    const [summary] = await getProjectSummaries([project.id], now);
+    response.json(summary);
   });
 
   return router;

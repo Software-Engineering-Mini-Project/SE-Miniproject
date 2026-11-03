@@ -3,25 +3,29 @@ import { authenticate } from '../middleware/authenticate.js';
 import { Notification, Task } from '../models/index.js';
 import { HttpError } from '../utils/http-error.js';
 import { readFilterString, readId, invalid } from '../utils/validation.js';
+import { toApi } from '../utils/to-api.js';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Create the caller's due-date reminders (TM-F-031). Only their own tasks are scanned. */
 async function generateDueReminders(now, userId) {
   const timestamp = now().getTime();
-  const tasks = await Task.find({ status: { $ne: 'Done' }, dueDate: { $ne: null }, assigneeIds: userId });
+  const tasks = await Task.find({ status: { $ne: 'Done' }, dueDate: { $ne: null }, assigneeIds: userId })
+    .select('_id title status dueDate projectId assigneeIds')
+    .lean();
   const writes = [];
   for (const task of tasks) {
     if (!task.dueDate) continue;
     const dueEnd = Date.parse(`${task.dueDate}T23:59:59.999Z`);
     if (!Number.isFinite(dueEnd) || dueEnd <= timestamp || dueEnd > timestamp + REMINDER_WINDOW_MS) continue;
-    const dedupeKey = `${task.id}:${task.dueDate}`;
+    const taskId = String(task._id);
+    const dedupeKey = `${taskId}:${task.dueDate}`;
     writes.push(Notification.updateOne(
-      { userId, taskId: task.id, type: 'due-date', dedupeKey },
+      { userId, taskId, type: 'due-date', dedupeKey },
       {
         $setOnInsert: {
           userId,
-          taskId: task.id,
+          taskId,
           projectId: task.projectId,
           type: 'due-date',
           message: `"${task.title}" is due within 24 hours.`,
@@ -58,11 +62,24 @@ export function createNotificationsRouter({ jwtSecret, now = () => new Date() } 
     const pageSize = readPositiveInteger(request.query, 'pageSize', 50, 100);
     const filter = { userId: request.user.id };
     const [items, total, unreadCount] = await Promise.all([
-      Notification.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize),
+      Notification.find(filter)
+        .select('_id userId taskId projectId type message read createdAt updatedAt')
+        .sort({ createdAt: -1, _id: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
       Notification.countDocuments(filter),
       Notification.countDocuments({ ...filter, read: false }),
     ]);
-    response.json({ items, page, pageSize, total, unreadCount });
+    response.json({ items: items.map(toApi), page, pageSize, total, unreadCount });
+  });
+
+  router.patch('/notifications/read-all', requireAuth, async (request, response) => {
+    const result = await Notification.updateMany(
+      { userId: request.user.id, read: false },
+      { $set: { read: true } },
+    );
+    response.json({ updated: result.modifiedCount });
   });
 
   router.patch('/notifications/:notificationId/read', requireAuth, async (request, response) => {

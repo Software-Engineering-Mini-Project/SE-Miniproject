@@ -262,10 +262,16 @@ Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip
 |---|---|---|---|
 | `GET /notifications?page=1&pageSize=50` | signed-in user | `200 { items, page, pageSize, total, unreadCount }` (D7). **Only the caller's own notifications**, newest first. `pageSize` defaults to 50, max 100. Each item includes `projectId`. | |
 | `PATCH /notifications/:notificationId/read` | the recipient only | `200 Notification` with `read: true` | `404` if missing **or belongs to someone else** |
+| `PATCH /notifications/read-all` | signed-in user | | `200 { updated }`: marks all of the caller's unread notifications as read in one operation | |
 
-There is no "mark all read" endpoint in the SRS, so the frontend calls the read endpoint once per notification. Add `PATCH /notifications/read-all` if you want; tell me and I'll use it.
+### 6.6 Dashboard
 
-### 6.6 Summary and export (TM-F-041, TM-F-042)
+#### `GET /dashboard` (signed-in user)
+- Returns `200 { projects: [{ projectId, total, counts, overdue }], myTasks }`.
+- Project summaries include every project the caller can access, including projects with no tasks. `myTasks` contains the caller's assigned tasks from those projects.
+- Project totals and overdue counts are aggregated by the API. The existing per-project summary endpoint remains available.
+
+### 6.7 Summary and export (TM-F-041, TM-F-042)
 
 #### `GET /projects/:projectId/summary` (member)
 - `200 { projectId, total, counts: { "To Do", "In Progress", "Done" }, overdue }`
