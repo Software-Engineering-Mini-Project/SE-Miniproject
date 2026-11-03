@@ -29,7 +29,7 @@ npm ci
 
 ## Configure
 
-Copy `apps/api/.env.example` to `apps/api/.env` and set `MONGODB_URI` and a strong `JWT_SECRET`. Copy `apps/web/.env.example` to `apps/web/.env.local`. Do not commit local `.env` files or real credentials. The API requires a valid MongoDB connection string to start.
+The repository includes example templates, not ready-to-use secrets. Copy `apps/api/.env.example` to `apps/api/.env` and set `MONGODB_URI` and a strong `JWT_SECRET`. Copy `apps/web/.env.example` to `apps/web/.env.local`. PowerShell users can run `Copy-Item apps/api/.env.example apps/api/.env` and `Copy-Item apps/web/.env.example apps/web/.env.local` from the repository root. Replace the placeholder values locally; never commit or share the resulting files. `.gitignore` deliberately excludes `.env` and `.env.local` files while allowing the `*.example` templates to be committed. The API requires a valid MongoDB connection string to start.
 
 The web app uses the real API by default (`NEXT_PUBLIC_API_MODE=http`). To load the synthetic demo without a database, set `NEXT_PUBLIC_API_MODE=mock`; the browser mock uses fixtures from `apps/web/fixtures/`. See [docs/backend-api-contract.md](docs/backend-api-contract.md).
 
@@ -84,7 +84,7 @@ An opt-in staging workflow is configured in `.github/workflows/deploy-staging.ym
 
 A Vercel Services configuration is also provided in [vercel.json](vercel.json). Follow [the Vercel staging setup](docs/vercel-staging.md) for Vercel environment variables, Atlas network requirements, rollout checks, and the Render cutover gate. Vercel is not considered live until the app and MongoDB connection are verified; keep Render available until then.
 
-The Render and MongoDB Atlas staging approach is documented in [docs/staging-target-decision.md](docs/staging-target-decision.md). Provisioning and successful deployment must be verified separately.
+The current Render + MongoDB Atlas staging deployment remains the rollback target until the separate Vercel API deployment and database connectivity are verified. See [docs/vercel-api-deployment.md](docs/vercel-api-deployment.md) for the migration plan and [docs/staging-target-decision.md](docs/staging-target-decision.md) for the original hosting decision.
 
 ## Contribution workflow
 
