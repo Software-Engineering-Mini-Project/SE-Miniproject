@@ -15,9 +15,9 @@ Status: implementation and automated evidence reviewed against the repository co
 
 ## Evidence
 
-- API integration coverage is in `apps/api/tests/routes.test.mjs`: comments, project-membership denial, notification ownership, pagination, marking read, assignment notifications, due reminders, and task deletion cascades.
-- API and mock contract coverage is in `apps/api/tests/routes.test.mjs` and `apps/web/tests/mock-api.test.mjs`: comment delete authorization, missing/cross-task handling, own-comment deletion, and Lead moderation are covered along with comment/notification flows.
-- UI coverage is in `apps/web/tests/ui/features.test.mjs`: comment submission/deletion and notification filtering/read state.
+- API integration coverage is in `server/tests/routes.test.mjs`: comments, project-membership denial, notification ownership, pagination, marking read, assignment notifications, due reminders, and task deletion cascades.
+- API and mock contract coverage is in `server/tests/routes.test.mjs` and `tests/mock-api.test.mjs`: comment delete authorization, missing/cross-task handling, own-comment deletion, and Lead moderation are covered along with comment/notification flows.
+- UI coverage is in `tests/ui/features.test.mjs`: comment submission/deletion and notification filtering/read state.
 - Contract paths and authorization expectations are recorded in `docs/backend-api-contract.md`.
 - Run the repository checks with `npm test` and `npm run lint`; CI runs the repository verification workflow on both push and pull request events.
 

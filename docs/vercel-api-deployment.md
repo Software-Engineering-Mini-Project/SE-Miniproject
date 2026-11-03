@@ -5,7 +5,7 @@ The web app currently runs in the `taskmanager-se` Vercel project. The API is a 
 ## Create the API project
 
 1. In Vercel, import `Software-Engineering-Mini-Project/SE-Miniproject` as a new project named `taskmanager-api`.
-2. Set **Root Directory** to `apps/api`. Keep **Include source files outside of the Root Directory in the Build Step** enabled so the project can use the monorepo's root `package-lock.json` and workspace package metadata.
+2. Set **Root Directory** to `server`. Keep **Include source files outside of the Root Directory in the Build Step** enabled so the project can use the monorepo's root `package-lock.json` and workspace package metadata.
 3. Use the Express framework preset and the repository's default install command. The API entry point at `src/index.js` exports the Express app for Vercel Functions.
 4. Add the API environment variables below to Preview and Production. Add real secrets through Vercel's environment editor only; never commit or post them.
 
@@ -33,4 +33,4 @@ Once the Vercel API, Atlas access, CORS, and real user flows have all been verif
 
 ## Local `.env` files
 
-For local development, copy `apps/api/.env.example` to `apps/api/.env` and `apps/web/.env.example` to `apps/web/.env.local`. The actual local files are intentionally ignored by Git; the example templates are safe to share because they contain placeholders only.
+For local development, copy `server/.env.example` to `server/.env` and `.env.example` to `.env.local`. The actual local files are intentionally ignored by Git; the example templates are safe to share because they contain placeholders only.

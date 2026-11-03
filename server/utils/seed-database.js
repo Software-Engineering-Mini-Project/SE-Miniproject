@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs';
-import comments from '../../../web/fixtures/comments.json' with { type: 'json' };
-import notifications from '../../../web/fixtures/notifications.json' with { type: 'json' };
-import projects from '../../../web/fixtures/projects.json' with { type: 'json' };
-import tasks from '../../../web/fixtures/tasks.json' with { type: 'json' };
-import users from '../../../web/fixtures/users.json' with { type: 'json' };
+import comments from '../../fixtures/comments.json' with { type: 'json' };
+import notifications from '../../fixtures/notifications.json' with { type: 'json' };
+import projects from '../../fixtures/projects.json' with { type: 'json' };
+import tasks from '../../fixtures/tasks.json' with { type: 'json' };
+import users from '../../fixtures/users.json' with { type: 'json' };
 import { Comment, models, Notification, Project, Task, User } from '../models/index.js';
 
 export const FIXTURE_PASSWORD = 'Password123!';

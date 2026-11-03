@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { startServer } from '../src/server.js';
+import { startServer } from '../server.js';
 
 const environment = {
   mongoUri: 'mongodb://user:password@db.example.test/task_manager',

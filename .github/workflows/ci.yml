@@ -35,20 +35,20 @@ jobs:
       - name: Install dependencies from lockfile
         run: npm ci
 
-      - name: Lint API and web
+      - name: Lint
         run: npm run lint
 
       - name: Run API and web unit and contract tests
         run: npm test
 
-      - name: Build web application
+      - name: Build application
         run: npm run build
 
       - name: Install Chromium for Playwright
-        run: npx --workspace @task-manager/web playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Run all browser end-to-end tests
-        run: npm run test:e2e --workspace @task-manager/web
+        run: npm run test:e2e
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
@@ -56,6 +56,6 @@ jobs:
         with:
           name: playwright-report-${{ github.event_name }}
           path: |
-            apps/web/playwright-report/
-            apps/web/test-results/
+            playwright-report/
+            test-results/
           retention-days: 14

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
-import { loadEnvironment } from '../src/config/env.js';
-import { seedDatabase } from '../src/utils/seed-database.js';
+import { loadEnvironment } from '../server/config/env.js';
+import { seedDatabase } from '../server/utils/seed-database.js';
 
 try {
   const environment = loadEnvironment();

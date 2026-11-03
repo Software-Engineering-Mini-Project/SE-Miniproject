@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LoginAttempt, Task, User } from '../src/models/index.js';
+import { LoginAttempt, Task, User } from '../models/index.js';
 
 test('model JSON uses string id and never exposes Mongo internals or password hashes', () => {
   const model = new User({

@@ -6,8 +6,8 @@ This guide prepares the Task Manager monorepo for an opt-in Vercel staging deplo
 
 The root `vercel.json` declares two Vercel Services:
 
-- `apps/web`: Next.js app serving the site at `/`.
-- `apps/api`: Express API serving `/api/*`.
+- `src`: Next.js app serving the site at `/`.
+- `server`: Express API serving `/api/*`.
 
 Both services share one deployment origin. The web client should use the relative API base `/api`, so browser requests remain same-origin. The API establishes and reuses its MongoDB connection when Vercel invokes the Express app. The existing `npm run start --workspace @task-manager/api` startup path remains responsible for connecting when running on Render or locally.
 
@@ -45,7 +45,7 @@ Do not add `0.0.0.0/0` to Atlas. Vercel Functions use dynamic egress addresses b
 
 - Install Node.js 22+ and npm 10+.
 - Run `npm ci` from the repository root.
-- Copy `apps/api/.env.example` to `apps/api/.env` and `apps/web/.env.example` to `apps/web/.env.local`.
+- Copy `server/.env.example` to `server/.env` and `.env.example` to `.env.local`.
 - For Vercel-like same-origin local routing, use `NEXT_PUBLIC_API_BASE_URL=/api` with a local proxy; otherwise retain the documented local API origin.
 - Never share personal Vercel accounts or credentials. Invite teammates through the organization’s normal access controls.
 

@@ -7,7 +7,7 @@ This repository contains an opt-in Render staging deployment. It does not provis
 1. The `CI` workflow completes for a push to `main`.
 2. `Deploy staging` receives the completed workflow event. It skips pull-request runs, feature-branch pushes, and failed/cancelled CI. After the job enters the `staging` environment, its deploy step runs only when the environment variable `STAGING_DEPLOY_ENABLED` is exactly `true`.
 3. After configuration, the deployment script asks Render's API and web deploy hooks to deploy the exact tested commit SHA.
-4. The script polls Render's deployment API until both requested deploys report `live` for the exact tested commit SHA. Only then does it poll `GET $STAGING_API_URL/api/health` until it returns JSON `{ "status": "ok" }` and `$STAGING_WEB_URL/login` until it returns a successful response. A failed hook, failed/mismatched deployment, timeout, or health check fails the deployment job.
+4. The script polls Render's deployment API until the requested deploy report `live` for the exact tested commit SHA. Only then does it poll `GET $STAGING_URL/api/health` until it returns JSON `{ "status": "ok" }` and `$STAGING_URL/login` until it returns a successful response. A failed hook, failed/mismatched deployment, timeout, or health check fails the deployment job.
 
 The workflow uses GitHub's `staging` environment so deployment credentials and target URLs are scoped to that environment. It does not deploy from a pull request. Do not configure production values in this environment.
 
@@ -55,7 +55,7 @@ The deployment script has injectable fetch, clock, and wait functions so its gat
 
 ## Teammate setup and access
 
-- Local developers: copy `apps/api/.env.example` to `apps/api/.env` and `apps/web/.env.example` to `apps/web/.env.local`. Set a unique local `JWT_SECRET` (at least 32 characters). Use a disposable database, especially before running the destructive seed script. Browser mock mode needs no database.
+- Local developers: copy `server/.env.example` to `server/.env` and `.env.example` to `.env.local`. Set a unique local `JWT_SECRET` (at least 32 characters). Use a disposable database, especially before running the destructive seed script. Browser mock mode needs no database.
 - Staging operators: `.env.staging.example` is a **names-only reference**, not a file loaded by GitHub Actions or Render. Configure values in the appropriate dashboard. The `NEXT_PUBLIC_` web values are public and baked into the frontend at build time; rebuild and redeploy after changing them. Never put credentials in them.
 - Use an Atlas database account limited to the staging database and staging cluster. Add the Render API service's current outbound CIDR ranges from its Connect > Outbound tab to the Atlas IP access list. Those ranges are shared by Render services in the region, so database credentials and least-privilege roles remain essential. Verify the list in Render rather than hard-coding it; do not open access to all IP addresses.
 - Render API keys are sensitive and may have broad access. Use a scoped, read-only key if available for deployment-status reads; otherwise have the workspace owner review the key's effective permissions before using it. Never commit or send the key, deploy-hook URLs, MongoDB URI, or passwords in chat.

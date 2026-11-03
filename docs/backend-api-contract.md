@@ -9,11 +9,11 @@
 
 ## 1. Where things stand
 
-- **The frontend is built** (Next.js 15, React 19) in `apps/web/`. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
-- **The API contract is implemented** in `apps/api/`, including auth, projects/members, tasks, comments, notifications, summaries, CSV export, access control, validation, and audit logging. The web app uses the real HTTP API by default via [`apps/web/src/lib/api/client.js`](../apps/web/src/lib/api/client.js).
-- The browser mock at [`apps/web/src/lib/api/mock/server.js`](../apps/web/src/lib/api/mock/server.js) remains available for frontend-only work (`NEXT_PUBLIC_API_MODE=mock`). It has no database and no real password hashing, and its tokens are not real JWTs.
-- **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. 19 contract tests check it, each named after an STP test ID ([`apps/web/tests/mock-api.test.mjs`](../apps/web/tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
-- **For local use:** configure MongoDB and `JWT_SECRET`, seed a local/test database, then run both apps. The automated suite checks the API and mock against this contract; follow §12 for a browser smoke test against a live local database.
+- **The frontend is built** (Next.js 15, React 19) in ``. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
+- **The API contract is implemented** in `server/`, including auth, projects/members, tasks, comments, notifications, summaries, CSV export, access control, validation, and audit logging. The web app uses the real HTTP API by default via [`src/lib/api/client.js`](../src/lib/api/client.js).
+- The browser mock at [`src/lib/api/mock/server.js`](../src/lib/api/mock/server.js) remains available for frontend-only work (`NEXT_PUBLIC_API_MODE=mock`). It has no database and no real password hashing, and its tokens are not real JWTs.
+- **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. 19 contract tests check it, each named after an STP test ID ([`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
+- **For local use:** configure MongoDB and `JWT_SECRET`, seed a local/test database, then run the app. The automated suite checks the API and mock against this contract; follow §12 for a browser smoke test against a live local database.
 
 Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll update this file and the frontend.
 
@@ -24,15 +24,15 @@ Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll 
 ```bash
 # install dependencies from the repository root
 npm ci                 # once, after cloning
-copy apps/api/.env.example to apps/api/.env
-# set MONGODB_URI and a strong JWT_SECRET in apps/api/.env
-copy apps/web/.env.example to apps/web/.env.local
-# set NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api in apps/web/.env.local
-npm run seed --workspace @task-manager/api  # clears selected collections; local/test DB only
+copy server/.env.example to server/.env
+# set MONGODB_URI and a strong JWT_SECRET in server/.env
+copy .env.example to .env.local
+# set NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api in .env.local
+npm run seed  # clears selected collections; local/test DB only
 npm run dev
 ```
 
-The web app defaults to HTTP mode. To use the browser mock without starting MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `apps/web/.env.local` and run `npm run dev:web`.
+The web app defaults to HTTP mode. To use the browser mock without starting MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `.env.local` and run `npm run dev:web`.
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
@@ -44,7 +44,7 @@ Demo users from the fixtures (all use password `Password123!`, synthetic only):
 | `member.two.with.a.long.address@example.test` | Member | Alpha (long name on purpose) |
 | `outsider@example.test` | Member | none: use it for negative access tests |
 
-Seed your **test** database from `apps/web/fixtures/*.json`. Hash `Password123!` with bcrypt when seeding.
+Seed your **test** database from `fixtures/*.json`. Hash `Password123!` with bcrypt when seeding.
 
 ---
 
@@ -280,7 +280,7 @@ There is no "mark all read" endpoint in the SRS, so the frontend calls the read 
   `assignees` is the assignee **names** joined with `"; "`. Use CRLF line endings, a header row, then one row per task.
 - **Formula-injection protection (PRJ-SR-005, TC-REPORT-02):** if a cell starts with `=`, `+`, `-`, `@`, a tab or a CR, prefix it with `'`.
 - **Quoting:** if a cell contains `"`, `,`, CR or LF, or has leading or trailing spaces, wrap it in quotes and double the inner quotes.
-- Reference implementation (18 lines): [`apps/web/src/lib/api/mock/csv.js`](../apps/web/src/lib/api/mock/csv.js). Fixture `task-007` has a formula-like title. Its expected cell is `"'=HYPERLINK(""https://example.test"",""Export check"")"`.
+- Reference implementation (18 lines): [`src/lib/api/mock/csv.js`](../src/lib/api/mock/csv.js). Fixture `task-007` has a formula-like title. Its expected cell is `"'=HYPERLINK(""https://example.test"",""Export check"")"`.
 
 ---
 
@@ -343,7 +343,7 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 ## 9. Suggested backend layout (SAD §3 layered modular monolith)
 
 ```
-apps/api/
+server/
   package.json            # npm workspace, "type": "module", engines node >= 22
   .env.example            # PORT=4000, MONGODB_URI=, JWT_SECRET=, JWT_EXPIRES_IN=7200, CORS_ORIGIN=http://localhost:3000
   src/
@@ -366,19 +366,19 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 10. Testing
 
-- **Port the contract tests.** [`apps/web/tests/mock-api.test.mjs`](../apps/web/tests/mock-api.test.mjs) has 19 tests named after STP IDs: TC-AUTH-01/02/03, TC-SEC-02/03/06, TC-PROJ-01/02, TC-TASK-01/02/03, TC-BOARD-01, TC-NOTIF-01/02, TC-COMM-01, TC-SEARCH-01, TC-REPORT-01/02. Each one is `request → expected status + errorCode`. Rewrite them with Supertest against `app.js` and they become your API integration suite (STP §5.1).
-- **Seed** a dedicated test database from `apps/web/fixtures/*.json` before each run. Never use production data (STP §5.4).
+- **Port the contract tests.** [`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs) has 19 tests named after STP IDs: TC-AUTH-01/02/03, TC-SEC-02/03/06, TC-PROJ-01/02, TC-TASK-01/02/03, TC-BOARD-01, TC-NOTIF-01/02, TC-COMM-01, TC-SEARCH-01, TC-REPORT-01/02. Each one is `request → expected status + errorCode`. Rewrite them with Supertest against `app.js` and they become your API integration suite (STP §5.1).
+- **Seed** a dedicated test database from `fixtures/*.json` before each run. Never use production data (STP §5.4).
 - **Expected numbers with the fixtures:**
   - Alpha summary is `{ "To Do": 3, "In Progress": 2, "Done": 2 }`, `total` 7, `overdue` 1 on 2026-10-16.
   - Filtering as member@ with `status=In Progress&priority=High&assigneeId=user-member-002` returns only `task-004`.
   - Alpha CSV export is 8 lines (header + 7).
-- `apps/web/fixtures/negative-inputs.json` lists hostile inputs to throw at every endpoint: invalid statuses, a NoSQL operator, an XSS comment, CSV formulas, a non-member assignee and bad tokens.
+- `fixtures/negative-inputs.json` lists hostile inputs to throw at every endpoint: invalid statuses, a NoSQL operator, an XSS comment, CSV formulas, a non-member assignee and bad tokens.
 
 ---
 
 ## 11. Maintenance notes
 
-1. **CI and workspaces:** the root `package.json` and lockfile manage both apps. GitHub Actions runs API and Web checks on Node 22 and 24; keep those workspace commands aligned with the package names in each app's `package.json`.
+1. **CI and workspaces:** the root `package.json` and lockfile manage the app. GitHub Actions runs API and Web checks on Node 22 and 24; keep those workspace commands aligned with the package names in each app's `package.json`.
 2. **Keep SAD §4 in sync** with this contract when decisions change (SRS §3.2 asks for the final contract to live in the repo).
 3. **Resolve the SRS version question** before later work changes requirements: the reviewed copy is v1.0 while Issue #2 cites v1.3.
 
@@ -387,12 +387,12 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 ## 12. Using the frontend with the API
 
 1. Run your API on `http://localhost:4000` with CORS allowing `http://localhost:3000`.
-2. Configure `apps/web/.env.local`:
+2. Configure `.env.local`:
    ```
    NEXT_PUBLIC_API_MODE=http
    NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
    ```
-3. Seed a local/test database with `npm run seed --workspace @task-manager/api`, then start both apps with `npm run dev`. In HTTP mode, sign in using a seeded account or register a new user. Seeded fixture users share password `Password123!`.
+3. Seed a local/test database with `npm run seed`, then start the app with `npm run dev`. In HTTP mode, sign in using a seeded account or register a new user. Seeded fixture users share password `Password123!`.
 4. Smoke test in this order:
    - register → sign in → dashboard
    - as lead@: open Alpha → create a task with an assignee → drag it across columns → reload (it must stay) → comment → export CSV
@@ -400,7 +400,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
    - as outsider@: opening `/projects/project-alpha` shows "You are not a member of this project"
 5. If something breaks, the browser DevTools Network tab shows the exact request. Compare it with the matching section of this document.
 
-The only file in the web app that knows about URLs is [`apps/web/src/lib/api/client.js`](../apps/web/src/lib/api/client.js). If you change a path or shape, tell me and I'll update that file alone.
+The only file in the web app that knows about URLs is [`src/lib/api/client.js`](../src/lib/api/client.js). If you change a path or shape, tell me and I'll update that file alone.
 
 ---
 
@@ -408,12 +408,12 @@ The only file in the web app that knows about URLs is [`apps/web/src/lib/api/cli
 
 | What | Where |
 |---|---|
-| Reference behaviour (mock API) | `apps/web/src/lib/api/mock/server.js` |
-| CSV escaping reference | `apps/web/src/lib/api/mock/csv.js` |
-| Frontend API client: every endpoint the UI calls | `apps/web/src/lib/api/client.js` |
-| Enums and limits | `apps/web/src/lib/constants.js` |
-| Contract tests (STP IDs) | `apps/web/tests/mock-api.test.mjs` |
-| Synthetic seed data | `apps/web/fixtures/*.json` |
+| Reference behaviour (mock API) | `src/lib/api/mock/server.js` |
+| CSV escaping reference | `src/lib/api/mock/csv.js` |
+| Frontend API client: every endpoint the UI calls | `src/lib/api/client.js` |
+| Enums and limits | `src/lib/constants.js` |
+| Contract tests (STP IDs) | `tests/mock-api.test.mjs` |
+| Synthetic seed data | `fixtures/*.json` |
 | Requirements and design | `Templates/SRS_*.pdf`, `Templates/SAD_*.pdf`, `Templates/STP_*.pdf` (on the `Templates` branch) |
 
 Questions or disagreements: message me. If a requirement is genuinely ambiguous, open a GitHub issue and label it `decision` so the whole team can see it.

@@ -1,101 +1,29 @@
-# SE-Miniproject - Task Manager
+# Task Manager
 
-Task Manager application built as an npm workspaces monorepo. The web app uses Next.js (App Router); the API uses Node.js, Express, and MongoDB/Mongoose.
+Task Manager is a single-app monolith: Next.js serves the web interface and Express serves the MongoDB-backed API under `/api` from the same Node process and port.
 
-## Prerequisites
-
-- Node.js 22 or newer (Node.js 24 LTS is recommended)
-- npm 10 or newer (included with supported Node.js releases)
-
-## Repository layout
+## Structure
 
 ```text
-apps/
-  api/         Express API, MongoDB models, seed scripts, and API tests
-  web/         Next.js app, synthetic fixtures, and web tests
-docs/          API contract and handoff notes
-.github/       GitHub Actions workflows
+src/       Next.js app, UI features, API client
+server/    Express routes, MongoDB models, middleware, and tests
+fixtures/  Synthetic data
+tests/     Web tests
+e2e/       Playwright browser tests
+scripts/   Database seed and staging deployment
+docs/      API contract and handoff notes
 ```
 
-See [context.md](context.md) for current architecture, agreed decisions, and next steps. The working [requirements traceability and test evidence register](docs/requirements-traceability.md) records evidence for Issues #1–#6.
+## Setup
 
-## Install
+Use Node.js 22+ and npm 10+. Copy `.env.example` to `.env`, set a strong `JWT_SECRET`, and point `MONGODB_URI` at a local or test database. Install dependencies with `npm install`.
 
-From the repository root:
+Run `npm run dev` to serve the website and API on port 3000. The API health check is `/api/health`; the web app is at `/login`. Set `NEXT_PUBLIC_API_MODE=mock` to use synthetic browser fixtures without MongoDB-backed API calls.
 
-```bash
-npm ci
-```
+## Commands
 
-## Configure
+`npm run lint`, `npm test`, `npm run build`, `npm run test:e2e`, and `npm run seed` are available from the repository root. Seeding clears selected collections; use a disposable local/test database only.
 
-The repository includes example templates, not ready-to-use secrets. Copy `apps/api/.env.example` to `apps/api/.env` and set `MONGODB_URI` and a strong `JWT_SECRET`. Copy `apps/web/.env.example` to `apps/web/.env.local`. PowerShell users can run `Copy-Item apps/api/.env.example apps/api/.env` and `Copy-Item apps/web/.env.example apps/web/.env.local` from the repository root. Replace the placeholder values locally; never commit or share the resulting files. `.gitignore` deliberately excludes `.env` and `.env.local` files while allowing the `*.example` templates to be committed. The API requires a valid MongoDB connection string to start.
+Render staging uses one web service. See `docs/staging-deployment.md` for setup and rollout notes.
 
-The web app uses the real API by default (`NEXT_PUBLIC_API_MODE=http`). To load the synthetic demo without a database, set `NEXT_PUBLIC_API_MODE=mock`; the browser mock uses fixtures from `apps/web/fixtures/`. See [docs/backend-api-contract.md](docs/backend-api-contract.md).
-
-## Run locally
-
-Start both applications from the root:
-
-```bash
-npm run dev
-```
-
-To load the synthetic demo accounts and fixtures into the configured MongoDB during local development, run `npm run seed --workspace @task-manager/api`. **Seeding clears the selected database collections before inserting the demo data; use a local or test database only.** Demo password: `Password123!`.
-
-- Web app: <http://localhost:3000> (in HTTP mode, sign in with a seeded account; in mock mode, use the demo account buttons)
-- API health check: <http://localhost:4000/api/health>
-
-You can also start each application separately with `npm run dev:web` or `npm run dev:api`.
-
-## Verify
-
-```bash
-npm test
-npm run lint
-npm run build
-```
-
-The web test command includes Node-based fixture/mock API tests and React component tests written in `.mjs` with Vitest and Testing Library. To generate a local V8 coverage report for the UI components, run:
-
-```bash
-npm run test:coverage --workspace @task-manager/web
-```
-
-The HTML report is written to `apps/web/coverage/` (ignored by Git).
-
-End-to-end browser tests (Playwright) use the browser mock by default, so no database is needed:
-
-```bash
-npx --workspace @task-manager/web playwright install chromium   # first time only
-NEXT_PUBLIC_API_MODE=mock npm run build --workspace @task-manager/web
-NEXT_PUBLIC_API_MODE=mock npm run test:e2e --workspace @task-manager/web
-```
-
-The suite covers the critical task-manager journey and issue-focused browser flows for authentication/profile, project membership, task edits/status changes, and reporting. It also includes **TC-UX-01**: axe WCAG 2.1 A/AA and horizontal-overflow checks on sign-in, registration, dashboard, projects, the board, tasks, notifications, profile, and the task dialog at mobile (390 px), tablet (768 px), and desktop (1280 px) widths. Keyboard checks cover the skip link and mobile navigation drawer. Automated checks support, but do not replace, the manual accessibility checklist.
-
-To run against the real API, start the API with a seeded local or test database and build and test without `NEXT_PUBLIC_API_MODE=mock`; set the API's `CORS_ORIGIN` to include `http://localhost:3100`. On failure, the screenshot, video and trace are in `apps/web/test-results/`.
-
-## CI and deployment
-
-GitHub Actions (`.github/workflows/ci.yml`) runs on branch pushes and pull requests targeting `main`. Its verification job installs from the lockfile, runs API and web lint and tests, builds the web app, and runs all Playwright end-to-end tests on Node 22. It uploads the Playwright report and test results for 14 days.
-
-An opt-in staging workflow is configured in `.github/workflows/deploy-staging.yml`. It deploys only after successful CI on `main` when the GitHub staging environment is configured and enabled. See [the Render staging setup guide](docs/staging-deployment.md) and [configuration template](.env.staging.example).
-
-A Vercel Services configuration is also provided in [vercel.json](vercel.json). Follow [the Vercel staging setup](docs/vercel-staging.md) for Vercel environment variables, Atlas network requirements, rollout checks, and the Render cutover gate. Vercel is not considered live until the app and MongoDB connection are verified; keep Render available until then.
-
-The current Render + MongoDB Atlas staging deployment remains the rollback target until the separate Vercel API deployment and database connectivity are verified. See [docs/vercel-api-deployment.md](docs/vercel-api-deployment.md) for the migration plan and [docs/staging-target-decision.md](docs/staging-target-decision.md) for the original hosting decision.
-
-## Contribution workflow
-
-1. Create a feature branch from the latest `main`.
-2. Make focused commits and keep secrets and real personal data out of Git.
-3. Open a pull request to `main`, link the related issue, and request review.
-4. Resolve review feedback and wait for the required approval and CI checks before merging.
-
-## Current scope
-
-- **Web:** sign-in/register, dashboard, projects and members, Kanban board, task details and comments, my tasks with filters, notifications, profile, and CSV export. HTTP mode is the default; fixture-backed mock mode remains available.
-- **API:** Express/Mongoose implementation of the contract endpoints described in [docs/backend-api-contract.md](docs/backend-api-contract.md), connected through the web app's centralized API client.
-
-Admin onboarding and recovery are pending owner approval; see [the proposal](docs/admin-onboarding-proposal.md).
+Vercel deployments use the existing `taskmanager-se` project in Services mode. Its single project URL routes `/api/*` to the Express service and all other paths to Next.js; both services share the same origin. The project Root Directory must be empty (repository root), and the project needs the API runtime variables `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, and `CORS_ORIGIN` in Preview and Production.
