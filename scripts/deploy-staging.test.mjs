@@ -3,7 +3,7 @@ import test from 'node:test';
 import { deployStaging } from './deploy-staging.mjs';
 
 const sha = 'a'.repeat(40);
-const env = { STAGING_DEPLOY_ENABLED: 'true', RENDER_DEPLOY_HOOK_URL: 'https://api.render.com/deploy/srv-test?key=secret', RENDER_API_TOKEN: 'token', STAGING_URL: 'https://task-manager-staging.onrender.com', GITHUB_SHA: sha };
+const env = { STAGING_DEPLOY_ENABLED: 'true', RENDER_DEPLOY_HOOK_URL: 'https://api.render.com/deploy/srv-test?key=secret', RENDER_API_TOKEN: 'token', STAGING_URL: 'https://staging.example', GITHUB_SHA: sha };
 const deploy = { id: 'd-1', status: 'live', commit: { id: sha } };
 const quiet = { info() {} };
 

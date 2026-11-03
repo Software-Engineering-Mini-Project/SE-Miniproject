@@ -11,7 +11,7 @@ function configFrom(env) {
   const hook = new URL(env.RENDER_DEPLOY_HOOK_URL);
   const origin = new URL(env.STAGING_URL);
   if (hook.protocol !== 'https:' || hook.hostname !== 'api.render.com' || !hook.pathname.startsWith('/deploy/')) throw new Error('RENDER_DEPLOY_HOOK_URL must be a Render deploy hook URL.');
-  if (origin.protocol !== 'https:' || !origin.hostname.endsWith('.onrender.com') || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('STAGING_URL must be an assigned Render HTTPS origin.');
+  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('STAGING_URL must be an HTTPS origin without credentials.');
   hook.searchParams.set('ref', env.GITHUB_SHA);
   return { hook, origin, serviceId: hook.pathname.slice('/deploy/'.length), token: env.RENDER_API_TOKEN, sha: env.GITHUB_SHA };
 }
