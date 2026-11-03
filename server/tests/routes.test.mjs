@@ -105,14 +105,38 @@ test('successful login migrates a cost-12 password hash to cost 10', async () =>
   const login = await request(app).post('/api/auth/login').send({ email, password });
   assert.equal(login.status, 200);
   assert.equal(login.body.user.id, user.id);
-  let migrated;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    migrated = await User.findById(user.id).select('+passwordHash');
-    if (bcrypt.getRounds(migrated.passwordHash) === 10) break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+  const migrated = await User.findById(user.id).select('+passwordHash');
   assert.equal(bcrypt.getRounds(migrated.passwordHash), 10);
   assert.equal(await bcrypt.compare(password, migrated.passwordHash), true);
+});
+
+test('rehash failure does not prevent a valid login', async () => {
+  const email = 'migration-failure@example.test';
+  const password = 'Password123!';
+  await User.create({ name: 'Migration Failure', email, emailNormalized: email, passwordHash: await bcrypt.hash(password, 12), role: 'Member' });
+  const update = User.updateOne;
+  const log = console.error;
+  try {
+    User.updateOne = () => { throw new Error('private database detail'); };
+    console.error = () => {};
+    const response = await request(app).post('/api/auth/login').send({ email, password });
+    assert.equal(response.status, 200);
+    assert.ok(response.body.token);
+  } finally {
+    User.updateOne = update;
+    console.error = log;
+  }
+});
+
+test('a deleted account cannot use an existing token', async () => {
+  const email = 'deleted-user@example.test';
+  const password = 'Password123!';
+  const user = await User.create({ name: 'Deleted User', email, emailNormalized: email, passwordHash: await bcrypt.hash(password, 10), role: 'Member' });
+  const login = await request(app).post('/api/auth/login').send({ email, password });
+  assert.equal(login.status, 200);
+  await User.deleteOne({ _id: user._id });
+  const response = await request(app).get('/api/auth/me').set(auth(login.body.token));
+  assert.equal(response.status, 401);
 });
 
 test('authentication errors and failed-login throttling return stable envelopes', async () => {

@@ -12,8 +12,9 @@ async function handle(request) {
   const isText = /^(text\/|application\/(?:json|[^;]+\+json|x-www-form-urlencoded))/i.test(contentType);
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   const body = !hasBody ? null : isText ? await request.text() : Buffer.from(await request.arrayBuffer()).toString('base64');
-  const sourceIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || request.headers.get('x-real-ip')?.trim() || '127.0.0.1';
+  const sourceIp = request.headers.get('x-real-ip')?.trim()
+    || request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1';
   const result = await handler({
     httpMethod: request.method,
     path: url.pathname,
