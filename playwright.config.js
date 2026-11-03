@@ -27,7 +27,8 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `npx next start --port ${PORT}`,
+    command: isMock ? `npx next start --port ${PORT}` : 'npm start',
+    env: { PORT: String(PORT) },
     url: `http://localhost:${PORT}/login`,
     reuseExistingServer: !isCI,
     timeout: 120_000,

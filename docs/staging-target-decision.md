@@ -1,3 +1,3 @@
-# Staging target
+# Deployment target
 
-Vercel is the primary deployment. Render is an optional staging path using one service and a MongoDB database; see `staging-deployment.md`.
+The application runs as one Vercel project using MongoDB Atlas. See the README for environment variables and deployment instructions.

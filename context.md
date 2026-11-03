@@ -8,7 +8,7 @@ server/    Express API, MongoDB models, tests, and support
 fixtures/  Synthetic fixtures
 tests/     Web unit and component tests
 e2e/       Playwright browser tests
-scripts/   Seed and staging deployment scripts
+scripts/   Seed and index management scripts
 docs/      API contract and handoff documentation
 ```
 

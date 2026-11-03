@@ -26,11 +26,12 @@ export function authenticate({ jwtSecret }) {
       return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
     }
 
-    const user = await User.findById(payload.sub);
+    const user = await User.findById(payload.sub).select('_id name email role createdAt updatedAt').lean();
     if (!user) return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
 
-    request.user = { id: user.id, role: user.role };
-    request.authUser = user;
+    const id = String(user._id);
+    request.user = { id, role: user.role };
+    request.authUser = { ...user, id };
     return next();
   };
 }

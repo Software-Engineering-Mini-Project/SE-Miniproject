@@ -137,9 +137,12 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
 
     if (bcrypt.getRounds(user.passwordHash) > BCRYPT_COST) {
       const oldHash = user.passwordHash;
-      bcrypt.hash(password, BCRYPT_COST)
-        .then((passwordHash) => User.updateOne({ _id: user._id, passwordHash: oldHash }, { $set: { passwordHash } }))
-        .catch(() => console.error(JSON.stringify({ event: 'password_rehash_failed' })));
+      try {
+        const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
+        await User.updateOne({ _id: user._id, passwordHash: oldHash }, { $set: { passwordHash } });
+      } catch {
+        console.error(JSON.stringify({ event: 'password_rehash_failed' }));
+      }
     }
 
     const token = jwt.sign({}, jwtSecret, {
