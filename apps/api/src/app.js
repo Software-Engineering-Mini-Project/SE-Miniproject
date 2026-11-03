@@ -57,6 +57,8 @@ export function createApp({
   logger = console,
   now = () => new Date(),
   extendRoutes,
+  beforeRoutes = [],
+  corsOrigins = getAllowedOrigins(),
   jwtSecret = process.env.JWT_SECRET,
   jwtExpiresIn = Number(process.env.JWT_EXPIRES_IN) || 7200,
 } = {}) {
@@ -69,13 +71,14 @@ export function createApp({
   app.use(helmet());
   app.use(cors({
     origin(origin, callback) {
-      callback(null, !origin || getAllowedOrigins().includes(origin));
+      callback(null, !origin || corsOrigins.includes(origin));
     },
     methods: allowedMethods,
     allowedHeaders,
   }));
   app.use(requestLogger({ logger, now }));
   app.use(express.json({ limit: '100kb' }));
+  for (const middleware of beforeRoutes) app.use(middleware);
 
   // Vercel invokes the app without running server.js, so connect lazily and
   // reuse Mongoose's connection across warm function invocations.
