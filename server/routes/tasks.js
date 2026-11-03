@@ -4,6 +4,8 @@ import { Comment, Notification, Project, Task, User } from '../models/index.js';
 import { getProjectForUser, getTaskForUser, isAdmin } from '../services/access.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
+import { readListOptions } from '../utils/pagination.js';
+import { toApi } from '../utils/to-api.js';
 import {
   escapeRegex,
   invalid,
@@ -111,8 +113,14 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   router.get('/projects/:projectId/tasks', requireAuth, async (request, response) => {
     const project = await getProjectForUser(request.user, request.params.projectId);
     const filters = readTaskFilters(request.query);
-    const tasks = await Task.find(combineFilters({ projectId: project.id }, filters)).sort({ createdAt: 1 });
-    response.json(tasks);
+    const options = readListOptions(request.query);
+    const tasks = await Task.find(combineFilters({ projectId: project.id }, filters))
+      .select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .sort({ createdAt: 1, _id: 1 })
+      .skip(options.skip)
+      .limit(options.limit)
+      .lean();
+    response.json(tasks.map(toApi));
   });
 
   router.post('/projects/:projectId/tasks', requireAuth, async (request, response) => {
@@ -127,6 +135,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
 
   router.get('/tasks', requireAuth, async (request, response) => {
     const filters = readTaskFilters(request.query, { includeProjectId: true });
+    const options = readListOptions(request.query);
     let projectIds;
     if (filters.projectId) {
       const project = await getProjectForUser(request.user, filters.projectId);
@@ -140,7 +149,13 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     }
     if (projectIds && projectIds.length === 0) return response.json([]);
     const query = projectIds ? combineFilters({ projectId: { $in: projectIds } }, filters) : combineFilters({}, filters);
-    response.json(await Task.find(query).sort({ createdAt: 1 }));
+    const tasks = await Task.find(query)
+      .select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .sort({ createdAt: 1, _id: 1 })
+      .skip(options.skip)
+      .limit(options.limit)
+      .lean();
+    response.json(tasks.map(toApi));
   });
 
   router.get('/tasks/:taskId', requireAuth, async (request, response) => {

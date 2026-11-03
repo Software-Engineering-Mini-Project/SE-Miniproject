@@ -19,6 +19,8 @@ const TOKEN_TTL_SECONDS = 7200;
 const FAILED_LOGIN_PAIR_LIMIT = 5;
 const FAILED_LOGIN_IP_LIMIT = 60;
 const FAILED_LOGIN_WINDOW_MS = 60_000;
+const REGISTRATION_LIMIT = 5;
+const REGISTRATION_WINDOW_MS = 10 * 60_000;
 // Unknown emails are checked against this hash so the response time doesn't reveal which emails are registered.
 const UNKNOWN_USER_HASH = '$2b$10$xWxI5wQNvlNQCxUJcnmUY.I5F3udThG6cKMGToEf0fRdYraRNZ5KO';
 
@@ -78,10 +80,44 @@ async function recordFailedLogin(key, timestamp) {
   }
 }
 
+async function reserveRegistrationSlot(key, timestamp) {
+  const expiresAt = new Date(timestamp.getTime() + REGISTRATION_WINDOW_MS);
+  try {
+    let bucket = await LoginAttempt.findOneAndUpdate(
+      { _id: key, expiresAt: { $lte: timestamp } },
+      { $set: { attempts: 1, windowStartedAt: timestamp, expiresAt } },
+      { returnDocument: 'after', projection: { attempts: 1 } },
+    ).lean();
+    if (!bucket) {
+      try {
+        bucket = await LoginAttempt.findOneAndUpdate(
+          { _id: key },
+          { $inc: { attempts: 1 }, $setOnInsert: { windowStartedAt: timestamp, expiresAt } },
+          { upsert: true, returnDocument: 'after', projection: { attempts: 1 } },
+        ).lean();
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+        bucket = await LoginAttempt.findOneAndUpdate(
+          { _id: key }, { $inc: { attempts: 1 } }, { returnDocument: 'after', projection: { attempts: 1 } },
+        ).lean();
+      }
+    }
+    if (bucket.attempts > REGISTRATION_LIMIT) {
+      throw new HttpError(429, 'RATE_LIMITED', 'Too many registration attempts. Wait ten minutes and try again.');
+    }
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(503, 'AUTH_RATE_LIMIT_UNAVAILABLE', 'Registration is temporarily unavailable. Try again.');
+  }
+}
+
 export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, now = () => new Date() }) {
   const router = Router();
 
   router.post('/register', async (request, response) => {
+    const ip = clientIp(request);
+    const key = createHmac('sha256', jwtSecret).update(`register\0${ip}`).digest('hex');
+    await reserveRegistrationSlot(key, now());
     const body = requireObject(request.body);
     const name = readString(body, 'name', { max: 80, label: 'Name' });
     const email = readEmail(body);

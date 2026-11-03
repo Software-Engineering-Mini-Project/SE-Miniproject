@@ -193,6 +193,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 - **Always creates role `Member`.** Ignore any `role` sent in the body (SRS §2.2).
 - `201 { userId, email }`
 - `400 VALIDATION_ERROR` (with `fields`), or `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive.
+- Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing.
 
 #### `POST /auth/login` (public)
 - Body: `{ email, password }`
@@ -212,7 +213,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
-| `GET /projects` | any signed-in user | | `200 Project[]`: projects where the user is in `memberIds` (Admin: all) | |
+| `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects where the user is in `memberIds` (Admin: all) | |
 | `POST /projects` | Lead, Admin | `{ name, description? }` | `201 Project`. `ownerId` = caller, `memberIds` = [caller] | `403` for Member, `400` |
 | `GET /projects/:projectId` | member | | `200 Project` | `403` non-member, `404` |
 | `PATCH /projects/:projectId` | project Lead (a member), Admin | `{ name?, description? }` | `200 Project` | `403`, `404`, `400` |
@@ -227,9 +228,9 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 | Method and path | Who | Body or query | Success | Errors |
 |---|---|---|---|---|
-| `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
+| `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
 | `POST /projects/:projectId/tasks` | project Lead, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400`, `403` |
-| `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId` | `200 Task[]` from **every project the caller can access** | `400` |
+| `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
 | `PATCH /tasks/:taskId` | project Lead, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
 | `DELETE /tasks/:taskId` | project Lead, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
@@ -240,6 +241,8 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 - `status` and `priority` must be valid enum values (else 400).
 - `assigneeId`: the task's `assigneeIds` contains it.
 - All filters combine with AND. An empty result is `200 []`, not 404.
+
+For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50 with a maximum of 100. Supplying either parameter enables pagination; an omitted `page` defaults to 1. The response remains a plain array for backward compatibility. If neither parameter is supplied, the API returns the first 500 matching records at most. CSV export remains unpaginated and accepts filters only.
 
 **Board behaviour:** the board moves a card on screen immediately, then calls `PATCH /tasks/:id/status`. If that call fails it moves the card back and shows your `message` in a toast, so return a clear message.
 
