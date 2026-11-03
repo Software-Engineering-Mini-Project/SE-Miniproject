@@ -1,6 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
-import { seedDatabase } from '../src/utils/seed-database.js';
+import { seedDatabase } from '../utils/seed-database.js';
 
 export async function startTestDatabase() {
   const server = await MongoMemoryServer.create();

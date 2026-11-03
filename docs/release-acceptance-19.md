@@ -8,7 +8,7 @@ Status: **in progress**, not a release sign-off. Evaluated local `origin/main` c
 | `npm run lint` | Pass | API and web lint. |
 | `npm test` | Pass | API 29/29 and web 26/26. API integration tests use a seeded temporary MongoDB. Includes Admin and membership access checks. |
 | `NEXT_PUBLIC_API_MODE=mock npm run build` | Pass | Production web build; network access required for Google Fonts. |
-| `NEXT_PUBLIC_API_MODE=mock npm run test:e2e --workspace @task-manager/web` | Pass | Chromium TC-E2E-01, 1/1; browser mock, not a live API/MongoDB journey. |
+| `NEXT_PUBLIC_API_MODE=mock npm run test:e2e` | Pass | Chromium TC-E2E-01, 1/1; browser mock, not a live API/MongoDB journey. |
 | Live HTTP browser journey with seeded local MongoDB | Not run | A separately configured local MongoDB was not established for this pass. |
 | Responsive/accessibility manual checks | Not run | Requires browser/device and assistive technology checks. PR #24 has separate proposed automated evidence; it is not included in this main commit. |
 

@@ -38,8 +38,6 @@ jobs:
         env:
           GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
           STAGING_DEPLOY_ENABLED: ${{ vars.STAGING_DEPLOY_ENABLED }}
-          RENDER_API_DEPLOY_HOOK_URL: ${{ secrets.RENDER_API_DEPLOY_HOOK_URL }}
-          RENDER_WEB_DEPLOY_HOOK_URL: ${{ secrets.RENDER_WEB_DEPLOY_HOOK_URL }}
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
           RENDER_API_TOKEN: ${{ secrets.RENDER_API_TOKEN }}
-          STAGING_API_URL: ${{ vars.STAGING_API_URL }}
-          STAGING_WEB_URL: ${{ vars.STAGING_WEB_URL }}
+          STAGING_URL: ${{ vars.STAGING_URL }}

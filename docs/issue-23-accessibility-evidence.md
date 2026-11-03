@@ -4,7 +4,7 @@ Status: automated Chromium evidence is recorded. Manual browser, screen-reader, 
 
 ## Automated coverage
 
-The `TC-UX-01` suite in `apps/web/e2e/accessibility.spec.js` scans sign-in, registration, dashboard, projects, task board, My Tasks, notifications, profile, and the New Task dialog. It runs at 390x844, 768x1024, and 1280x800 using Chromium. Each page is checked for horizontal overflow and axe WCAG 2.1 A/AA violations. Keyboard coverage verifies the desktop skip link and the mobile navigation drawer's open, close, focus restoration, and navigation behavior.
+The `TC-UX-01` suite in `e2e/accessibility.spec.js` scans sign-in, registration, dashboard, projects, task board, My Tasks, notifications, profile, and the New Task dialog. It runs at 390x844, 768x1024, and 1280x800 using Chromium. Each page is checked for horizontal overflow and axe WCAG 2.1 A/AA violations. Keyboard coverage verifies the desktop skip link and the mobile navigation drawer's open, close, focus restoration, and navigation behavior.
 
 The automated run recorded in PR #24 found and fixed four issues: horizontal board overflow at phone/tablet widths, secondary text contrast of 4.27:1, accessible-name mismatches on Account and Members controls, and invalid dashboard definition-list markup. The TC-E2E-01 critical journey also moves a card with Space/Arrow/Space; it does not verify spoken announcements.
 

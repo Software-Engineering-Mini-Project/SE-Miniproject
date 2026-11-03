@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 import { after, before, test } from 'node:test';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-import { createApp } from '../src/app.js';
-import { Comment, LoginAttempt, Notification, Project, Task, User } from '../src/models/index.js';
+import { createApp } from '../app.js';
+import { Comment, LoginAttempt, Notification, Project, Task, User } from '../models/index.js';
 import { startTestDatabase } from '../test-support/database.mjs';
 
 const JWT_SECRET = 'route-tests-use-a-secret-long-enough-for-hs256';

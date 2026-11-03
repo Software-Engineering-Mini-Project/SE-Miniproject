@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import request from 'supertest';
-import { createApp } from '../src/app.js';
+import { createApp } from '../app.js';
 
 const fixedDate = new Date('2026-10-26T12:00:00.000Z');
 

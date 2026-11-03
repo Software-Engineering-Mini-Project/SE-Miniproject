@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConfigurationError, parseEnvironment } from '../src/config/env.js';
+import { ConfigurationError, parseEnvironment } from '../config/env.js';
 
 const validEnvironment = {
   MONGODB_URI: 'mongodb://127.0.0.1:27017/task_manager',
