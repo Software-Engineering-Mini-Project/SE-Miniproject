@@ -26,4 +26,7 @@ Run `npm run dev` to serve the website and API on port 3000. The API health chec
 
 Render staging uses one web service. See `docs/staging-deployment.md` for setup and rollout notes.
 
-Vercel deployments use the existing `taskmanager-se` project in Services mode. Its single project URL routes `/api/*` to the Express service and all other paths to Next.js; both services share the same origin. The project Root Directory must be empty (repository root), and the project needs the API runtime variables `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, and `CORS_ORIGIN` in Preview and Production.
+
+Vercel is the primary deployment, using `taskmanager-se` and the repository root. The API runs through Next.js at `/api`. Configure `MONGODB_URI`, `JWT_SECRET` (at least 32 characters), `JWT_EXPIRES_IN` (7200), `CORS_ORIGIN`, `NEXT_PUBLIC_API_MODE=http`, and `NEXT_PUBLIC_API_BASE_URL=/api` for each Vercel environment. `CORS_ORIGIN` is a comma-separated list of exact origins, for example `https://taskmanager-se.vercel.app,http://localhost:3000`; wildcards and trailing slashes are invalid. NEXT_PUBLIC values are embedded during build, so redeploy after changing them.
+
+The Render staging configuration is an optional single-service alternative.

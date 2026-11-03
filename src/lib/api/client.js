@@ -6,7 +6,7 @@
 
 import { ApiError } from './errors.js';
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || '/api').replace(/\/$/, '');
+const API_BASE_URL = '/api';
 const API_MODE = process.env.NEXT_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
 
 export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
