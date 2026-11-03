@@ -25,3 +25,5 @@ Run `npm run dev` to serve the website and API on port 3000. The API health chec
 `npm run lint`, `npm test`, `npm run build`, `npm run test:e2e`, and `npm run seed` are available from the repository root. Seeding clears selected collections; use a disposable local/test database only.
 
 Render staging uses one web service. See `docs/staging-deployment.md` for setup and rollout notes.
+
+Vercel deployments use the existing `taskmanager-se` project in Services mode. Its single project URL routes `/api/*` to the Express service and all other paths to Next.js; both services share the same origin. The project Root Directory must be empty (repository root), and the project needs the API runtime variables `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, and `CORS_ORIGIN` in Preview and Production.
