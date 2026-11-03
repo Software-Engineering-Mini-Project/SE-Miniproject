@@ -2,10 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
     "web": { "root": ".", "framework": "nextjs" },
-    "api": { "root": "server", "framework": "express", "entrypoint": "index.js", "installCommand": "npm ci --prefix ..", "buildCommand": "" }
+    "api": { "root": "server", "framework": "express", "entrypoint": "index.js", "installCommand": "npm ci --prefix ..", "buildCommand": "node --version" }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": { "service": "api" } },
     { "source": "/(.*)", "destination": { "service": "web" } }
   ]
 }
+
