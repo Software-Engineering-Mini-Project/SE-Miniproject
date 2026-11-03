@@ -1,4 +1,5 @@
 import { User } from '../models/index.js';
+import { toApi } from './to-api.js';
 
 export function userDto(user) {
   return {
@@ -17,10 +18,10 @@ export function memberDto(user) {
 
 export async function projectDto(project) {
   const userIds = project.memberIds.map(String);
-  const users = await User.find({ _id: { $in: userIds } });
+  const users = await User.find({ _id: { $in: userIds } }).select('_id name email role');
   const membersById = new Map(users.map((user) => [user.id, memberDto(user)]));
   return {
-    ...project.toJSON(),
+    ...toApi(project),
     members: userIds.map((id) => membersById.get(id)).filter(Boolean),
   };
 }

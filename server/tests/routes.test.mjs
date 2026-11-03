@@ -97,6 +97,61 @@ test('registration, login, bearer auth, profile updates, and password changes fo
   assert.equal(duplicate.body.fields.email, 'This email is already registered.');
 });
 
+test('registration is limited to five attempts per client IP per ten minutes', async () => {
+  const ip = '198.51.100.88';
+  const registrations = await Promise.all(Array.from({ length: 5 }, (_, index) => request(app)
+    .post('/api/auth/register')
+    .set('X-Forwarded-For', ip)
+    .send({ name: `Rate Limited ${index}`, email: `register-limit-${index}@example.test`, password: 'Password123!' })));
+  assert.deepEqual(registrations.map((response) => response.status), [201, 201, 201, 201, 201]);
+  const limited = await request(app).post('/api/auth/register').set('X-Forwarded-For', ip).send({
+    name: 'Must not be created', email: 'register-limit-six@example.test', password: 'Password123!',
+  });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.errorCode, 'RATE_LIMITED');
+  assert.match(limited.body.message, /registration attempts/i);
+  assert.equal(await User.exists({ emailNormalized: 'register-limit-six@example.test' }), null);
+});
+
+test('task and project lists are paginated, lean-safe, and capped for legacy callers', async () => {
+  const pageA = await request(app).get('/api/projects?page=1&pageSize=1').set(auth(leadToken));
+  assert.equal(pageA.status, 200);
+  assert.equal(pageA.body.length, 1);
+  const pageB = await request(app).get('/api/projects?page=2&pageSize=1').set(auth(leadToken));
+  assert.equal(pageB.body.length, 1);
+  assert.notEqual(pageA.body[0].id, pageB.body[0].id);
+
+  const inserted = await Task.insertMany(Array.from({ length: 501 }, (_, index) => ({
+    _id: `page-bound-task-${String(index).padStart(3, '0')}`,
+    projectId: 'project-alpha',
+    title: `Page bound ${index}`,
+    assigneeIds: [],
+  })));
+  try {
+    const paged = await request(app).get('/api/projects/project-alpha/tasks?page=2&pageSize=2').set(auth(leadToken));
+    assert.equal(paged.status, 200, paged.text);
+    assert.equal(paged.body.length, 2);
+    assert.ok(paged.body.every((task) => task.id && !('_id' in task) && !('__v' in task)));
+
+    const legacy = await request(app).get('/api/tasks').set(auth(leadToken));
+    assert.equal(legacy.status, 200, legacy.text);
+    assert.equal(legacy.body.length, 500);
+
+    const expectedCsvRows = await Task.countDocuments({ projectId: 'project-alpha' });
+    const csv = await request(app)
+      .get('/api/projects/project-alpha/tasks/export.csv?page=1&pageSize=1')
+      .set(auth(leadToken));
+    assert.equal(csv.status, 200);
+    assert.equal(csv.text.trimEnd().split('\r\n').length, expectedCsvRows + 1);
+
+    const tooLarge = await request(app).get('/api/tasks?pageSize=101').set(auth(leadToken));
+    assert.equal(tooLarge.status, 400);
+    assert.equal(tooLarge.body.errorCode, 'VALIDATION_ERROR');
+  } finally {
+    await Task.deleteMany({ _id: { $in: inserted.map((task) => task.id) } });
+  }
+});
+
 test('successful login migrates a cost-12 password hash to cost 10', async () => {
   const email = 'migration@example.test';
   const password = 'Password123!';

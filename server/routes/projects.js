@@ -4,6 +4,7 @@ import { Comment, Notification, Project, Task, User } from '../models/index.js';
 import { getProjectForUser, isAdmin, requireProjectLead } from '../services/access.js';
 import { memberDto, projectDto, projectDtos } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
+import { readListOptions } from '../utils/pagination.js';
 import { normalizeEmail, readEmail, readId, readString, requireObject } from '../utils/validation.js';
 
 export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {}) {
@@ -12,7 +13,13 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
 
   router.get('/projects', requireAuth, async (request, response) => {
     const filter = isAdmin(request.user) ? {} : { memberIds: request.user.id };
-    const projects = await Project.find(filter).sort({ createdAt: 1 });
+    const options = readListOptions(request.query);
+    const projects = await Project.find(filter)
+      .select('_id name description ownerId memberIds createdAt updatedAt')
+      .sort({ createdAt: 1, _id: 1 })
+      .skip(options.skip)
+      .limit(options.limit)
+      .lean();
     response.json(await projectDtos(projects));
   });
 

@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import { api, configureApi } from './api/client.js';
+import { clearQueryCache } from './hooks/useQuery.js';
 
 const TOKEN_KEY = 'taskline.session';
 
@@ -74,6 +75,7 @@ export const useSession = create((set, get) => ({
 
   signOut(reason = 'signed-out') {
     writeStoredToken(null);
+    clearQueryCache();
     set({ token: null, user: null, status: 'anonymous', reason });
   },
 }));

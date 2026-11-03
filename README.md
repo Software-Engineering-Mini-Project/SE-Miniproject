@@ -30,3 +30,5 @@ Vercel is the primary deployment, using `taskmanager-se` and the repository root
 
 
 Vercel functions are configured for Mumbai (`bom1`). Place the MongoDB Atlas cluster in the same region (AWS `ap-south-1`, Mumbai) to avoid cross-region database latency. Production disables automatic index creation on cold starts; run `npm run db:indexes` once after deployment with the target database environment configured. This synchronizes indexes and can remove indexes absent from the model schemas; review the target database before running it.
+
+Configure separate `MONGODB_URI` values for Vercel Preview and Production. Preview deployments must use a dedicated preview database so test or review activity can never write to production data.
