@@ -78,9 +78,11 @@ To run against the real API, start the API with a seeded local or test database 
 
 ## CI and deployment
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on branch pushes and pull requests targeting `main`. Its single verification job installs from the lockfile, runs API and web lint and tests, builds the web app, and runs all Playwright end-to-end tests on Node 22. It uploads the Playwright report and test results for 14 days.
+GitHub Actions (`.github/workflows/ci.yml`) runs on branch pushes and pull requests targeting `main`. Its verification job installs from the lockfile, runs API and web lint and tests, builds the web app, and runs all Playwright end-to-end tests on Node 22. It uploads the Playwright report and test results for 14 days.
 
-An opt-in staging workflow is configured in `.github/workflows/deploy-staging.yml`. It deploys only after successful CI on `main` when the GitHub staging environment is configured and enabled. See [the staging setup guide](docs/staging-deployment.md) and [configuration template](.env.staging.example).
+An opt-in staging workflow is configured in `.github/workflows/deploy-staging.yml`. It deploys only after successful CI on `main` when the GitHub staging environment is configured and enabled. See [the Render staging setup guide](docs/staging-deployment.md) and [configuration template](.env.staging.example).
+
+A Vercel Services configuration is also provided in [vercel.json](vercel.json). Follow [the Vercel staging setup](docs/vercel-staging.md) for Vercel environment variables, Atlas network requirements, rollout checks, and the Render cutover gate. Vercel is not considered live until the app and MongoDB connection are verified; keep Render available until then.
 
 The Render and MongoDB Atlas staging approach is documented in [docs/staging-target-decision.md](docs/staging-target-decision.md). Provisioning and successful deployment must be verified separately.
 
