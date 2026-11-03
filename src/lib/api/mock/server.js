@@ -341,7 +341,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       }
       loginAttempts.delete(email);
       const token = encodeToken({ sub: user.id, exp: Math.floor(nowMs / 1000) + TOKEN_TTL_SECONDS });
-      return [200, { token, expiresIn: TOKEN_TTL_SECONDS }];
+      return [200, { token, expiresIn: TOKEN_TTL_SECONDS, user: userDto(user) }];
     }],
 
     ['GET', '/auth/me', ({ user }) => [200, userDto(user)]],

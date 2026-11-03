@@ -10,7 +10,30 @@ try {
   if (!(error instanceof ConfigurationError)) throw error;
   console.error(JSON.stringify({ errorCode: 'CONFIGURATION_ERROR', variable: error.variable }));
 }
-let connectionPromise;
+const cache = globalThis.__mongooseConn ??= { promise: null };
+
+function connectDatabase() {
+  if (mongoose.connection.readyState === 1) return Promise.resolve(mongoose);
+  if (!cache.promise) {
+    const pending = mongoose.connect(config.mongoUri, {
+      serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 5,
+      autoIndex: process.env.NODE_ENV !== 'production',
+    }).then((connection) => {
+      if (cache.promise === pending) cache.promise = null;
+      return connection;
+    }).catch((error) => {
+      if (cache.promise === pending) cache.promise = null;
+      throw error;
+    });
+    cache.promise = pending;
+    // The first request will report a failed connection; avoid an unhandled rejection meanwhile.
+    pending.catch(() => {});
+  }
+  return cache.promise;
+}
+
+if (config) connectDatabase();
 
 async function ensureDatabaseConnection(_request, _response, next) {
   if (mongoose.connection.readyState === 1) {
@@ -19,13 +42,7 @@ async function ensureDatabaseConnection(_request, _response, next) {
   }
 
   try {
-    connectionPromise ??= mongoose.connect(config.mongoUri, {
-      serverSelectionTimeoutMS: 5000,
-    }).catch((error) => {
-      connectionPromise = undefined;
-      throw error;
-    });
-    await connectionPromise;
+    await connectDatabase();
     next();
   } catch {
     console.error(JSON.stringify({ errorCode: 'DATABASE_UNAVAILABLE' }));

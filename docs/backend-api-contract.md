@@ -196,7 +196,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 #### `POST /auth/login` (public)
 - Body: `{ email, password }`
-- `200 { token, expiresIn }`. `expiresIn` is in **seconds**. The frontend then calls `/auth/me`.
+- `200 { token, expiresIn, user }`. `expiresIn` is in **seconds**; `user` is the safe user object also returned by `/auth/me`.
 - `401 INVALID_CREDENTIALS`. Use the same message for an unknown email and a wrong password.
 - `429 RATE_LIMITED` after **5 failed attempts per email within 60 seconds**. The mock counts per email; per IP as well is fine.
 

@@ -65,6 +65,9 @@ test('registration, login, bearer auth, profile updates, and password changes fo
   });
   assert.equal(login.status, 200, login.text);
   assert.equal(login.body.expiresIn, 7200);
+  assert.equal(login.body.user.id, registration.body.userId);
+  assert.equal(login.body.user.passwordHash, undefined);
+  assert.match(login.headers['server-timing'], /db;dur=.*bcrypt;dur=.*total;dur=/);
   const me = await request(app).get('/api/auth/me').set(auth(login.body.token));
   assert.equal(me.status, 200);
   assert.equal(me.body.id, registration.body.userId);
@@ -92,6 +95,24 @@ test('registration, login, bearer auth, profile updates, and password changes fo
   assert.equal(duplicate.status, 409);
   assert.equal(duplicate.body.errorCode, 'DUPLICATE_EMAIL');
   assert.equal(duplicate.body.fields.email, 'This email is already registered.');
+});
+
+test('successful login migrates a cost-12 password hash to cost 10', async () => {
+  const email = 'migration@example.test';
+  const password = 'Password123!';
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await User.create({ name: 'Migration', email, emailNormalized: email, passwordHash, role: 'Member' });
+  const login = await request(app).post('/api/auth/login').send({ email, password });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.id, user.id);
+  let migrated;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    migrated = await User.findById(user.id).select('+passwordHash');
+    if (bcrypt.getRounds(migrated.passwordHash) === 10) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(bcrypt.getRounds(migrated.passwordHash), 10);
+  assert.equal(await bcrypt.compare(password, migrated.passwordHash), true);
 });
 
 test('authentication errors and failed-login throttling return stable envelopes', async () => {
