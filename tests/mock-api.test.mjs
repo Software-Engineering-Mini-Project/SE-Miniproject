@@ -245,8 +245,8 @@ test('unknown routes return the error envelope and never a stack trace (PRJ-SR-0
 });
 
 
-test('dashboard and summary use a validated local day; unread count does not scan', () => {
-  const { call, login } = setup(() => new Date('2026-10-15T19:00:00Z'));
+test('dashboard and summary use a validated local day; unread count scans once', () => {
+  const { call, login } = setup(() => new Date('2026-10-15T19:00:00.000Z'));
   const token = login('member@example.test');
   const opts = { token, query: { today: '2026-10-16' } };
   const dashboard = call('GET', '/dashboard', opts).data;
@@ -255,4 +255,13 @@ test('dashboard and summary use a validated local day; unread count does not sca
   const count = call('GET', '/notifications/unread-count', { token }).data.unreadCount;
   assert.equal(typeof count, 'number');
   assert.equal(call('GET', '/notifications/unread-count', { token }).data.unreadCount, count);
+});
+
+test('unread badge creates due reminders and throttles subsequent scans', () => {
+  const isolated = { ...seed, notifications: [], tasks: [{ ...tasks.find((task) => task.id === 'task-004'), dueDate: '2026-10-16' }] };
+  const server = createMockServer({ seed: isolated, now: () => NOW });
+  const token = server.handle('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }).data.token;
+  const first = server.handle('GET', '/notifications/unread-count', { token });
+  assert.equal(first.data.unreadCount, 1);
+  assert.equal(server.handle('GET', '/notifications/unread-count', { token }).data.unreadCount, 1);
 });

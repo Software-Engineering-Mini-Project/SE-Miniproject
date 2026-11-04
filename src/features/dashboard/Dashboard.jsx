@@ -1,10 +1,13 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import NumberFlow from '@number-flow/react';
 import { ArrowRight, CalendarCheck2, FolderKanban } from 'lucide-react';
 import { TASK_STATUSES } from '@/lib/constants';
+import { localToday } from '@/lib/dates';
 import { firstName, isOverdue, plural } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { useQuery } from '@/lib/hooks/useQuery';
@@ -67,7 +70,8 @@ function ProjectSummaryRow({ project, summary, error }) {
 export function Dashboard() {
   const user = useSession((s) => s.user);
   const projects = useWorkspace((s) => s.projects);
-  const dashboard = useQuery(user ? `dashboard:${user.id}` : null, () => api.dashboard.get());
+  const today = localToday();
+  const dashboard = useQuery(user ? `dashboard:${user.id}:${today}` : null, () => api.dashboard.get(today));
   const { data: dashboardData, reload: reloadDashboard } = dashboard;
   const tasks = dashboard.data?.myTasks;
   const summariesByProjectId = useMemo(() => new Map((dashboard.data?.projects || []).map((item) => [item.projectId, item])), [dashboard.data]);
@@ -99,10 +103,10 @@ export function Dashboard() {
       </header>
 
       {dashboard.error && !dashboard.data ? (
-        <><ErrorState error={dashboard.error} onRetry={dashboard.reload} /><p>Summary unavailable</p></>
+        <><ErrorState error={dashboard.error} onRetry={dashboard.reload} /></>
       ) : (
         <>
-          {dashboard.error && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={dashboard.reload}>Retry</button></p>}
+          {dashboard.error && <RefreshNotice onRetry={dashboard.reload} />}
           <dl className="stats" aria-busy={!dashboard.data}>
             <Stat label="Assigned to you" value={stats.openAssigned} hint="Not done yet" />
             <Stat label="Due in 7 days" value={stats.dueIn7Days} tone={stats.dueIn7Days ? 'warn' : undefined} />

@@ -740,7 +740,7 @@ test('login takes comparable time for unknown emails and wrong passwords (no acc
 });
 
 test('local today controls dashboard stats and project summary and rejects invalid dates', async () => {
-  const localApp = createApp({ jwtSecret: JWT_SECRET, now: () => new Date('2026-10-15T19:00:00Z'), logger: () => {} });
+  const localApp = createApp({ jwtSecret: JWT_SECRET, now: () => new Date('2026-10-15T19:00:00.000Z'), logger: () => {} });
   const task = await Task.create({ title: 'Local date boundary', projectId: 'project-alpha', status: 'To Do', priority: 'Medium', dueDate: '2026-10-15', assigneeIds: ['user-member-001'] });
   try {
     const get = (path) => request(localApp).get(path).set(auth(memberToken));
@@ -769,15 +769,19 @@ test('dashboard caps open tasks after dated tasks but stats count all assignment
   } finally { await Task.deleteMany({ _id: { $in: inserted.map((task) => task.id) } }); }
 });
 
-test('unread count does not scan and concurrent notification reads claim one scan', async () => {
+test('unread count generates reminders once and retries a failed scan', async () => {
+  await Notification.deleteMany({ userId: 'user-outsider-001' });
   await User.updateOne({ _id: 'user-outsider-001' }, { $set: { lastReminderScanAt: null } });
-  const count = await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken));
-  assert.equal(count.status, 200);
-  assert.equal(typeof count.body.unreadCount, 'number');
-  assert.equal((await User.findById('user-outsider-001')).lastReminderScanAt, null);
-  await Promise.all([request(app).get('/api/notifications').set(auth(outsiderToken)), request(app).get('/api/notifications').set(auth(outsiderToken))]);
-  const first = (await User.findById('user-outsider-001')).lastReminderScanAt;
-  assert.equal(first.toISOString(), FIXED_NOW.toISOString());
-  await request(app).get('/api/notifications').set(auth(outsiderToken));
-  assert.equal((await User.findById('user-outsider-001')).lastReminderScanAt.toISOString(), first.toISOString());
+  const task = await Task.create({ title: 'Badge reminder', projectId: 'project-alpha', status: 'To Do', priority: 'Medium', dueDate: '2026-10-16', assigneeIds: ['user-outsider-001'] });
+  const originalFind = Task.find;
+  try {
+    let scans = 0;
+    Task.find = function (...args) { scans++; if (scans === 1) throw new Error('scan failed'); return originalFind.apply(this, args); };
+    assert.equal((await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken))).status, 500);
+    assert.equal((await User.findById('user-outsider-001')).lastReminderScanAt, null);
+    const count = await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken));
+    assert.equal(count.body.unreadCount, 1);
+    assert.equal((await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken))).body.unreadCount, 1);
+    assert.equal(scans, 2);
+  } finally { Task.find = originalFind; await Notification.deleteMany({ taskId: task.id }); await Task.deleteOne({ _id: task.id }); }
 });

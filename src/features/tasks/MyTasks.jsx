@@ -1,5 +1,7 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { SearchX } from 'lucide-react';
@@ -68,7 +70,7 @@ export function MyTasks() {
         </div>
       </div>
 
-      {results.error && results.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={results.reload}>Retry</button></p>}
+      {results.error && results.data && <RefreshNotice onRetry={results.reload} />}
       {results.error && !results.data ? (
         <ErrorState error={results.error} onRetry={results.reload} />
       ) : !results.data ? (

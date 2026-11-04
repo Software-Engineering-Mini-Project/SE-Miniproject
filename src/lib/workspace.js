@@ -2,6 +2,7 @@
 
 // Workspace-level data shared by the shell and pages after sign-in.
 
+import { localToday } from './dates.js';
 import { create } from 'zustand';
 import { api } from './api/client.js';
 import { prefetchQuery } from './hooks/useQuery.js';
@@ -45,7 +46,8 @@ export const useWorkspace = create((set, get) => ({
   async loadDashboard(userId) {
     if (!userId) return null;
     try {
-      return await prefetchQuery(`dashboard:${userId}`, () => api.dashboard.get());
+      const today = localToday();
+      return await prefetchQuery(`dashboard:${userId}:${today}`, () => api.dashboard.get(today));
     } catch {
       return null;
     }

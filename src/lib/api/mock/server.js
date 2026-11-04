@@ -6,6 +6,7 @@
 // input validation and safe CSV export. It is NOT a security boundary — the real
 // Express API is authoritative (PRJ-SR-003). Passwords here are synthetic fixtures.
 
+import { resolveToday } from '../../dates.js';
 import {
   LIMITS,
   REMINDER_WINDOW_HOURS,
@@ -275,6 +276,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     return created;
   }
 
+  function maybeGenerateDueReminders(user) {
+    const timestamp = now().getTime();
+    const previous = user.lastReminderScanAt;
+    if (previous != null && timestamp - previous < 15 * 60 * 1000) return;
+    user.lastReminderScanAt = timestamp;
+    try { generateDueReminders(user); } catch (error) { user.lastReminderScanAt = previous; throw error; }
+  }
+
   function removeTaskCascade(taskId) {
     // Deletion policy used by the mock (decision pending in SAD §3.5): cascade comments and notifications.
     db.tasks = db.tasks.filter((t) => t.id !== taskId);
@@ -282,13 +291,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     db.notifications = db.notifications.filter((n) => n.taskId !== taskId);
   }
 
-  function todayFor(value) {
-    const utc = now().toISOString().slice(0, 10);
-    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return utc;
-    const date = new Date(value + 'T00:00:00.000Z');
-    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value && Math.abs(date - Date.parse(utc + 'T00:00:00.000Z')) <= 86400000 ? value : utc;
-  }
-  function isOverdue(task, today = todayFor()) {
+  function isOverdue(task, today = resolveToday(undefined, now())) {
     return task.status !== 'Done' && Boolean(task.dueDate) && task.dueDate < today;
   }
 
@@ -370,7 +373,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['GET', '/dashboard', ({ user, query }) => {
-      const today = todayFor(query.today);
+      const today = resolveToday(query.today, now());
       const weekEnd = new Date(Date.parse(today + 'T00:00:00.000Z') + 7 * 86400000).toISOString().slice(0, 10);
       const projects = db.projects.filter((project) => isMember(user, project));
       const projectIds = new Set(projects.map((project) => project.id));
@@ -542,13 +545,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [204, null];
     }],
 
-    ['GET', '/notifications/unread-count', ({ user }) => [200, { unreadCount: db.notifications.filter((n) => n.userId === user.id && !n.read).length }]],
+    ['GET', '/notifications/unread-count', ({ user }) => { maybeGenerateDueReminders(user); return [200, { unreadCount: db.notifications.filter((n) => n.userId === user.id && !n.read).length }]; }],
     ['GET', '/notifications', ({ user, query }) => {
-      const timestamp = now().getTime();
-      if (!user.lastReminderScanAt || timestamp - user.lastReminderScanAt >= 15 * 60 * 1000) {
-        user.lastReminderScanAt = timestamp;
-        generateDueReminders(user);
-      }
+      maybeGenerateDueReminders(user);
       const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
       const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.pageSize, 10) || 50));
       const own = db.notifications
@@ -584,7 +583,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['GET', '/projects/:projectId/summary', ({ user, params, query }) => {
-      const today = todayFor(query.today);
+      const today = resolveToday(query.today, now());
       const project = projectFor(user, params.projectId);
       const tasks = db.tasks.filter((t) => t.projectId === project.id);
       const counts = Object.fromEntries(TASK_STATUSES.map((s) => [s, tasks.filter((t) => t.status === s).length]));

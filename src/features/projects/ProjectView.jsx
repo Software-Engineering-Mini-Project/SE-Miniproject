@@ -1,5 +1,7 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NumberFlow from '@number-flow/react';
@@ -261,8 +263,8 @@ export function ProjectView({ projectId }) {
         </div>
       </div>
 
-      {project.error && project.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={project.reload}>Retry</button></p>}
-      {tasks.error && tasks.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={tasks.reload}>Retry</button></p>}
+      {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
+      {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
       {tasks.error && !tasks.data ? (
         <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
       ) : !tasks.data ? (

@@ -621,3 +621,5 @@
   border-radius: var(--radius) !important;
   font-size: var(--text-sm) !important;
 }
+
+.refresh-notice { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-3); }

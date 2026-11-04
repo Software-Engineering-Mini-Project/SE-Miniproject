@@ -4,6 +4,7 @@
 // Endpoint paths follow SRS §3.2 / SAD §4. Request/response shapes not fixed by those
 // documents are marked "DECISION" and must be confirmed with the backend owner.
 
+import { localToday } from '../dates.js';
 import { ApiError } from './errors.js';
 import { invalidateQuery } from '../hooks/useQuery.js';
 
@@ -83,7 +84,7 @@ async function mockTransport(method, path, { body, token, query }) {
   return server.handle(method, path, { body, token, query: cleanQuery });
 }
 
-async function request(method, path, { body, query, accept, auth = true } = {}) {
+async function request(method, path, { body, query, accept, auth = true, invalidates = [] } = {}) {
   if ((API_MODE === 'mock' || process.env.NODE_ENV !== 'production') && typeof window !== 'undefined' && typeof window.__taskManagerApiRequestObserver === 'function') {
     window.__taskManagerApiRequestObserver({ method, path });
   }
@@ -91,7 +92,7 @@ async function request(method, path, { body, query, accept, auth = true } = {}) 
   const transport = API_MODE === 'http' ? httpTransport : mockTransport;
   const { status, data } = await transport(method, path, { body, token, query, accept });
   if (status >= 200 && status < 300) {
-    if (method !== 'GET' && (/^\/projects(?:\/[^/]+)?$/.test(path) || /^\/projects\/[^/]+\/(?:members(?:\/[^/]+)?|tasks)$/.test(path) || /^\/tasks\/[^/]+(?:\/status)?$/.test(path))) invalidateQuery('dashboard:');
+    invalidates.forEach((prefix) => invalidateQuery(prefix));
     return data;
   }
   const error = new ApiError(status, data && typeof data === 'object' ? data : null);
@@ -100,11 +101,6 @@ async function request(method, path, { body, query, accept, auth = true } = {}) 
 }
 
 const enc = encodeURIComponent;
-function localToday() {
-  const date = new Date();
-  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
-}
-
 export const api = {
   auth: {
     /** @returns {Promise<{ userId: string, email: string }>} TM-F-001 */
@@ -122,11 +118,11 @@ export const api = {
     /** @returns {Promise<Project[]>} */
     list: () => request('GET', '/projects'),
     /** @returns {Promise<Project>} TM-F-020 */
-    create: (input) => request('POST', '/projects', { body: input }),
+    create: (input) => request('POST', '/projects', { invalidates: ['dashboard:'], body: input }),
     /** @returns {Promise<Project>} DECISION: response embeds `members` (safe user fields). */
     get: (projectId) => request('GET', `/projects/${enc(projectId)}`),
-    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { body: input }),
-    remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`),
+    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'], body: input }),
+    remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'] }),
     /** @returns {Promise<ProjectSummary>} TM-F-041 */
     summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`, { query: { today: localToday() } }),
     /** @returns {Promise<string>} CSV text, TM-F-042 */
@@ -135,29 +131,29 @@ export const api = {
   },
   dashboard: {
     /** @returns {Promise<{ projects: ProjectSummary[], myTasks: Task[] }>} */
-    get: () => request('GET', '/dashboard', { query: { today: localToday() } }),
+    get: (today = localToday()) => request('GET', '/dashboard', { query: { today } }),
   },
   members: {
     /** @returns {Promise<Member[]>} */
     list: (projectId) => request('GET', `/projects/${enc(projectId)}/members`),
     /** DECISION: body is `{ email }` of a registered user. TM-F-021 */
-    add: (projectId, email) => request('POST', `/projects/${enc(projectId)}/members`, { body: { email } }),
-    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`),
+    add: (projectId, email) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:'], body: { email } }),
+    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:'] }),
   },
   tasks: {
     /** @returns {Promise<Task[]>} */
     listByProject: (projectId, filters) => request('GET', `/projects/${enc(projectId)}/tasks`, { query: filters }),
     /** @returns {Promise<Task>} TM-F-010 / TM-F-022 */
-    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/tasks`, { body: input }),
+    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/tasks`, { invalidates: ['dashboard:'], body: input }),
     /** @returns {Promise<Task[]>} TM-F-040 */
     search: (filters) => request('GET', '/tasks', { query: filters }),
     /** @returns {Promise<Task>} */
     get: (taskId) => request('GET', `/tasks/${enc(taskId)}`),
     /** @returns {Promise<Task>} TM-F-011 */
-    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { body: input }),
-    remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`),
+    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'], body: input }),
+    remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
-    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { body: { status } }),
+    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:'], body: { status } }),
   },
   comments: {
     /** @returns {Promise<Comment[]>} TM-F-032. DECISION: each comment embeds `author`. */

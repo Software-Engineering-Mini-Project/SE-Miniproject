@@ -429,4 +429,4 @@ Questions or disagreements: message me. If a requirement is genuinely ambiguous,
 
 The dashboard accepts an optional `today=YYYY-MM-DD` query parameter, as does `GET /projects/:projectId/summary`. A valid calendar date within one day of the server's UTC date is used for overdue calculations; otherwise the server uses its UTC date. `GET /dashboard` returns `projects`, up to 500 open assigned `myTasks` ordered with dated tasks first, and uncapped `stats` containing `openAssigned`, `dueIn7Days`, `overdue`, and `completed`.
 
-`GET /notifications/unread-count` returns `{ unreadCount }` for the signed-in user without generating reminders. `GET /notifications` generates due reminders at most once per user per 15 minutes.
+`GET /notifications/unread-count` returns `{ unreadCount }` for the signed-in user and may generate due reminders, throttled to once per user per 15 minutes. `GET /notifications` generates due reminders at most once per user per 15 minutes.

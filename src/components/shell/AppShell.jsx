@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Dialog } from '@base-ui/react/dialog';
 import { Bell, FolderKanban, LayoutDashboard, ListChecks, LogOut, Menu as MenuIcon, RotateCcw, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { localToday } from '@/lib/dates';
+import { invalidateQuery } from '@/lib/hooks/useQuery';
 import { APP_NAME } from '@/lib/brand';
 import { apiConfig, resetMockData } from '@/lib/api/client';
 import { useSession } from '@/lib/session';
@@ -142,6 +144,7 @@ export function AppShell({ children }) {
     if (status !== 'authenticated') return undefined;
     Promise.all([loadProjects(), loadUnread(), ...(window.location.pathname === '/dashboard' ? [] : [loadDashboard(userId)])]);
     let timer;
+    let lastDay = localToday();
     let hidden = document.visibilityState === 'hidden';
     const startPolling = () => { if (!timer) timer = setInterval(loadUnread, 60_000); };
     const onVisibilityChange = () => {
@@ -151,6 +154,8 @@ export function AppShell({ children }) {
         timer = undefined;
       } else {
         if (hidden) loadUnread();
+        const today = localToday();
+        if (today !== lastDay) { lastDay = today; invalidateQuery('dashboard:'); }
         hidden = false;
         startPolling();
       }

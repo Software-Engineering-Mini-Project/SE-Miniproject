@@ -2,23 +2,25 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import mongoose from 'mongoose';
 
 const requestTiming = new AsyncLocalStorage();
-const instrumentation = Symbol.for('task-manager.mongoose-timing-installed');
 
-function instrumentExec(prototype) {
-  if (!prototype || prototype[instrumentation]) return;
-  const originalExec = prototype.exec;
-  Object.defineProperty(prototype, instrumentation, { value: true });
-  prototype.exec = function timedExec(...args) {
+const writeContext = new AsyncLocalStorage();
+
+function instrumentMethod(target, method, isWrite = false) {
+  if (!target) return;
+  const marker = Symbol.for(`task-manager.timing.${method}`);
+  if (Object.hasOwn(target, marker)) return;
+  const original = target[method];
+  Object.defineProperty(target, marker, { value: true });
+  target[method] = function timedMethod(...args) {
     const timing = requestTiming.getStore();
-    if (!timing) return originalExec.apply(this, args);
+    if (!timing || (isWrite && writeContext.getStore())) return original.apply(this, args);
     timing.count += 1;
     if (timing.active++ === 0) timing.dbStarted = performance.now();
     const finish = () => { if (--timing.active === 0) timing.db += performance.now() - timing.dbStarted; };
     try {
-      const result = originalExec.apply(this, args);
-      if (result && typeof result.finally === 'function') {
-        return result.finally(() => { finish(); });
-      }
+      const invoke = () => original.apply(this, args);
+      const result = isWrite ? writeContext.run(true, invoke) : invoke();
+      if (result && typeof result.finally === 'function') return result.finally(finish);
       finish();
       return result;
     } catch (error) {
@@ -28,8 +30,10 @@ function instrumentExec(prototype) {
   };
 }
 
-instrumentExec(mongoose.Query.prototype);
-instrumentExec(mongoose.Aggregate.prototype);
+instrumentMethod(mongoose.Query.prototype, 'exec');
+instrumentMethod(mongoose.Aggregate.prototype, 'exec');
+instrumentMethod(mongoose.Model.prototype, 'save', true);
+for (const method of ['insertMany', 'create', 'bulkWrite']) instrumentMethod(mongoose.Model, method, true);
 
 export function serverTiming() {
   return (_request, response, next) => {
