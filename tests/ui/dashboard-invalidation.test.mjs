@@ -1,18 +1,21 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { api } from '../../src/lib/api/client.js';
-import { clearQueryCache, useQuery } from '../../src/lib/hooks/useQuery.js';
+import { clearQueryCache, invalidateQuery, useQuery } from '../../src/lib/hooks/useQuery.js';
 
-afterEach(() => { vi.unstubAllGlobals(); clearQueryCache(); });
+const api = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../../src/lib/api/client.js', () => ({
+  api: {
+    dashboard: { get: vi.fn(async () => ({ count: ++api.count })) },
+    tasks: { setStatus: vi.fn(async () => { invalidateQuery('dashboard:'); return { taskId: 'task-1', status: 'Done' }; }) },
+  },
+}));
+import { api as client } from '../../src/lib/api/client.js';
+
+afterEach(() => { clearQueryCache(); api.count = 0; });
 
 it('refetches a mounted dashboard after a successful status change', async () => {
-  let count = 0;
-  vi.stubGlobal('fetch', vi.fn(async (url) => {
-    if (String(url).includes('/dashboard')) count += 1;
-    return { status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ count }) };
-  }));
-  const hook = renderHook(() => useQuery('dashboard:member', () => api.dashboard.get()));
-  await waitFor(() => expect(hook.result.current.data.count).toBe(1));
-  await act(() => api.tasks.setStatus('task-1', 'Done'));
-  await waitFor(() => expect(hook.result.current.data.count).toBe(2));
+  const hook = renderHook(() => useQuery('dashboard:member', () => client.dashboard.get()));
+  await waitFor(() => expect(hook.result.current.data?.count).toBe(1));
+  await act(() => client.tasks.setStatus('task-1', 'Done'));
+  await waitFor(() => expect(hook.result.current.data?.count).toBe(2));
 });
