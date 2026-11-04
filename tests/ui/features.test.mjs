@@ -491,6 +491,25 @@ describe('dashboard, cross-project search, and profile', () => {
     expect(screen.getByText('1/2 done')).toBeInTheDocument();
   });
 
+  it('shows zero counts and retries once when a project summary is missing', async () => {
+    const reload = vi.fn();
+    state.queries.set(`dashboard:${lead.id}`, { data: { projects: [], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } }, error: null, reload });
+    const view = render(h(Dashboard));
+    expect(screen.getByText('0/0 done')).toBeInTheDocument();
+    await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    view.rerender(h(Dashboard));
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('keeps dashboard data and offers retry when refresh fails', () => {
+    const reload = vi.fn();
+    state.queries.set(`dashboard:${lead.id}`, { data: { projects: [{ projectId: project.id, total: 0, counts: { 'To Do': 0, 'In Progress': 0, Done: 0 }, overdue: 0 }], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } }, error: new Error('offline'), reload });
+    render(h(Dashboard));
+    expect(screen.getByText('0/0 done')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
   it('searches tasks assigned to the current user and can switch to everyone', async () => {
     const user = userEvent.setup();
     setupQuery(`search:{"assigneeId":"${lead.id}"}`, [{ ...task, assigneeIds: [lead.id] }]);

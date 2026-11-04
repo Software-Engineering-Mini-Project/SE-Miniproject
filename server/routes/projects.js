@@ -107,7 +107,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
 
   router.get('/projects/:projectId/summary', requireAuth, async (request, response) => {
     const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
-    const [summary] = await getProjectSummaries([project.id], now);
+    const [summary] = await getProjectSummaries([project.id], now, request.query.today);
     response.json(summary);
   });
 

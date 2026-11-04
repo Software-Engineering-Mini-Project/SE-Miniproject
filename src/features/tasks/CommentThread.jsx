@@ -64,6 +64,7 @@ export function CommentThread({ taskId }) {
         Comments{comments.data ? <span className="tabular"> · {comments.data.length}</span> : null}
       </h3>
 
+      {comments.error && comments.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={comments.reload}>Retry</button></p>}
       {comments.loading && !comments.data ? (
         <div className="comment-list">
           {[0, 1].map((i) => (
@@ -76,7 +77,7 @@ export function CommentThread({ taskId }) {
             </div>
           ))}
         </div>
-      ) : comments.error ? (
+      ) : comments.error && !comments.data ? (
         <ErrorState error={comments.error} title="Comments did not load" onRetry={comments.reload} />
       ) : comments.data.length === 0 ? (
         <p className="comments-empty">

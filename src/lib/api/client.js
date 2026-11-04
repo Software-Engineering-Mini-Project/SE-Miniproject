@@ -5,6 +5,7 @@
 // documents are marked "DECISION" and must be confirmed with the backend owner.
 
 import { ApiError } from './errors.js';
+import { invalidateQuery } from '../hooks/useQuery.js';
 
 const API_BASE_URL = '/api';
 const API_MODE = process.env.NEXT_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
@@ -83,19 +84,26 @@ async function mockTransport(method, path, { body, token, query }) {
 }
 
 async function request(method, path, { body, query, accept, auth = true } = {}) {
-  if (typeof window !== 'undefined' && typeof window.__taskManagerApiRequestObserver === 'function') {
+  if ((API_MODE === 'mock' || process.env.NODE_ENV !== 'production') && typeof window !== 'undefined' && typeof window.__taskManagerApiRequestObserver === 'function') {
     window.__taskManagerApiRequestObserver({ method, path });
   }
   const token = auth ? tokenProvider() : null;
   const transport = API_MODE === 'http' ? httpTransport : mockTransport;
   const { status, data } = await transport(method, path, { body, token, query, accept });
-  if (status >= 200 && status < 300) return data;
+  if (status >= 200 && status < 300) {
+    if (method !== 'GET' && (/^\/projects(?:\/[^/]+)?$/.test(path) || /^\/projects\/[^/]+\/(?:members(?:\/[^/]+)?|tasks)$/.test(path) || /^\/tasks\/[^/]+(?:\/status)?$/.test(path))) invalidateQuery('dashboard:');
+    return data;
+  }
   const error = new ApiError(status, data && typeof data === 'object' ? data : null);
   if (status === 401 && auth) unauthorizedHandler(error);
   throw error;
 }
 
 const enc = encodeURIComponent;
+function localToday() {
+  const date = new Date();
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
 
 export const api = {
   auth: {
@@ -120,14 +128,14 @@ export const api = {
     update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { body: input }),
     remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`),
     /** @returns {Promise<ProjectSummary>} TM-F-041 */
-    summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`),
+    summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`, { query: { today: localToday() } }),
     /** @returns {Promise<string>} CSV text, TM-F-042 */
     exportCsv: (projectId, filters) =>
       request('GET', `/projects/${enc(projectId)}/tasks/export.csv`, { query: filters, accept: 'text/csv' }),
   },
   dashboard: {
     /** @returns {Promise<{ projects: ProjectSummary[], myTasks: Task[] }>} */
-    get: () => request('GET', '/dashboard'),
+    get: () => request('GET', '/dashboard', { query: { today: localToday() } }),
   },
   members: {
     /** @returns {Promise<Member[]>} */
@@ -160,6 +168,7 @@ export const api = {
   notifications: {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */
     list: (page = 1) => request('GET', '/notifications', { query: { page } }),
+    unreadCount: () => request('GET', '/notifications/unread-count'),
     markRead: (notificationId) => request('PATCH', `/notifications/${enc(notificationId)}/read`),
     markAllRead: () => request('PATCH', '/notifications/read-all'),
   },

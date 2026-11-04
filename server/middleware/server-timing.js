@@ -11,16 +11,18 @@ function instrumentExec(prototype) {
   prototype.exec = function timedExec(...args) {
     const timing = requestTiming.getStore();
     if (!timing) return originalExec.apply(this, args);
-    const started = performance.now();
+    timing.count += 1;
+    if (timing.active++ === 0) timing.dbStarted = performance.now();
+    const finish = () => { if (--timing.active === 0) timing.db += performance.now() - timing.dbStarted; };
     try {
       const result = originalExec.apply(this, args);
       if (result && typeof result.finally === 'function') {
-        return result.finally(() => { timing.db += performance.now() - started; });
+        return result.finally(() => { finish(); });
       }
-      timing.db += performance.now() - started;
+      finish();
       return result;
     } catch (error) {
-      timing.db += performance.now() - started;
+      finish();
       throw error;
     }
   };
@@ -31,12 +33,12 @@ instrumentExec(mongoose.Aggregate.prototype);
 
 export function serverTiming() {
   return (_request, response, next) => {
-    const timing = { started: performance.now(), db: 0 };
+    const timing = { started: performance.now(), db: 0, active: 0, count: 0, dbStarted: 0 };
     const writeHead = response.writeHead;
     response.writeHead = function writeHeadWithTiming(...args) {
       const existing = String(response.getHeader('Server-Timing') || '');
-      const extraMetrics = existing.split(',').map((item) => item.trim()).filter((item) => item && !/^(db|total);/.test(item));
-      const metrics = [`db;dur=${timing.db.toFixed(1)}`, ...extraMetrics, `total;dur=${(performance.now() - timing.started).toFixed(1)}`];
+      const extraMetrics = existing.split(',').map((item) => item.trim()).filter((item) => item && !/^(db|dbq|total);/.test(item));
+      const metrics = [`db;dur=${(timing.db + (timing.active ? performance.now() - timing.dbStarted : 0)).toFixed(1)}`, `dbq;desc="${timing.count}"`, ...extraMetrics, `total;dur=${(performance.now() - timing.started).toFixed(1)}`];
       response.setHeader('Server-Timing', metrics.join(', '));
       return writeHead.apply(this, args);
     };

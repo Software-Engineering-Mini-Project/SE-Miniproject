@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { clearQueryCache, useQuery } from '../../src/lib/hooks/useQuery.js';
+import { clearQueryCache, invalidateQuery, useQuery } from '../../src/lib/hooks/useQuery.js';
 
 const mock = vi.hoisted(() => ({ configure: vi.fn(), login: vi.fn(), me: vi.fn() }));
 vi.mock('../../src/lib/api/client.js', () => ({
@@ -54,4 +54,16 @@ it('clears cached data when the session signs out', async () => {
   expect(second.result.current.data).toBeUndefined();
   expect(second.result.current.loading).toBe(true);
   await waitFor(() => expect(second.result.current.data).toEqual(['new session data']));
+});
+
+
+it('invalidates a mounted dashboard and keeps good data when a refresh fails', async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce({ count: 1 }).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ count: 2 });
+  const hook = renderHook(() => useQuery('dashboard:user-1', fetcher));
+  await waitFor(() => expect(hook.result.current.data).toEqual({ count: 1 }));
+  act(() => invalidateQuery('dashboard:'));
+  await waitFor(() => expect(hook.result.current.error).toBeTruthy());
+  expect(hook.result.current.data).toEqual({ count: 1 });
+  await act(() => hook.result.current.reload());
+  expect(hook.result.current.data).toEqual({ count: 2 });
 });

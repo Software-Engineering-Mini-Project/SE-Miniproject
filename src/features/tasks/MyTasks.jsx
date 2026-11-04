@@ -68,7 +68,8 @@ export function MyTasks() {
         </div>
       </div>
 
-      {results.error ? (
+      {results.error && results.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={results.reload}>Retry</button></p>}
+      {results.error && !results.data ? (
         <ErrorState error={results.error} onRetry={results.reload} />
       ) : !results.data ? (
         <div style={{ display: 'grid', gap: 8 }}>

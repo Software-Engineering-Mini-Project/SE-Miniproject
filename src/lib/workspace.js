@@ -34,7 +34,7 @@ export const useWorkspace = create((set, get) => ({
 
   async loadUnread() {
     try {
-      const page = await api.notifications.list(1);
+      const page = await api.notifications.unreadCount();
       set({ unreadCount: page.unreadCount ?? page.items.filter((n) => !n.read).length });
       return page;
     } catch {

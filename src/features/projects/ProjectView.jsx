@@ -141,7 +141,7 @@ export function ProjectView({ projectId }) {
     [tasks],
   );
 
-  if (project.error) {
+  if (project.error && !project.data) {
     const status = project.error.status;
     return (
       <EmptyState
@@ -261,7 +261,9 @@ export function ProjectView({ projectId }) {
         </div>
       </div>
 
-      {tasks.error ? (
+      {project.error && project.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={project.reload}>Retry</button></p>}
+      {tasks.error && tasks.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={tasks.reload}>Retry</button></p>}
+      {tasks.error && !tasks.data ? (
         <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
       ) : !tasks.data ? (
         <div className="board">

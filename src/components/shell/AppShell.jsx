@@ -140,11 +140,24 @@ export function AppShell({ children }) {
 
   useEffect(() => {
     if (status !== 'authenticated') return undefined;
-    Promise.all([loadProjects(), loadUnread(), loadDashboard(userId)]);
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') loadUnread();
-    }, 60_000);
-    return () => clearInterval(timer);
+    Promise.all([loadProjects(), loadUnread(), ...(window.location.pathname === '/dashboard' ? [] : [loadDashboard(userId)])]);
+    let timer;
+    let hidden = document.visibilityState === 'hidden';
+    const startPolling = () => { if (!timer) timer = setInterval(loadUnread, 60_000); };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hidden = true;
+        clearInterval(timer);
+        timer = undefined;
+      } else {
+        if (hidden) loadUnread();
+        hidden = false;
+        startPolling();
+      }
+    };
+    if (!hidden) startPolling();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisibilityChange); };
   }, [status, userId, loadProjects, loadUnread, loadDashboard]);
 
   if (status !== 'authenticated') {

@@ -282,9 +282,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     db.notifications = db.notifications.filter((n) => n.taskId !== taskId);
   }
 
-  function isOverdue(task) {
-    if (task.status === 'Done' || !task.dueDate) return false;
-    return Date.parse(`${task.dueDate}T23:59:59Z`) < now().getTime();
+  function todayFor(value) {
+    const utc = now().toISOString().slice(0, 10);
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return utc;
+    const date = new Date(value + 'T00:00:00.000Z');
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value && Math.abs(date - Date.parse(utc + 'T00:00:00.000Z')) <= 86400000 ? value : utc;
+  }
+  function isOverdue(task, today = todayFor()) {
+    return task.status !== 'Done' && Boolean(task.dueDate) && task.dueDate < today;
   }
 
   function matchesFilters(task, query) {
@@ -364,17 +369,22 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, list];
     }],
 
-    ['GET', '/dashboard', ({ user }) => {
+    ['GET', '/dashboard', ({ user, query }) => {
+      const today = todayFor(query.today);
+      const weekEnd = new Date(Date.parse(today + 'T00:00:00.000Z') + 7 * 86400000).toISOString().slice(0, 10);
       const projects = db.projects.filter((project) => isMember(user, project));
       const projectIds = new Set(projects.map((project) => project.id));
       const visibleTasks = db.tasks.filter((task) => projectIds.has(task.projectId));
       const summaries = projects.map((project) => {
         const tasks = visibleTasks.filter((task) => task.projectId === project.id);
         const counts = Object.fromEntries(TASK_STATUSES.map((status) => [status, tasks.filter((task) => task.status === status).length]));
-        return { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter(isOverdue).length };
+        return { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter((task) => isOverdue(task, today)).length };
       });
-      const myTasks = visibleTasks.filter((task) => task.assigneeIds.includes(user.id)).slice(0, 500);
-      return [200, { projects: summaries, myTasks }];
+      const assigned = visibleTasks.filter((task) => task.assigneeIds.includes(user.id));
+      const open = assigned.filter((task) => task.status !== 'Done');
+      const stats = { openAssigned: open.length, completed: assigned.length - open.length, overdue: open.filter((task) => isOverdue(task, today)).length, dueIn7Days: open.filter((task) => task.dueDate && task.dueDate >= today && task.dueDate <= weekEnd).length };
+      const myTasks = open.sort((a, b) => Number(!a.dueDate) - Number(!b.dueDate) || (a.dueDate || '').localeCompare(b.dueDate || '') || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(0, 500);
+      return [200, { projects: summaries, myTasks, stats }];
     }],
 
     ['POST', '/projects', ({ user, body }) => {
@@ -532,8 +542,13 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [204, null];
     }],
 
+    ['GET', '/notifications/unread-count', ({ user }) => [200, { unreadCount: db.notifications.filter((n) => n.userId === user.id && !n.read).length }]],
     ['GET', '/notifications', ({ user, query }) => {
-      generateDueReminders(user);
+      const timestamp = now().getTime();
+      if (!user.lastReminderScanAt || timestamp - user.lastReminderScanAt >= 15 * 60 * 1000) {
+        user.lastReminderScanAt = timestamp;
+        generateDueReminders(user);
+      }
       const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
       const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.pageSize, 10) || 50));
       const own = db.notifications
@@ -568,11 +583,12 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, { updated }];
     }],
 
-    ['GET', '/projects/:projectId/summary', ({ user, params }) => {
+    ['GET', '/projects/:projectId/summary', ({ user, params, query }) => {
+      const today = todayFor(query.today);
       const project = projectFor(user, params.projectId);
       const tasks = db.tasks.filter((t) => t.projectId === project.id);
       const counts = Object.fromEntries(TASK_STATUSES.map((s) => [s, tasks.filter((t) => t.status === s).length]));
-      return [200, { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter(isOverdue).length }];
+      return [200, { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter((task) => isOverdue(task, today)).length }];
     }],
 
     ['GET', '/projects/:projectId/tasks/export.csv', ({ user, params, query }) => {

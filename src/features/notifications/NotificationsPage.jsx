@@ -79,7 +79,8 @@ export function NotificationsPage() {
         </Button>
       </div>
 
-      {inbox.error ? (
+      {inbox.error && inbox.data && <p role="status">Couldn&apos;t refresh. <button type="button" onClick={inbox.reload}>Retry</button></p>}
+      {inbox.error && !inbox.data ? (
         <ErrorState error={inbox.error} onRetry={inbox.reload} />
       ) : !inbox.data ? (
         <div style={{ display: 'grid', gap: 8 }}>

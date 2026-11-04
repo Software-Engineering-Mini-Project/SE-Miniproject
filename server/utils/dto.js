@@ -17,13 +17,7 @@ export function memberDto(user) {
 }
 
 export async function projectDto(project) {
-  const userIds = project.memberIds.map(String);
-  const users = await User.find({ _id: { $in: userIds } }).select('_id name email role').lean();
-  const membersById = new Map(users.map((user) => [String(user._id), memberDto(user)]));
-  return {
-    ...toApi(project),
-    members: userIds.map((id) => membersById.get(id)).filter(Boolean),
-  };
+  return (await projectDtos([project]))[0];
 }
 
 export async function projectDtos(projects) {
@@ -39,11 +33,7 @@ export async function projectDtos(projects) {
 }
 
 export async function commentDto(comment) {
-  const author = await User.findById(comment.authorId).select('_id name email role').lean();
-  return {
-    ...toApi(comment),
-    author: author ? memberDto(author) : null,
-  };
+  return (await commentDtos([comment]))[0];
 }
 
 export async function commentDtos(comments) {
