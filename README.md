@@ -22,7 +22,26 @@ Run `npm run dev` to serve the website and API on port 3000. The API health chec
 
 ## Commands
 
-`npm run lint`, `npm test`, `npm run build`, `npm run test:e2e`, and `npm run seed` are available from the repository root. Seeding clears selected collections; use a disposable local/test database only.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Website and API on one port, with reload |
+| `npm run lint` / `npm test` | ESLint; API, contract and UI tests |
+| `npm run build` / `npm start` | Production build and server |
+| `npm run test:e2e` | Playwright browser tests against the production build (see `playwright.config.js`) |
+| `npm run db:indexes` | Creates the MongoDB indexes (required once per database in production) |
+| `npm run seed` | Replaces every collection with the synthetic fixtures. Refuses non-local or production databases unless `-- --allow-remote-database` is passed |
+| `npm run seed:demo` | The same fixtures with dates moved to today, for demos |
+| `npm run user:role -- <email> <Admin\|Lead\|Member>` | Sets a registered user's role, e.g. the first Admin of a new deployment |
+
+Fixture accounts (`admin@`, `lead@`, `member@`, `outsider@example.test`) share the password `Password123!`; they are synthetic and for local/test databases only.
+
+## Roles
+
+- **Member**: works on the projects they were added to and moves task status.
+- **Lead**: creates projects, manages members and tasks in projects they belong to.
+- **Admin**: everything, in every project, plus the **Users** page to change roles. The last Admin cannot be demoted.
+
+Changing a password signs out every other session for that account.
 
 
 

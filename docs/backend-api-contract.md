@@ -9,10 +9,10 @@
 
 ## 1. Where things stand
 
-- **The frontend is built** (Next.js 15, React 19) in ``. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
+- **The frontend is built** (Next.js 16, React 19) in `src/`. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
 - **The API contract is implemented** in `server/`, including auth, projects/members, tasks, comments, notifications, summaries, CSV export, access control, validation, and audit logging. The web app uses the real HTTP API by default via [`src/lib/api/client.js`](../src/lib/api/client.js).
 - The browser mock at [`src/lib/api/mock/server.js`](../src/lib/api/mock/server.js) remains available for frontend-only work (`NEXT_PUBLIC_API_MODE=mock`). It has no database and no real password hashing, and its tokens are not real JWTs.
-- **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. 19 contract tests check it, each named after an STP test ID ([`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
+- **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. Its contract tests are named after STP test IDs ([`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
 - **For local use:** configure MongoDB and `JWT_SECRET`, seed a local/test database, then run the app. The automated suite checks the API and mock against this contract; follow §12 for a browser smoke test against a live local database.
 
 Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll update this file and the frontend.
@@ -22,17 +22,20 @@ Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll 
 ## 2. Quick start
 
 ```bash
-# install dependencies from the repository root
+# from the repository root
 npm ci                 # once, after cloning
-copy server/.env.example to server/.env
-# set MONGODB_URI and a strong JWT_SECRET in server/.env
-copy .env.example to .env.local
-# set NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api in .env.local
-npm run seed  # clears selected collections; local/test DB only
-npm run dev
+cp .env.example .env.local
+# set MONGODB_URI (a local/test database) and a JWT_SECRET of 32+ random characters
+npm run db:indexes     # creates the unique email and query indexes
+npm run seed           # replaces every collection with the fixtures; refuses non-local hosts
+npm run dev            # Next.js and the Express API on one port (PORT, default 3000 in .env.example)
 ```
 
-The web app defaults to HTTP mode. To use the browser mock without starting MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `.env.local` and run `npm run dev:web`.
+`npm run seed:demo` loads the same fixtures with their dates moved to today, so the dashboard shows a realistic mix of overdue, due-soon and later work. The E2E suite expects the unshifted `npm run seed`.
+
+The web app defaults to HTTP mode. To use the browser mock without MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `.env.local` and run `npx next dev`.
+
+**First Admin of a new deployment:** register normally, then run `npm run user:role -- you@example.com Admin` against that database. From then on, Admins change roles on the in-app **Users** page.
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
@@ -193,7 +196,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 - **Always creates role `Member`.** Ignore any `role` sent in the body (SRS §2.2).
 - `201 { userId, email }`
 - `400 VALIDATION_ERROR` (with `fields`), or `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive.
-- Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing.
+- Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing. Only requests that pass validation count, so typos do not use up the allowance.
 
 #### `POST /auth/login` (public)
 - Body: `{ email, password }`
@@ -208,6 +211,14 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 - Body: any of `{ name }`, or `{ currentPassword, newPassword }`.
 - Changing the password requires the correct `currentPassword`; otherwise `400` with `fields.currentPassword`.
 - Returns `200 User`. The new password must work on the next login.
+- **A password change revokes every existing session** (each token carries the user's `tokenVersion` as claim `tv`). The response then also contains `token` and `expiresIn`, which the client must use from then on. Older tokens get `401 TOKEN_REVOKED`.
+
+#### Admin: user accounts and roles (SRS §2.2)
+
+| Method and path | Who | Body or query | Success | Errors |
+|---|---|---|---|---|
+| `GET /users` | Admin | `q` (name or email, case-insensitive), `role`, `page`, `pageSize` (max 100) | `200 { items, page, pageSize, total, roleCounts }`. Each item is a `User` plus `projectCount`; newest first. | `403` non-Admin, `400` bad role or paging |
+| `PATCH /users/:userId/role` | Admin | `{ role: "Admin" \| "Lead" \| "Member" }` | `200 User`. Takes effect on the user's next request (roles are read from the database). Audit-logged with `change: { field, from, to }`. | `409 LAST_ADMIN` when it would leave no Admin, `404`, `400`, `403` |
 
 ### 6.2 Projects and members (TM-F-020, TM-F-021)
 
@@ -220,7 +231,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 | `DELETE /projects/:projectId` | project Lead, Admin | | `204`, cascades per D11 | `403`, `404` |
 | `GET /projects/:projectId/members` | member | | `200 Member[]` | `403`, `404` |
 | `POST /projects/:projectId/members` | project Lead, Admin | `{ email }` (D4) | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `403` |
-| `DELETE /projects/:projectId/members/:userId` | project Lead, Admin | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project.** | `400` if removing the owner, `404` if not a member, `403` |
+| `DELETE /projects/:projectId/members/:userId` | project Lead, Admin | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the owner, `404` if not a member, `403` |
 
 "Project Lead" means role `Lead` **and** listed in that project's `memberIds`. A Lead who isn't in the project gets 403.
 
@@ -331,6 +342,7 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 | Change task status | ✅ | ✅ | ✅ (D12) | 403 |
 | Read or post comments | ✅ | ✅ | ✅ | 403 |
 | Read or mark notifications | own only | own only | own only | own only (others' → 404) |
+| List users, change roles | ✅ | 403 | 403 | 403 |
 
 ---
 
@@ -375,7 +387,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 10. Testing
 
-- **Port the contract tests.** [`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs) has 19 tests named after STP IDs: TC-AUTH-01/02/03, TC-SEC-02/03/06, TC-PROJ-01/02, TC-TASK-01/02/03, TC-BOARD-01, TC-NOTIF-01/02, TC-COMM-01, TC-SEARCH-01, TC-REPORT-01/02. Each one is `request → expected status + errorCode`. Rewrite them with Supertest against `app.js` and they become your API integration suite (STP §5.1).
+- **Contract tests.** [`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs) names its tests after STP IDs: TC-AUTH-01/02/03, TC-SEC-02/03/06, TC-PROJ-01/02, TC-TASK-01/02/03, TC-BOARD-01, TC-NOTIF-01/02, TC-COMM-01, TC-SEARCH-01, TC-REPORT-01/02. Each one is `request → expected status + errorCode`. Rewrite them with Supertest against `app.js` and they become your API integration suite (STP §5.1).
 - **Seed** a dedicated test database from `fixtures/*.json` before each run. Never use production data (STP §5.4).
 - **Expected numbers with the fixtures:**
   - Alpha summary is `{ "To Do": 3, "In Progress": 2, "Done": 2 }`, `total` 7, `overdue` 1 on 2026-10-16.
@@ -387,7 +399,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 11. Maintenance notes
 
-1. **CI and workspaces:** the root `package.json` and lockfile manage the app. GitHub Actions runs API and Web checks on Node 22 and 24; keep those workspace commands aligned with the package names in each app's `package.json`.
+1. **CI:** the root `package.json` and lockfile manage the app. GitHub Actions runs one `verify` job on Node 22: lint, API and web tests, a mock-mode build with the full E2E suite, then an HTTP-mode build with the full E2E suite against a MongoDB service.
 2. **Keep SAD §4 in sync** with this contract when decisions change (SRS §3.2 asks for the final contract to live in the repo).
 3. **Resolve the SRS version question** before later work changes requirements: the reviewed copy is v1.0 while Issue #2 cites v1.3.
 
@@ -395,12 +407,8 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 12. Using the frontend with the API
 
-1. Run your API on `http://localhost:4000` with CORS allowing `http://localhost:3000`.
-2. Configure `.env.local`:
-   ```
-   NEXT_PUBLIC_API_MODE=http
-   NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
-   ```
+1. The API is served by the same process as the web app (`npm run dev`), under `/api`.
+2. Configure `.env.local` from `.env.example` (`NEXT_PUBLIC_API_MODE=http`, `NEXT_PUBLIC_API_BASE_URL=/api`).
 3. Seed a local/test database with `npm run seed`, then start the app with `npm run dev`. In HTTP mode, sign in using a seeded account or register a new user. Seeded fixture users share password `Password123!`.
 4. Smoke test in this order:
    - register → sign in → dashboard
