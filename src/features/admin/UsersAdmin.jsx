@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, ShieldCheck, UsersRound } from 'lucide-react';
+import { Ban, RotateCcw, Search, ShieldCheck, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { describeError } from '@/lib/api/errors';
 import { formatDate, plural } from '@/lib/format';
 import { useQuery } from '@/lib/hooks/useQuery';
 import { useSession } from '@/lib/session';
+import { WORKSPACE_ROLE_SUMMARY } from '@/lib/permissions';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { RefreshNotice } from '@/components/ui/RefreshNotice';
@@ -19,16 +20,18 @@ import './admin.css';
 const ROLES = ['Admin', 'Lead', 'Member'];
 const ROLE_HINT = {
   Admin: 'Every project, every user',
-  Lead: 'Creates and runs projects',
-  Member: 'Works on assigned projects',
+  Lead: 'Creates projects',
+  Member: 'Works where added',
 };
 
-/** Admin user management (SRS §2.2): find accounts and change roles. */
+/** Admin user management (SRS §2.2): find accounts, change workspace roles, deactivate accounts. */
 export function UsersAdmin() {
   const me = useSession((s) => s.user);
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [role, setRole] = useState('');
+  const [status, setStatus] = useState('');
+  const [confirmingId, setConfirmingId] = useState(null);
   const [savingId, setSavingId] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -38,7 +41,7 @@ export function UsersAdmin() {
   }, [search]);
 
   const isAdmin = me?.role === 'Admin';
-  const users = useQuery(isAdmin ? `admin-users:${role}:${q}` : null, () => api.users.list({ q, role }));
+  const users = useQuery(isAdmin ? `admin-users:${role}:${status}:${q}` : null, () => api.users.list({ q, role, status }));
 
   if (!isAdmin) {
     return (
@@ -55,7 +58,7 @@ export function UsersAdmin() {
   async function loadMore() {
     setLoadingMore(true);
     try {
-      const next = await api.users.list({ q, role, page: data.page + 1 });
+      const next = await api.users.list({ q, role, status, page: data.page + 1 });
       users.setData((current) => {
         const seen = new Set(current.items.map((u) => u.id));
         return { ...next, items: [...current.items, ...next.items.filter((u) => !seen.has(u.id))] };
@@ -93,24 +96,43 @@ export function UsersAdmin() {
     }
   }
 
+  async function setActive(user, active) {
+    setConfirmingId(null);
+    setSavingId(user.id);
+    try {
+      const updated = await api.users.setActive(user.id, active);
+      users.setData((current) => ({
+        ...current,
+        deactivatedCount: Math.max(0, (current.deactivatedCount ?? 0) + (active ? -1 : 1)),
+        items: current.items.map((u) => (u.id === user.id ? { ...u, ...updated } : u)),
+      }));
+      toast.success(active ? `${user.name} can sign in again.` : `${user.name} was deactivated and signed out everywhere.`);
+    } catch (error) {
+      toast.error(describeError(error));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   const counts = data?.roleCounts;
   const totalUsers = counts ? ROLES.reduce((sum, r) => sum + counts[r], 0) : 0;
 
   return (
     <>
-      <PageHeader title="Users" description="Everyone with an account. Role changes take effect on their next request; no sign-out needed." />
+      <PageHeader title="Users" description="Everyone with an account. Role changes take effect on their next request; deactivating an account signs it out everywhere." />
 
       {counts ? (
         <dl className="role-summary" aria-label="Accounts by role">
           <div>
             <dt>All accounts</dt>
             <dd>{totalUsers}</dd>
+            <dd className="role-summary-hint">{data.deactivatedCount ? `${data.deactivatedCount} deactivated` : 'All active'}</dd>
           </div>
           {ROLES.map((r) => (
             <div key={r}>
               <dt>{r}s</dt>
               <dd>{counts[r]}</dd>
-              <dd className="role-summary-hint">{ROLE_HINT[r]}</dd>
+              <dd className="role-summary-hint" title={WORKSPACE_ROLE_SUMMARY[r]}>{ROLE_HINT[r]}</dd>
             </div>
           ))}
         </dl>
@@ -129,6 +151,11 @@ export function UsersAdmin() {
           {ROLES.map((r) => (
             <option key={r}>{r}</option>
           ))}
+        </select>
+        <select className="select" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Account status">
+          <option value="">Any status</option>
+          <option value="active">Active</option>
+          <option value="deactivated">Deactivated</option>
         </select>
         {data ? (
           <p className="filters-count" aria-live="polite">
@@ -153,12 +180,13 @@ export function UsersAdmin() {
           {items.map((user) => {
             const self = user.id === me.id;
             return (
-              <li key={user.id} className="user-row">
+              <li key={user.id} className="user-row" data-inactive={user.active === false || undefined}>
                 <Avatar user={user} />
                 <span className="user-row-text">
                   <span className="user-row-name">
                     {user.name}
                     {self ? <span className="user-row-you"> · You</span> : null}
+                    {user.active === false ? <span className="member-flag">Deactivated</span> : null}
                   </span>
                   <span className="user-row-email">{user.email}</span>
                 </span>
@@ -182,6 +210,26 @@ export function UsersAdmin() {
                       <option key={r}>{r}</option>
                     ))}
                   </select>
+                </span>
+                <span className="user-row-status">
+                  {self ? null : confirmingId === user.id ? (
+                    <span className="member-confirm" role="group" aria-label={`Confirm deactivating ${user.name}`}>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirmingId(null)}>
+                        Cancel
+                      </Button>
+                      <Button variant="danger" size="sm" autoFocus onClick={() => setActive(user, false)}>
+                        Deactivate
+                      </Button>
+                    </span>
+                  ) : user.active === false ? (
+                    <Button size="sm" variant="ghost" loading={savingId === user.id} onClick={() => setActive(user, true)}>
+                      <RotateCcw size={14} /> Reactivate
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" iconOnly aria-label={`Deactivate ${user.name}`} title="Deactivate account" loading={savingId === user.id} onClick={() => setConfirmingId(user.id)}>
+                      <Ban size={15} />
+                    </Button>
+                  )}
                 </span>
               </li>
             );

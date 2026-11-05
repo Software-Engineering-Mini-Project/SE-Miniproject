@@ -11,7 +11,7 @@ function mockUserFind(rows) {
     assert.deepEqual(filter, { _id: { $in: ['user-1', 'user-2'] } });
     return {
       select(fields) {
-        assert.equal(fields, '_id name email role');
+        assert.equal(fields, '_id name email role deactivatedAt');
         return { lean: async () => rows };
       },
     };

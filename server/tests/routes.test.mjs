@@ -323,7 +323,11 @@ test('project and member endpoints enforce roles, membership, and cascades', asy
   assert.equal(leadProjects.body.length, 2);
   assert.equal(memberProjects.body.length, 1);
   assert.deepEqual(outsiderProjects.body, []);
-  assert.equal(memberProjects.body[0].members.length, 3);
+  assert.equal(memberProjects.body[0].members.length, 4);
+  assert.deepEqual(
+    memberProjects.body[0].members.map((member) => [member.id, member.projectRole]),
+    [['user-lead-001', 'Owner'], ['user-member-001', 'Member'], ['user-member-002', 'Member'], ['user-viewer-001', 'Viewer']],
+  );
   assert.equal(memberProjects.body[0].members[0].passwordHash, undefined);
 
   const forbiddenProject = await request(app).get('/api/projects/project-beta').set(auth(memberToken));

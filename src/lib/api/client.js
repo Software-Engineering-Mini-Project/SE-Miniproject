@@ -15,7 +15,7 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
 
 /**
  * @typedef {{ id: string, name: string, email: string, role: import('../constants.js').UserRole, createdAt?: string, updatedAt?: string }} User
- * @typedef {{ id: string, name: string, email: string, role: string }} Member
+ * @typedef {{ id: string, name: string, email: string, role: string, active?: boolean, projectRole?: 'Owner' | 'Manager' | 'Member' | 'Viewer' }} Member
  * @typedef {{ id: string, name: string, description: string, ownerId: string, memberIds: string[], members: Member[], createdAt: string, updatedAt: string }} Project
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, projectId: string, assigneeIds: string[], createdAt: string, updatedAt: string }} Task
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
@@ -117,9 +117,11 @@ export const api = {
     /** A password change also returns `{ token, expiresIn }`: older sessions are revoked. */
     updateMe: (input) => request('PATCH', '/users/me', { body: input }),
     /** Admin only. @returns {Promise<{ items: (User & { projectCount: number })[], page: number, pageSize: number, total: number, roleCounts: Record<string, number> }>} */
-    list: ({ q, role, page = 1, pageSize = 50 } = {}) => request('GET', '/users', { query: { q, role, page, pageSize } }),
+    list: ({ q, role, status, page = 1, pageSize = 50 } = {}) => request('GET', '/users', { query: { q, role, status, page, pageSize } }),
     /** Admin only. @returns {Promise<User>} */
     setRole: (userId, role) => request('PATCH', `/users/${enc(userId)}/role`, { body: { role } }),
+    /** Admin only. Deactivating signs the user out everywhere and blocks sign-in. @returns {Promise<User>} */
+    setActive: (userId, active) => request('PATCH', `/users/${enc(userId)}/status`, { body: { active } }),
   },
   projects: {
     /** @returns {Promise<Project[]>} */
@@ -143,8 +145,10 @@ export const api = {
   members: {
     /** @returns {Promise<Member[]>} */
     list: (projectId) => request('GET', `/projects/${enc(projectId)}/members`),
-    /** DECISION: body is `{ email }` of a registered user. TM-F-021 */
-    add: (projectId, email) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:'], body: { email } }),
+    /** Body is `{ email, role? }` of a registered user; role is Manager, Member (default) or Viewer. TM-F-021 */
+    add: (projectId, email, role) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:'], body: role ? { email, role } : { email } }),
+    /** Changes a project role; 'Owner' transfers ownership. @returns {Promise<Member[]>} */
+    setRole: (projectId, userId, role) => request('PATCH', `/projects/${enc(projectId)}/members/${enc(userId)}`, { body: { role } }),
     remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:'] }),
   },
   tasks: {

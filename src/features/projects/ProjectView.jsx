@@ -15,6 +15,7 @@ import { isOverdue } from '@/lib/format';
 import { useQuery } from '@/lib/hooks/useQuery';
 import { useSession } from '@/lib/session';
 import { useWorkspace } from '@/lib/workspace';
+import { can, projectRoleOf } from '@/lib/permissions';
 import { AvatarStack } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Dialog';
@@ -219,7 +220,18 @@ export function ProjectView({ projectId }) {
   }
 
   const p = project.data;
-  const canManage = user?.role === 'Admin' || (user?.role === 'Lead' && p.memberIds.includes(user.id));
+  // Same rules the API enforces (src/lib/permissions.js), so nothing is offered that would be refused.
+  const allowed = (action) => can(user, action, p);
+  const myRole = projectRoleOf(p, user?.id) ?? (user?.role === 'Admin' ? 'Admin' : null);
+  const canCreateTask = allowed('task.create');
+  const assignable = p.members.filter((m) => m.projectRole !== 'Viewer' && m.active !== false);
+  const menuItems = [
+    allowed('project.edit') ? { label: 'Edit project', icon: Pencil, onSelect: () => setEditOpen(true) } : null,
+    { label: allowed('members.manage') ? 'Manage members' : 'View members', icon: Users, onSelect: () => setMembersOpen(true) },
+    ...(allowed('project.delete')
+      ? [{ separator: true }, { label: 'Delete project', icon: Trash2, tone: 'danger', onSelect: () => setDeleteOpen(true) }]
+      : []),
+  ].filter(Boolean);
 
   const handleExport = async () => {
     setExporting(true);
@@ -257,7 +269,14 @@ export function ProjectView({ projectId }) {
     <div className="project">
       <header className="project-header">
         <div className="project-heading">
-          <h1 className="page-title">{p.name}</h1>
+          <div className="project-title-row">
+            <h1 className="page-title">{p.name}</h1>
+            {myRole ? (
+              <span className="role-badge" data-role={myRole.toLowerCase()} title="Your role in this project">
+                {myRole === 'Admin' ? 'Admin access' : myRole}
+              </span>
+            ) : null}
+          </div>
           {p.description ? <p className="page-description">{p.description}</p> : null}
         </div>
         <div className="page-actions">
@@ -273,23 +292,16 @@ export function ProjectView({ projectId }) {
           <Button onClick={handleExport} loading={exporting}>
             <Download size={16} /> Export CSV
           </Button>
-          {canManage ? (
-            <>
-              <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
-                <Plus size={16} /> New task
-              </Button>
-              <Menu
-                trigger={<Button iconOnly aria-label="Project options" />}
-                triggerContent={<MoreHorizontal size={16} />}
-                items={[
-                  { label: 'Edit project', icon: Pencil, onSelect: () => setEditOpen(true) },
-                  { label: 'Manage members', icon: Users, onSelect: () => setMembersOpen(true) },
-                  { separator: true },
-                  { label: 'Delete project', icon: Trash2, tone: 'danger', onSelect: () => setDeleteOpen(true) },
-                ]}
-              />
-            </>
+          {canCreateTask ? (
+            <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
+              <Plus size={16} /> New task
+            </Button>
           ) : null}
+          <Menu
+            trigger={<Button iconOnly aria-label="Project options" />}
+            triggerContent={<MoreHorizontal size={16} />}
+            items={menuItems}
+          />
         </div>
       </header>
 
@@ -324,19 +336,19 @@ export function ProjectView({ projectId }) {
         <EmptyState
           title="No tasks yet"
           action={
-            canManage ? (
+            canCreateTask ? (
               <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
                 <Plus size={16} /> Create the first task
               </Button>
             ) : null
           }
         >
-          {canManage ? 'Break the work into tasks and assign them to members.' : 'The project lead has not added tasks yet.'}
+          {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'The project owner or a manager adds tasks here.'}
         </EmptyState>
       ) : view === 'insights' ? (
         <ProjectInsights tasks={visibleTasks} members={p.members} />
       ) : view === 'board' ? (
-        <KanbanBoard tasks={visibleTasks} members={p.members} onMove={moveTask} onOpen={openTask} canCreate={canManage} onCreate={setCreateStatus} />
+        <KanbanBoard tasks={visibleTasks} members={p.members} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
       ) : visibleTasks.length ? (
         <TaskList tasks={visibleTasks} membersById={membersById} onOpen={(t) => openTask(t.id)} />
       ) : (
@@ -347,7 +359,14 @@ export function ProjectView({ projectId }) {
         key={selectedTask?.id || 'no-task'}
         task={selectedTask}
         members={p.members}
-        canManage={canManage}
+        assignable={assignable}
+        permissions={{
+          edit: allowed('task.edit'),
+          remove: allowed('task.delete'),
+          status: allowed('task.status'),
+          comment: allowed('comment.create'),
+          moderate: allowed('comment.moderate'),
+        }}
         open={Boolean(selectedTask)}
         onOpenChange={(open) => !open && closeTask()}
         onStatusChange={moveTask}
@@ -365,7 +384,7 @@ export function ProjectView({ projectId }) {
         {createStatus ? (
           <TaskForm
             initial={{ status: createStatus }}
-            members={p.members}
+            members={assignable}
             submitLabel="Create task"
             onCancel={() => setCreateStatus(null)}
             onSubmit={async (payload) => {
@@ -382,19 +401,27 @@ export function ProjectView({ projectId }) {
         open={membersOpen}
         onOpenChange={setMembersOpen}
         project={p}
-        canManage={canManage}
-        onMembersChange={(members, removedId) => {
-          // A lead who removes themselves loses access (admins keep it): leave the page.
+        onMembersChange={(members, { removedId, unassignedId } = {}) => {
+          // Someone who leaves (or removes themselves) loses access; admins keep it.
           if (removedId && removedId === user?.id && user.role !== 'Admin') {
             removeProject(p.id);
             setMembersOpen(false);
+            toast.success(`You left ${p.name}.`);
             router.replace('/projects');
             return;
           }
-          const next = { ...p, members, memberIds: members.map((m) => m.id) };
+          const next = {
+            ...p,
+            members,
+            memberIds: members.map((m) => m.id),
+            ownerId: members.find((m) => m.projectRole === 'Owner')?.id ?? p.ownerId,
+            managerIds: members.filter((m) => m.projectRole === 'Manager').map((m) => m.id),
+            viewerIds: members.filter((m) => m.projectRole === 'Viewer').map((m) => m.id),
+          };
           project.setData(next);
           upsertProject(next);
-          if (removedId) tasks.setData((list) => list.map((t) => ({ ...t, assigneeIds: t.assigneeIds.filter((id) => id !== removedId) })));
+          const dropped = removedId || unassignedId;
+          if (dropped) tasks.setData((list) => list.map((t) => ({ ...t, assigneeIds: t.assigneeIds.filter((id) => id !== dropped) })));
         }}
       />
 

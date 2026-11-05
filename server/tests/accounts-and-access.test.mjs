@@ -76,8 +76,10 @@ test('only Admins can list users, with search, role filter, paging, role totals 
 
   const all = await request(app).get('/api/users').set(auth(admin));
   assert.equal(all.status, 200, all.text);
-  assert.equal(all.body.total, 5);
-  assert.deepEqual(all.body.roleCounts, { Admin: 1, Lead: 1, Member: 3 });
+  assert.equal(all.body.total, 6);
+  assert.deepEqual(all.body.roleCounts, { Admin: 1, Lead: 1, Member: 4 });
+  assert.equal(all.body.deactivatedCount, 0);
+  assert.ok(all.body.items.every((user) => user.active === true));
   assert.equal(all.body.page, 1);
   const lead1 = all.body.items.find((user) => user.id === 'user-lead-001');
   assert.equal(lead1.projectCount, 2);
@@ -89,7 +91,7 @@ test('only Admins can list users, with search, role filter, paging, role totals 
   const regexSafe = await request(app).get('/api/users?q=.*').set(auth(admin));
   assert.equal(regexSafe.body.total, 0);
   const members = await request(app).get('/api/users?role=Member&pageSize=2').set(auth(admin));
-  assert.equal(members.body.total, 3);
+  assert.equal(members.body.total, 4);
   assert.equal(members.body.items.length, 2);
   assert.equal((await request(app).get('/api/users?role=Owner').set(auth(admin))).status, 400);
   assert.equal((await request(app).get('/api/users?pageSize=1000').set(auth(admin))).status, 400);
@@ -137,7 +139,7 @@ test('Admins change roles; the change takes effect at once, is audited, and the 
   await request(app).patch('/api/users/user-outsider-001/role').set(auth(admin)).send({ role: 'Member' });
   assert.deepEqual(
     (await User.find({}).sort({ _id: 1 }).lean()).map((user) => [user._id, user.role]),
-    [['user-admin-001', 'Admin'], ['user-lead-001', 'Lead'], ['user-member-001', 'Member'], ['user-member-002', 'Member'], ['user-outsider-001', 'Member']],
+    [['user-admin-001', 'Admin'], ['user-lead-001', 'Lead'], ['user-member-001', 'Member'], ['user-member-002', 'Member'], ['user-outsider-001', 'Member'], ['user-viewer-001', 'Member']],
   );
 });
 

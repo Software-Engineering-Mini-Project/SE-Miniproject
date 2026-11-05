@@ -50,8 +50,10 @@ function DraggableCard({ task, assignees, onOpen, canDrag }) {
       task={task}
       assignees={assignees}
       placeholder={isDragging}
-      {...attributes}
-      {...listeners}
+      // dnd-kit marks a disabled draggable aria-disabled, but a read-only card still opens:
+      // only add the drag attributes and listeners when dragging is allowed.
+      {...(canDrag ? attributes : { role: 'button', tabIndex: 0 })}
+      {...(canDrag ? listeners : {})}
       aria-roledescription={canDrag ? 'draggable task' : undefined}
       aria-describedby={canDrag ? 'board-dnd-help' : undefined}
       onClick={() => onOpen(task.id)}

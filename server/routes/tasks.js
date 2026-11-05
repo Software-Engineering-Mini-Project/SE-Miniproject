@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { Comment, Notification, Project, Task, User } from '../models/index.js';
+import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
 import { getProjectForUser, getTaskForUser, isAdmin } from '../services/access.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
@@ -62,13 +63,16 @@ function readTaskInput(body, { create = false } = {}) {
 }
 
 async function validateAssignees(assigneeIds, project) {
-  const projectMembers = new Set(project.memberIds.map(String));
   const users = await User.find({ _id: { $in: assigneeIds } }).select('_id');
   const registered = new Set(users.map((user) => user.id));
-  if (assigneeIds.some((id) => !registered.has(id) || !projectMembers.has(id))) {
+  if (assigneeIds.some((id) => !registered.has(id) || !projectRoleOf(project, id))) {
     invalid('Every assignee must be a registered member of this project.', {
       assigneeIds: 'Choose members of this project.',
     });
+  }
+  // Viewers are read-only, so they can't be given work.
+  if (assigneeIds.some((id) => !roleAllows(projectRoleOf(project, id), 'task.assignable'))) {
+    invalid('Viewers cannot be assigned tasks.', { assigneeIds: 'Viewers cannot be assigned tasks.' });
   }
 }
 
@@ -127,7 +131,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.post('/projects/:projectId/tasks', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId, { manage: true });
+    const project = await getProjectForUser(request.user, request.params.projectId, { action: 'task.create' });
     const body = requireObject(request.body);
     const input = readTaskInput(body, { create: true });
     await validateAssignees(input.assigneeIds, project);
@@ -167,7 +171,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.patch('/tasks/:taskId', requireAuth, async (request, response) => {
-    const { task, project } = await getTaskForUser(request.user, request.params.taskId, { manage: true });
+    const { task, project } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.edit' });
     const body = requireObject(request.body);
     const input = readTaskInput(body);
     if (Object.keys(input).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a task field to update.');
@@ -180,7 +184,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.delete('/tasks/:taskId', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId, { manage: true });
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.delete' });
     await Promise.all([
       Comment.deleteMany({ taskId: task.id }),
       Notification.deleteMany({ taskId: task.id }),
@@ -190,7 +194,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.patch('/tasks/:taskId/status', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId);
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.status' });
     const body = requireObject(request.body);
     task.status = readEnum(body, 'status', STATUSES, { label: 'Status' });
     await task.save();

@@ -29,8 +29,11 @@ export function requestLogger({ logger = console, now = () => new Date() } = {})
     response.on('finish', () => {
       const route = routePattern(request);
       const timestamp = now().toISOString();
-      const isAdminWrite = request.user?.role === 'Admin'
-        && ['POST', 'PATCH', 'DELETE'].includes(request.method);
+      // Admin writes are always audited; so is any permission change (auditChange), whoever made it.
+      const isAdminWrite = Boolean(request.user) && (
+        (request.user.role === 'Admin' && ['POST', 'PATCH', 'DELETE'].includes(request.method))
+        || Boolean(response.locals.auditChange)
+      );
       const record = {
         event: 'http_request',
         timestamp,

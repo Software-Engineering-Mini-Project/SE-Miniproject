@@ -14,8 +14,8 @@ const state = vi.hoisted(() => {
     workspace: {},
     api: {
       auth: { register: fn() },
-      users: { updateMe: fn(), list: fn(), setRole: fn() },
-      members: { add: fn(), remove: fn() },
+      users: { updateMe: fn(), list: fn(), setRole: fn(), setActive: fn() },
+      members: { add: fn(), remove: fn(), setRole: fn() },
       tasks: { search: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
       comments: { list: fn(), create: fn(), remove: fn() },
       notifications: { list: fn(), markRead: fn(), markAllRead: fn() },
@@ -332,17 +332,47 @@ describe('projects and membership', () => {
     const user = userEvent.setup();
     const onMembersChange = vi.fn();
     state.api.members.add.mockResolvedValue(project.members);
-    const { rerender } = render(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, canManage: false, onMembersChange }));
+    // Signed in as a plain member: read-only list, but they may leave.
+    state.session.user = member;
+    const { rerender } = render(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, onMembersChange }));
     expect(screen.getByText('Mina Member')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Remove Mina Member' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Lena Lead' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Project role for Lena Lead')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Leave project' })).toBeInTheDocument();
 
-    rerender(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, canManage: true, onMembersChange }));
+    // The owner gets role pickers, removal and the add form with a role choice.
+    state.session.user = lead;
+    rerender(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, onMembersChange }));
+    expect(screen.queryByRole('button', { name: 'Leave project' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Project role for Mina Member')).toHaveValue('Member');
+    expect(screen.getByLabelText('Role for the new member')).toHaveValue('Member');
     await user.type(screen.getByPlaceholderText('name@example.test'), ' new@example.test ');
+    await user.selectOptions(screen.getByLabelText('Role for the new member'), 'Viewer');
     await user.click(screen.getByRole('button', { name: 'Add member' }));
 
-    await waitFor(() => expect(state.api.members.add).toHaveBeenCalledWith(project.id, 'new@example.test'));
+    await waitFor(() => expect(state.api.members.add).toHaveBeenCalledWith(project.id, 'new@example.test', 'Viewer'));
     expect(onMembersChange).toHaveBeenCalledWith(project.members);
+  });
+
+  it('changes a project role, and asks before transferring ownership', async () => {
+    const user = userEvent.setup();
+    const onMembersChange = vi.fn();
+    const asViewer = [{ ...lead, projectRole: 'Owner' }, { ...member, projectRole: 'Viewer' }];
+    state.api.members.setRole.mockResolvedValueOnce(asViewer);
+    render(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, onMembersChange }));
+
+    await user.selectOptions(screen.getByLabelText('Project role for Mina Member'), 'Viewer');
+    await waitFor(() => expect(state.api.members.setRole).toHaveBeenCalledWith(project.id, member.id, 'Viewer'));
+    expect(onMembersChange).toHaveBeenCalledWith(asViewer, { unassignedId: member.id });
+
+    await user.selectOptions(screen.getByLabelText('Project role for Mina Member'), 'Owner');
+    expect(state.api.members.setRole).toHaveBeenCalledTimes(1);
+    const confirm = screen.getByRole('group', { name: 'Confirm making Mina Member the owner' });
+    expect(screen.getByText(/You will become a manager/)).toBeInTheDocument();
+    state.api.members.setRole.mockResolvedValueOnce([{ ...lead, projectRole: 'Manager' }, { ...member, projectRole: 'Owner' }]);
+    await user.click(within(confirm).getByRole('button', { name: 'Transfer' }));
+    await waitFor(() => expect(state.api.members.setRole).toHaveBeenLastCalledWith(project.id, member.id, 'Owner'));
   });
 });
 
@@ -439,13 +469,24 @@ describe('task creation, search, and board', () => {
   it('lets members change status while hiding lead-only task actions', async () => {
     const user = userEvent.setup();
     const onStatusChange = vi.fn();
-    render(h(TaskSheet, { task, members: [member], canManage: false, open: true, onOpenChange: vi.fn(), onStatusChange, onUpdated: vi.fn(), onDeleted: vi.fn() }));
+    const permissions = { edit: false, remove: false, status: true, comment: true, moderate: false };
+    render(h(TaskSheet, { task, members: [member], permissions, open: true, onOpenChange: vi.fn(), onStatusChange, onUpdated: vi.fn(), onDeleted: vi.fn() }));
 
     expect(screen.getByRole('heading', { name: 'Review release' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText('Status'), 'Done');
     expect(onStatusChange).toHaveBeenCalledWith(task.id, 'Done');
+  });
+
+  it('shows a viewer the task read-only: no status control, no edit or delete', () => {
+    setupQuery(`comments:${task.id}`, []);
+    const permissions = { edit: false, remove: false, status: false, comment: true, moderate: false };
+    render(h(TaskSheet, { task, members: [member], permissions, open: true, onOpenChange: vi.fn(), onStatusChange: vi.fn(), onUpdated: vi.fn(), onDeleted: vi.fn() }));
+    expect(screen.queryByLabelText('Status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    // Viewers may still comment.
+    expect(screen.getByRole('textbox', { name: 'Add a comment' })).toBeInTheDocument();
   });
 });
 
@@ -471,7 +512,10 @@ describe('comments and notifications', () => {
     const existing = { id: 'comment-1', text: 'Remove this note', authorId: member.id, author: member, createdAt: '2026-10-30T12:00:00.000Z' };
     const query = setupQuery(`comments:${task.id}`, [existing], { setData: vi.fn() });
     state.api.comments.remove.mockResolvedValue(undefined);
-    render(h(CommentThread, { taskId: task.id }));
+    const { rerender } = render(h(CommentThread, { taskId: task.id, canModerate: false }));
+    // Someone else's comment can only be deleted by a moderator (owner, manager or admin).
+    expect(screen.queryByRole('button', { name: 'Delete comment by Mina Member' })).not.toBeInTheDocument();
+    rerender(h(CommentThread, { taskId: task.id, canModerate: true }));
 
     await user.click(screen.getByRole('button', { name: 'Delete comment by Mina Member' }));
     expect(screen.getByRole('dialog', { name: 'Delete comment?' })).toBeInTheDocument();
@@ -592,7 +636,7 @@ describe('member removal, admin users, and insights', () => {
     const user = userEvent.setup();
     const onMembersChange = vi.fn();
     state.api.members.remove.mockResolvedValue([lead]);
-    render(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, canManage: true, onMembersChange }));
+    render(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, onMembersChange }));
 
     await user.click(screen.getByRole('button', { name: 'Remove Mina Member' }));
     expect(state.api.members.remove).not.toHaveBeenCalled();
@@ -603,7 +647,7 @@ describe('member removal, admin users, and insights', () => {
     await user.click(screen.getByRole('button', { name: 'Remove Mina Member' }));
     await user.click(within(screen.getByRole('group', { name: 'Confirm removing Mina Member' })).getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(state.api.members.remove).toHaveBeenCalledWith(project.id, member.id));
-    expect(onMembersChange).toHaveBeenCalledWith([lead], member.id);
+    expect(onMembersChange).toHaveBeenCalledWith([lead], { removedId: member.id });
 
     await user.type(screen.getByPlaceholderText('name@example.test'), 'MINA@example.test');
     await user.click(screen.getByRole('button', { name: 'Add member' }));
@@ -621,7 +665,7 @@ describe('member removal, admin users, and insights', () => {
     const user = userEvent.setup();
     state.session.user = { id: 'user-admin-001', name: 'Ada Admin', email: 'ada@example.test', role: 'Admin' };
     const admin = { ...state.session.user, projectCount: 1, createdAt: '2026-10-01T00:00:00.000Z' };
-    const query = setupQuery('admin-users::', {
+    const query = setupQuery('admin-users:::', {
       items: [admin, { ...member, projectCount: 2, createdAt: '2026-10-02T00:00:00.000Z' }],
       page: 1, pageSize: 50, total: 2, roleCounts: { Admin: 1, Lead: 0, Member: 1 },
     });
@@ -635,6 +679,25 @@ describe('member removal, admin users, and insights', () => {
     const [message, options] = state.toast.success.mock.calls[0];
     expect(message).toBe('Mina Member is now a Lead.');
     expect(options.action.label).toBe('Undo');
+  });
+
+  it('deactivates an account only after confirming, and never offers it for your own account', async () => {
+    const user = userEvent.setup();
+    state.session.user = { id: 'user-admin-001', name: 'Ada Admin', email: 'ada@example.test', role: 'Admin' };
+    const query = setupQuery('admin-users:::', {
+      items: [{ ...state.session.user, projectCount: 1, active: true }, { ...member, projectCount: 2, active: true }],
+      page: 1, pageSize: 50, total: 2, roleCounts: { Admin: 1, Lead: 0, Member: 1 }, deactivatedCount: 0,
+    });
+    state.api.users.setActive.mockResolvedValue({ ...member, active: false });
+    render(h(UsersAdmin));
+
+    expect(screen.queryByRole('button', { name: 'Deactivate Ada Admin' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Deactivate Mina Member' }));
+    expect(state.api.users.setActive).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole('group', { name: 'Confirm deactivating Mina Member' })).getByRole('button', { name: 'Deactivate' }));
+    await waitFor(() => expect(state.api.users.setActive).toHaveBeenCalledWith(member.id, false));
+    expect(query.setData).toHaveBeenCalled();
+    expect(state.toast.success).toHaveBeenCalledWith('Mina Member was deactivated and signed out everywhere.');
   });
 
   it('shows project workload, due dates and priorities as text-backed charts with a table view', async () => {

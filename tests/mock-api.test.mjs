@@ -284,7 +284,7 @@ test('Admin user management mirrors the API: list, filter, role change and last-
   assertEnvelope(call('GET', '/users', { token: login('lead@example.test') }), 403, 'FORBIDDEN');
   const all = call('GET', '/users', { token: admin });
   assert.equal(all.data.total, users.length);
-  assert.deepEqual(all.data.roleCounts, { Admin: 1, Lead: 1, Member: 3 });
+  assert.deepEqual(all.data.roleCounts, { Admin: 1, Lead: 1, Member: 4 });
   assert.equal(all.data.items.find((u) => u.id === 'user-lead-001').projectCount, 2);
   assert.ok(all.data.items.every((u) => !('password' in u)));
   assert.deepEqual(call('GET', '/users', { token: admin, query: { q: 'long.address' } }).data.items.map((u) => u.id), ['user-member-002']);
@@ -305,4 +305,47 @@ test('removing a member drops their notifications for that project', () => {
   assert.equal(call('DELETE', '/projects/project-alpha/members/user-member-001', { token: lead }).status, 200);
   assert.equal(call('GET', '/notifications', { token: member }).data.items.some((n) => n.projectId === 'project-alpha'), false);
   assert.equal(call('GET', '/notifications/unread-count', { token: member }).data.unreadCount, 0);
+});
+
+test('project roles mirror the API: viewers read and comment, managers manage, owners transfer', () => {
+  const { call, login } = setup();
+  const viewer = login('viewer@example.test');
+  const lead = login('lead@example.test');
+  const roleOf = (list, id) => list.find((member) => member.id === id)?.projectRole;
+
+  assert.equal(roleOf(call('GET', '/projects/project-alpha/members', { token: viewer }).data, 'user-viewer-001'), 'Viewer');
+  assertEnvelope(call('PATCH', '/tasks/task-001/status', { token: viewer, body: { status: 'Done' } }), 403, 'FORBIDDEN');
+  assert.equal(call('POST', '/tasks/task-001/comments', { token: viewer, body: { text: 'Noted.' } }).status, 201);
+  assertEnvelope(call('PATCH', '/tasks/task-001', { token: lead, body: { assigneeIds: ['user-viewer-001'] } }), 400, 'VALIDATION_ERROR');
+
+  // Lead is a Manager in Beta: may edit, may not delete or grant Manager.
+  assert.equal(call('PATCH', '/projects/project-beta', { token: lead, body: { name: 'Beta 2' } }).status, 200);
+  assertEnvelope(call('DELETE', '/projects/project-beta', { token: lead }), 403, 'FORBIDDEN');
+  assertEnvelope(call('POST', '/projects/project-beta/members', { token: lead, body: { email: 'member@example.test', role: 'Manager' } }), 403, 'FORBIDDEN');
+  assert.equal(roleOf(call('POST', '/projects/project-beta/members', { token: lead, body: { email: 'member@example.test', role: 'Viewer' } }).data, 'user-member-001'), 'Viewer');
+
+  // Owner transfers Alpha; the old owner becomes a Manager and loses delete.
+  const transferred = call('PATCH', '/projects/project-alpha/members/user-member-002', { token: lead, body: { role: 'Owner' } });
+  assert.equal(roleOf(transferred.data, 'user-member-002'), 'Owner');
+  assert.equal(roleOf(transferred.data, 'user-lead-001'), 'Manager');
+  assertEnvelope(call('DELETE', '/projects/project-alpha', { token: lead }), 403, 'FORBIDDEN');
+  assertEnvelope(call('DELETE', '/projects/project-alpha/members/user-member-002', { token: lead }), 400, 'VALIDATION_ERROR');
+  // Leaving is open to any non-owner.
+  assert.equal(call('DELETE', '/projects/project-alpha/members/user-viewer-001', { token: viewer }).status, 200);
+});
+
+test('deactivation mirrors the API: signs the user out, blocks sign-in and re-adding', () => {
+  const { call, login } = setup();
+  const admin = login('admin@example.test');
+  const member = login('member@example.test');
+  assertEnvelope(call('PATCH', '/users/user-admin-001/status', { token: admin, body: { active: false } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('PATCH', '/users/user-member-001/status', { token: admin, body: { active: false } }).data.active, false);
+  assertEnvelope(call('GET', '/auth/me', { token: member }), 401, 'ACCOUNT_DEACTIVATED');
+  assertEnvelope(call('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }), 403, 'ACCOUNT_DEACTIVATED');
+  assert.deepEqual(call('GET', '/users', { token: admin, query: { status: 'deactivated' } }).data.items.map((u) => u.id), ['user-member-001']);
+  const lead = login('lead@example.test');
+  call('DELETE', '/projects/project-alpha/members/user-member-001', { token: lead });
+  assertEnvelope(call('POST', '/projects/project-alpha/members', { token: lead, body: { email: 'member@example.test' } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('PATCH', '/users/user-member-001/status', { token: admin, body: { active: true } }).status, 200);
+  assert.equal(call('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }).status, 200);
 });

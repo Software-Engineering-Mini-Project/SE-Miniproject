@@ -39,4 +39,4 @@ export const LIMITS = {
 export const REMINDER_WINDOW_HOURS = 24;
 
 /** Roles that may create projects and manage tasks (SRS §2.2). */
-export const canManageProjects = (user) => user?.role === 'Admin' || user?.role === 'Lead';
+export { canCreateProject as canManageProjects } from './permissions.js';
