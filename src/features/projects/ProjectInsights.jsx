@@ -6,9 +6,13 @@ import { TASK_STATUSES } from '@/lib/constants';
 import { localToday } from '@/lib/dates';
 import { completionPercent, dueBuckets, priorityCounts, workloadByMember } from '@/lib/insights';
 import { plural } from '@/lib/format';
+import { ForecastPanel } from './ForecastPanel';
 
-/** Project "Insights" view: who carries the work, how urgent it is, and when it is due. */
-export function ProjectInsights({ tasks, members }) {
+/**
+ * Project "Insights" view: when the work will be done (forecast over every task), then who
+ * carries the (filtered) work, how urgent it is, and when it is due.
+ */
+export function ProjectInsights({ tasks, allTasks = tasks, forecast, members, onOpenTask }) {
   const [workloadView, setWorkloadView] = useState('chart');
   const today = localToday();
   const workload = useMemo(() => workloadByMember(tasks, members, today), [tasks, members, today]);
@@ -19,6 +23,7 @@ export function ProjectInsights({ tasks, members }) {
 
   return (
     <div className="insights">
+      <ForecastPanel forecast={forecast} tasks={allTasks} onOpenTask={onOpenTask} />
       <section className="panel insights-panel insights-wide" aria-labelledby="workload-title">
         <div className="insights-head">
           <div>

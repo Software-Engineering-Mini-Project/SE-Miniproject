@@ -78,6 +78,8 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
 
       await page.getByRole('button', { name: 'Insights' }).click();
       await expect(page.getByRole('list', { name: 'Tasks per member by status' })).toBeVisible();
+      // The forecast's state depends on how far today is from the fixture dates; scan whichever shows.
+      await expect(page.getByRole('region', { name: /Delivery forecast/ })).toBeVisible();
       await expectAccessible(page, 'Project insights');
     });
 

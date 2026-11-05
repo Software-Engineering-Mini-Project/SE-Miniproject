@@ -16,6 +16,8 @@ import { useQuery } from '@/lib/hooks/useQuery';
 import { useSession } from '@/lib/session';
 import { useWorkspace } from '@/lib/workspace';
 import { can, projectRoleOf } from '@/lib/permissions';
+import { forecastProject } from '@/lib/forecast';
+import { localToday } from '@/lib/dates';
 import { AvatarStack } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Dialog';
@@ -169,6 +171,8 @@ export function ProjectView({ projectId }) {
   };
 
   const visibleTasks = useMemo(() => applyFilters(tasks.data || [], filters), [tasks.data, filters]);
+  // The forecast always uses every task in the project (filters only change what is shown).
+  const forecast = useMemo(() => (tasks.data ? forecastProject(tasks.data, { today: localToday() }) : null), [tasks.data]);
   const membersById = useMemo(() => new Map((project.data?.members || []).map((m) => [m.id, m])), [project.data]);
 
   // Optimistic status change with rollback (TM-F-012, TM-F-023).
@@ -176,12 +180,15 @@ export function ProjectView({ projectId }) {
     async (taskId, status) => {
       const previous = tasks.data?.find((t) => t.id === taskId);
       if (!previous || previous.status === status) return;
-      tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, status } : t)));
+      const optimisticCompletedAt = status === 'Done' ? new Date().toISOString() : null;
+      tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, status, completedAt: optimisticCompletedAt } : t)));
       try {
         const result = await api.tasks.setStatus(taskId, status);
-        tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, status: result.status, updatedAt: result.updatedAt || t.updatedAt } : t)));
+        tasks.setData((list) => list.map((t) => (t.id === taskId
+          ? { ...t, status: result.status, completedAt: result.completedAt === undefined ? optimisticCompletedAt : result.completedAt, updatedAt: result.updatedAt || t.updatedAt }
+          : t)));
       } catch (error) {
-        tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, status: previous.status } : t)));
+        tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, status: previous.status, completedAt: previous.completedAt ?? null } : t)));
         toast.error(`Could not move the task. ${describeError(error)}`);
       }
     },
@@ -346,11 +353,11 @@ export function ProjectView({ projectId }) {
           {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'The project owner or a manager adds tasks here.'}
         </EmptyState>
       ) : view === 'insights' ? (
-        <ProjectInsights tasks={visibleTasks} members={p.members} />
+        <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} onOpenTask={openTask} />
       ) : view === 'board' ? (
-        <KanbanBoard tasks={visibleTasks} members={p.members} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
+        <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
       ) : visibleTasks.length ? (
-        <TaskList tasks={visibleTasks} membersById={membersById} onOpen={(t) => openTask(t.id)} />
+        <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
       ) : (
         <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
       )}
@@ -360,6 +367,7 @@ export function ProjectView({ projectId }) {
         task={selectedTask}
         members={p.members}
         assignable={assignable}
+        risk={selectedTask ? forecast?.risk.get(selectedTask.id) : undefined}
         permissions={{
           edit: allowed('task.edit'),
           remove: allowed('task.delete'),
