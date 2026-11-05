@@ -1,4 +1,4 @@
-import { Project, User } from '../models/index.js';
+import { Project, Task, User } from '../models/index.js';
 
 /**
  * Per-project roles (managerIds/viewerIds) replaced the old rule that any workspace Lead in a
@@ -26,8 +26,23 @@ export async function migrateProjectRoles() {
   return result.modifiedCount;
 }
 
+/**
+ * Tasks completed before completedAt existed: use their last update as the completion time,
+ * the closest record there is. Only touches Done tasks without the field.
+ */
+export async function migrateCompletedAt() {
+  const result = await Task.updateMany(
+    { status: 'Done', completedAt: { $exists: false } },
+    [{ $set: { completedAt: '$updatedAt' } }],
+    { updatePipeline: true, timestamps: false },
+  );
+  return result.modifiedCount;
+}
+
 /** Runs every data migration; each is idempotent and cheap when there is nothing to do. */
 export async function runMigrations({ logger = console } = {}) {
   const projects = await migrateProjectRoles();
   if (projects > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'project_roles', projects }));
+  const tasks = await migrateCompletedAt();
+  if (tasks > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'task_completed_at', tasks }));
 }

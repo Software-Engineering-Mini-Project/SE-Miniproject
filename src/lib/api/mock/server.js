@@ -324,6 +324,13 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     try { generateDueReminders(user); } catch (error) { user.lastReminderScanAt = previous; throw error; }
   }
 
+  // Mirrors the API: completedAt is stamped on entering Done and cleared on leaving it.
+  function applyStatus(task, status) {
+    if (status === task.status && (status !== 'Done' || task.completedAt)) return;
+    task.status = status;
+    task.completedAt = status === 'Done' ? stamp() : null;
+  }
+
   function removeTaskCascade(taskId) {
     // Deletion policy used by the mock (decision pending in SAD §3.5): cascade comments and notifications.
     db.tasks = db.tasks.filter((t) => t.id !== taskId);
@@ -588,7 +595,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const dueDate = dateOnly(body, 'dueDate', { label: 'Due date' });
       const assigneeIds = validateAssignees(body, project) || [];
       const at = stamp();
-      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, createdAt: at, updatedAt: at };
+      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, completedAt: status === 'Done' ? at : null, createdAt: at, updatedAt: at };
       db.tasks.push(task);
       notifyAssignment(task, assigneeIds, user);
       return [201, taskDto(task)];
@@ -617,7 +624,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const assigneeIds = validateAssignees(body, project);
       if (title) task.title = title;
       if (description !== undefined) task.description = description;
-      if (status) task.status = status;
+      if (status) applyStatus(task, status);
       if (priority) task.priority = priority;
       if (dueDate !== undefined) task.dueDate = dueDate;
       if (assigneeIds) {
@@ -639,9 +646,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     // task status"); viewers are read-only.
     ['PATCH', '/tasks/:taskId/status', ({ user, params, body }) => {
       const { task } = taskFor(user, params.taskId, { action: 'task.status' });
-      task.status = oneOf(body, 'status', TASK_STATUSES, { label: 'Status' });
+      applyStatus(task, oneOf(body, 'status', TASK_STATUSES, { label: 'Status' }));
       task.updatedAt = stamp();
-      return [200, { taskId: task.id, status: task.status, updatedAt: task.updatedAt }];
+      return [200, { taskId: task.id, status: task.status, completedAt: task.completedAt ?? null, updatedAt: task.updatedAt }];
     }],
 
     ['GET', '/tasks/:taskId/comments', ({ user, params }) => {
