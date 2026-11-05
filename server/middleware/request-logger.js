@@ -47,6 +47,7 @@ export function requestLogger({ logger = console, now = () => new Date() } = {})
           actorId: request.user.id,
           role: request.user.role,
           targetIds: targetIds(request),
+          ...(response.locals.auditChange ? { change: response.locals.auditChange } : {}),
         });
       }
       if (response.locals.errorCode) record.errorCode = response.locals.errorCode;

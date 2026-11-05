@@ -99,7 +99,12 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     if (project.ownerId === userId) throw new HttpError(400, 'VALIDATION_ERROR', 'The project owner cannot be removed.');
     project.memberIds = project.memberIds.filter((id) => id !== userId);
     await project.save();
-    await Task.updateMany({ projectId: project.id }, { $pull: { assigneeIds: userId } });
+    // Only touch tasks the user was assigned to (others keep their updatedAt), and drop the
+    // user's notifications for this project: they name tasks the user can no longer open.
+    await Promise.all([
+      Task.updateMany({ projectId: project.id, assigneeIds: userId }, { $pull: { assigneeIds: userId } }),
+      Notification.deleteMany({ projectId: project.id, userId }),
+    ]);
     const members = await User.find({ _id: { $in: project.memberIds } });
     const membersById = new Map(members.map((member) => [member.id, memberDto(member)]));
     response.json(project.memberIds.map(String).map((id) => membersById.get(id)).filter(Boolean));

@@ -1,12 +1,12 @@
 import bcrypt from 'bcryptjs';
 import { createHmac } from 'node:crypto';
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
 import { LoginAttempt, User } from '../models/index.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { userDto } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
 import { BCRYPT_COST } from '../utils/password.js';
+import { issueToken, TOKEN_TTL_SECONDS } from '../utils/token.js';
 import {
   normalizeEmail,
   readEmail,
@@ -15,7 +15,6 @@ import {
   requireObject,
 } from '../utils/validation.js';
 
-const TOKEN_TTL_SECONDS = 7200;
 const FAILED_LOGIN_PAIR_LIMIT = 5;
 const FAILED_LOGIN_IP_LIMIT = 60;
 const FAILED_LOGIN_WINDOW_MS = 60_000;
@@ -115,13 +114,17 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
   const router = Router();
 
   router.post('/register', async (request, response) => {
-    const ip = clientIp(request);
-    const key = createHmac('sha256', jwtSecret).update(`register\0${ip}`).digest('hex');
-    await reserveRegistrationSlot(key, now());
+    // Validate first: a typo must not use up one of the five registrations per IP window.
     const body = requireObject(request.body);
     const name = readString(body, 'name', { max: 80, label: 'Name' });
     const email = readEmail(body);
     const password = readPassword(body);
+    const ip = clientIp(request);
+    const key = createHmac('sha256', jwtSecret).update(`register\0${ip}`).digest('hex');
+    await reserveRegistrationSlot(key, now());
+    // The unique index is the real guarantee (E11000 -> 409 in the error handler); this check also
+    // keeps duplicates out if a deployment has not yet run `npm run db:indexes`.
+    if (await User.exists({ emailNormalized: normalizeEmail(email) })) throw duplicateEmail();
     const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
     const user = await User.create({
       name,
@@ -181,12 +184,8 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
       }
     }
 
-    const token = jwt.sign({}, jwtSecret, {
-      subject: user.id,
-      expiresIn: jwtExpiresIn,
-      algorithm: 'HS256',
-    });
-    response.json({ token, expiresIn: jwtExpiresIn, user: userDto(user) });
+    const { token, expiresIn } = issueToken(user, { jwtSecret, jwtExpiresIn });
+    response.json({ token, expiresIn, user: userDto(user) });
   });
 
   router.get('/me', authenticate({ jwtSecret }), (request, response) => response.json(userDto(request.authUser)));
@@ -194,7 +193,17 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
   return router;
 }
 
-export async function updateCurrentUser(user, rawBody) {
+function duplicateEmail() {
+  return new HttpError(409, 'DUPLICATE_EMAIL', 'An account with this email already exists.', {
+    email: 'This email is already registered.',
+  });
+}
+
+/**
+ * Applies a name and/or password change. A password change revokes every existing session
+ * (tokenVersion + 1) and returns a fresh `token`/`expiresIn` alongside the user fields.
+ */
+export async function updateCurrentUser(user, rawBody, { jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS } = {}) {
   const body = requireObject(rawBody);
   const changes = {};
 
@@ -224,6 +233,13 @@ export async function updateCurrentUser(user, rawBody) {
   if (Object.keys(changes).length === 0) {
     throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a name or password change.');
   }
-  const updated = await User.findByIdAndUpdate(user.id, { $set: changes }, { returnDocument: 'after', runValidators: true });
-  return userDto(updated);
+  const passwordChanged = Boolean(changes.passwordHash);
+  const updated = await User.findByIdAndUpdate(
+    user.id,
+    { $set: changes, ...(passwordChanged ? { $inc: { tokenVersion: 1 } } : {}) },
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!updated) throw new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.');
+  if (!passwordChanged) return userDto(updated);
+  return { ...userDto(updated), ...issueToken(updated, { jwtSecret, jwtExpiresIn }) };
 }

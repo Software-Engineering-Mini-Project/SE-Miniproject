@@ -26,8 +26,13 @@ export function authenticate({ jwtSecret }) {
       return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
     }
 
-    const user = await User.findById(payload.sub).select('_id name email role').lean();
+    const user = await User.findById(payload.sub).select('_id name email role tokenVersion').lean();
     if (!user) return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
+    // Tokens issued before tokenVersion existed carry no `tv`; they match version 0 only.
+    if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+      return next(new HttpError(401, 'TOKEN_REVOKED', 'Your password was changed. Sign in again.'));
+    }
+    delete user.tokenVersion;
 
     const id = String(user._id);
     request.user = { id, role: user.role };
