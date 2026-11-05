@@ -45,7 +45,7 @@ test('TC-AUTH-01/02/03 registration, login, and profile changes persist', async 
   await page.getByLabel('Current password').fill(OLD_PASSWORD);
   await page.getByLabel('New password').fill(NEW_PASSWORD);
   await page.getByRole('button', { name: 'Change password' }).click();
-  await expect(page.getByText('Password changed. Use it next time you sign in.')).toBeVisible();
+  await expect(page.getByText('Password changed. Other devices were signed out.')).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
   await expect(page.getByText('Updated E2E User').first()).toBeVisible();

@@ -6,6 +6,7 @@ node_modules/
 **/.next/
 **/out/
 **/test-results/
+**/test-results-http/
 **/playwright-report/
 *.tsbuildinfo
 

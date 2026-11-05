@@ -14,8 +14,10 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: false,
   // The real API hashes passwords with bcrypt, which is CPU-heavy; parallel browsers against it
-  // can push a sign-up past the 10 s expect timeout. The browser mock is safe to run in parallel.
-  workers: isMock ? undefined : 1,
+  // can push a sign-up past the 10 s expect timeout, and the specs share one seeded database.
+  // The browser mock is isolated per page, but one production server serves every worker:
+  // more than two workers on a many-core laptop starves it and sign-ins time out.
+  workers: isMock ? 2 : 1,
   forbidOnly: isCI,
   retries: isCI ? 1 : 0,
   reporter: isCI ? [['list'], ['html', { open: 'never' }]] : 'list',

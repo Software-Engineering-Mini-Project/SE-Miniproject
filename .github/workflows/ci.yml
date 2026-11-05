@@ -70,7 +70,7 @@ jobs:
             test-results/
           retention-days: 14
 
-      - name: Run real API critical journey
+      - name: Run all browser end-to-end tests against the real API and MongoDB
         env:
           CI: true
           NEXT_PUBLIC_API_MODE: http
@@ -81,6 +81,15 @@ jobs:
           CORS_ORIGIN: http://localhost:3100
           E2E_PORT: 3100
         run: |
+          npm run db:indexes
           npm run seed
           npm run build
-          npx playwright test e2e/critical-journey.spec.mjs
+          npx playwright test --output=test-results-http
+
+      - name: Upload real API Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-http-${{ github.event_name }}
+          path: test-results-http/
+          retention-days: 14

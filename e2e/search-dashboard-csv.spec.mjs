@@ -17,10 +17,12 @@ async function signIn(page) {
 test('TM-F-040..042 search, filters, dashboard summaries and CSV export use authorized project data', async ({ page }) => {
   await signIn(page);
 
-  await expect(page.getByText('Assigned to you', { exact: true })).toBeVisible();
-  await expect(page.getByText('Due in 7 days', { exact: true })).toBeVisible();
-  await expect(page.getByText('Overdue', { exact: true })).toBeVisible();
-  await expect(page.getByText('Completed', { exact: true })).toBeVisible();
+  // The stat tiles; "Overdue" is also a label in the due-date chart further down.
+  const stats = page.locator('dl.stats');
+  await expect(stats.getByText('Assigned to you', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Due in 7 days', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Overdue', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Completed', { exact: true })).toBeVisible();
   const alphaSummary = page.getByRole('link', { name: /Alpha Project/ });
   await expect(alphaSummary.getByText('2/7 done')).toBeVisible();
 
@@ -41,7 +43,9 @@ test('TM-F-040..042 search, filters, dashboard summaries and CSV export use auth
   assert.equal(download.suggestedFilename(), 'alpha-project-tasks.csv');
   const downloadPath = await download.path();
   assert.ok(downloadPath, 'CSV download should be available to inspect');
-  const csv = await readFile(downloadPath, 'utf8');
+  const bytes = await readFile(downloadPath);
+  assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'CSV starts with a UTF-8 BOM for Excel');
+  const csv = bytes.subarray(3).toString('utf8');
   assert.match(csv, /^id,title,status,priority,dueDate,assignees,createdAt,updatedAt\r\n/);
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.test"",""Export check""\)"/);
   assert.match(csv, /\r\n/);
