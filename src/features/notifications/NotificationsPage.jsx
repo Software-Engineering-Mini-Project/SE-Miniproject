@@ -1,5 +1,7 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlarmClock, BellOff, CheckCheck, UserPlus } from 'lucide-react';
@@ -79,7 +81,8 @@ export function NotificationsPage() {
         </Button>
       </div>
 
-      {inbox.error ? (
+      {inbox.error && inbox.data && <RefreshNotice onRetry={inbox.reload} />}
+      {inbox.error && !inbox.data ? (
         <ErrorState error={inbox.error} onRetry={inbox.reload} />
       ) : !inbox.data ? (
         <div style={{ display: 'grid', gap: 8 }}>

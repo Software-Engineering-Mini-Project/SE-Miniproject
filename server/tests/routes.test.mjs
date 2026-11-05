@@ -137,7 +137,7 @@ test('dashboard aggregates project totals and my tasks with membership scoping',
   assert.deepEqual(member.body.projects.map((project) => project.projectId), ['project-alpha']);
   assert.ok(member.body.myTasks.every((task) => task.projectId === 'project-alpha'));
   const outsider = await request(app).get('/api/dashboard').set(auth(outsiderToken));
-  assert.deepEqual(outsider.body, { projects: [], myTasks: [] });
+  assert.deepEqual(outsider.body, { projects: [], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } });
 });
 
 test('read-all updates only the signed-in user unread notifications in one operation', async () => {
@@ -737,4 +737,51 @@ test('login takes comparable time for unknown emails and wrong passwords (no acc
   const unknownMs = await timeLogin('nobody.registered@example.test');
   const knownMs = await timeLogin('outsider@example.test');
   assert.ok(unknownMs > knownMs * 0.5, `unknown email ${unknownMs.toFixed(0)} ms vs wrong password ${knownMs.toFixed(0)} ms`);
+});
+
+test('local today controls dashboard stats and project summary and rejects invalid dates', async () => {
+  const localApp = createApp({ jwtSecret: JWT_SECRET, now: () => new Date('2026-10-15T19:00:00.000Z'), logger: () => {} });
+  const task = await Task.create({ title: 'Local date boundary', projectId: 'project-alpha', status: 'To Do', priority: 'Medium', dueDate: '2026-10-15', assigneeIds: ['user-member-001'] });
+  try {
+    const get = (path) => request(localApp).get(path).set(auth(memberToken));
+    const [local, utc, summary, invalid] = await Promise.all([get('/api/dashboard?today=2026-10-16'), get('/api/dashboard'), get('/api/projects/project-alpha/summary?today=2026-10-16'), get('/api/dashboard?today=2026-10-20')]);
+    assert.equal(local.body.stats.overdue, utc.body.stats.overdue + 1);
+    assert.equal(local.body.projects[0].overdue, summary.body.overdue);
+    assert.equal(invalid.body.stats.overdue, utc.body.stats.overdue);
+  } finally { await Task.deleteOne({ _id: task.id }); }
+});
+
+test('dashboard caps open tasks after dated tasks but stats count all assignments', async () => {
+  const tasks = Array.from({ length: 501 }, (_, i) => ({ title: `Undated ${i}`, projectId: 'project-alpha', status: 'To Do', priority: 'Medium', assigneeIds: ['user-outsider-001'] }));
+  tasks.push({ title: 'Dated task', projectId: 'project-alpha', status: 'To Do', priority: 'Medium', dueDate: '2026-10-15', assigneeIds: ['user-outsider-001'] });
+  const inserted = await Task.insertMany(tasks);
+  try {
+    const response = await request(app).get('/api/dashboard').set(auth(adminToken));
+    assert.equal(response.status, 200);
+    const dated = response.body.myTasks.find((task) => task.title === 'Dated task');
+    assert.equal(dated, undefined); // assigned to another user
+    const { getDashboardData } = await import('../services/task-aggregates.js');
+    const data = await getDashboardData(['project-alpha'], 'user-outsider-001', () => FIXED_NOW);
+    assert.equal(data.myTasks.length, 500);
+    assert.equal(data.myTasks[0].title, 'Dated task');
+    assert.equal(data.stats.openAssigned, 502);
+    assert.equal(data.stats.overdue, 1);
+  } finally { await Task.deleteMany({ _id: { $in: inserted.map((task) => task.id) } }); }
+});
+
+test('unread count generates reminders once and retries a failed scan', async () => {
+  await Notification.deleteMany({ userId: 'user-outsider-001' });
+  await User.updateOne({ _id: 'user-outsider-001' }, { $set: { lastReminderScanAt: null } });
+  const task = await Task.create({ title: 'Badge reminder', projectId: 'project-alpha', status: 'To Do', priority: 'Medium', dueDate: '2026-10-16', assigneeIds: ['user-outsider-001'] });
+  const originalFind = Task.find;
+  try {
+    let scans = 0;
+    Task.find = function (...args) { scans++; if (scans === 1) throw new Error('scan failed'); return originalFind.apply(this, args); };
+    assert.equal((await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken))).status, 500);
+    assert.equal((await User.findById('user-outsider-001')).lastReminderScanAt, null);
+    const count = await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken));
+    assert.equal(count.body.unreadCount, 1);
+    assert.equal((await request(app).get('/api/notifications/unread-count').set(auth(outsiderToken))).body.unreadCount, 1);
+    assert.equal(scans, 2);
+  } finally { Task.find = originalFind; await Notification.deleteMany({ taskId: task.id }); await Task.deleteOne({ _id: task.id }); }
 });

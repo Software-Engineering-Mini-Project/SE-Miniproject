@@ -6,6 +6,7 @@ const userSchema = createSchema({
   email: { type: String, required: true, maxlength: 254 },
   emailNormalized: { type: String, required: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true, select: false },
+  lastReminderScanAt: { type: Date, default: null },
   role: { type: String, enum: ['Admin', 'Lead', 'Member'], default: 'Member', required: true },
 });
 

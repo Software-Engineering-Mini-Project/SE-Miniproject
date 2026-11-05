@@ -4,7 +4,9 @@
 // Endpoint paths follow SRS §3.2 / SAD §4. Request/response shapes not fixed by those
 // documents are marked "DECISION" and must be confirmed with the backend owner.
 
+import { localToday } from '../dates.js';
 import { ApiError } from './errors.js';
+import { invalidateQuery } from '../hooks/useQuery.js';
 
 const API_BASE_URL = '/api';
 const API_MODE = process.env.NEXT_PUBLIC_API_MODE === 'mock' ? 'mock' : 'http';
@@ -82,21 +84,23 @@ async function mockTransport(method, path, { body, token, query }) {
   return server.handle(method, path, { body, token, query: cleanQuery });
 }
 
-async function request(method, path, { body, query, accept, auth = true } = {}) {
-  if (typeof window !== 'undefined' && typeof window.__taskManagerApiRequestObserver === 'function') {
+async function request(method, path, { body, query, accept, auth = true, invalidates = [] } = {}) {
+  if ((API_MODE === 'mock' || process.env.NODE_ENV !== 'production') && typeof window !== 'undefined' && typeof window.__taskManagerApiRequestObserver === 'function') {
     window.__taskManagerApiRequestObserver({ method, path });
   }
   const token = auth ? tokenProvider() : null;
   const transport = API_MODE === 'http' ? httpTransport : mockTransport;
   const { status, data } = await transport(method, path, { body, token, query, accept });
-  if (status >= 200 && status < 300) return data;
+  if (status >= 200 && status < 300) {
+    invalidates.forEach((prefix) => invalidateQuery(prefix));
+    return data;
+  }
   const error = new ApiError(status, data && typeof data === 'object' ? data : null);
   if (status === 401 && auth) unauthorizedHandler(error);
   throw error;
 }
 
 const enc = encodeURIComponent;
-
 export const api = {
   auth: {
     /** @returns {Promise<{ userId: string, email: string }>} TM-F-001 */
@@ -114,42 +118,42 @@ export const api = {
     /** @returns {Promise<Project[]>} */
     list: () => request('GET', '/projects'),
     /** @returns {Promise<Project>} TM-F-020 */
-    create: (input) => request('POST', '/projects', { body: input }),
+    create: (input) => request('POST', '/projects', { invalidates: ['dashboard:'], body: input }),
     /** @returns {Promise<Project>} DECISION: response embeds `members` (safe user fields). */
     get: (projectId) => request('GET', `/projects/${enc(projectId)}`),
-    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { body: input }),
-    remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`),
+    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'], body: input }),
+    remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'] }),
     /** @returns {Promise<ProjectSummary>} TM-F-041 */
-    summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`),
+    summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`, { query: { today: localToday() } }),
     /** @returns {Promise<string>} CSV text, TM-F-042 */
     exportCsv: (projectId, filters) =>
       request('GET', `/projects/${enc(projectId)}/tasks/export.csv`, { query: filters, accept: 'text/csv' }),
   },
   dashboard: {
     /** @returns {Promise<{ projects: ProjectSummary[], myTasks: Task[] }>} */
-    get: () => request('GET', '/dashboard'),
+    get: (today = localToday()) => request('GET', '/dashboard', { query: { today } }),
   },
   members: {
     /** @returns {Promise<Member[]>} */
     list: (projectId) => request('GET', `/projects/${enc(projectId)}/members`),
     /** DECISION: body is `{ email }` of a registered user. TM-F-021 */
-    add: (projectId, email) => request('POST', `/projects/${enc(projectId)}/members`, { body: { email } }),
-    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`),
+    add: (projectId, email) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:'], body: { email } }),
+    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:'] }),
   },
   tasks: {
     /** @returns {Promise<Task[]>} */
     listByProject: (projectId, filters) => request('GET', `/projects/${enc(projectId)}/tasks`, { query: filters }),
     /** @returns {Promise<Task>} TM-F-010 / TM-F-022 */
-    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/tasks`, { body: input }),
+    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/tasks`, { invalidates: ['dashboard:'], body: input }),
     /** @returns {Promise<Task[]>} TM-F-040 */
     search: (filters) => request('GET', '/tasks', { query: filters }),
     /** @returns {Promise<Task>} */
     get: (taskId) => request('GET', `/tasks/${enc(taskId)}`),
     /** @returns {Promise<Task>} TM-F-011 */
-    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { body: input }),
-    remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`),
+    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'], body: input }),
+    remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
-    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { body: { status } }),
+    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:'], body: { status } }),
   },
   comments: {
     /** @returns {Promise<Comment[]>} TM-F-032. DECISION: each comment embeds `author`. */
@@ -160,6 +164,7 @@ export const api = {
   notifications: {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */
     list: (page = 1) => request('GET', '/notifications', { query: { page } }),
+    unreadCount: () => request('GET', '/notifications/unread-count'),
     markRead: (notificationId) => request('PATCH', `/notifications/${enc(notificationId)}/read`),
     markAllRead: () => request('PATCH', '/notifications/read-all'),
   },

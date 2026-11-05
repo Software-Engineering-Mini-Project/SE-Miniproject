@@ -10,7 +10,7 @@ export function createDashboardRouter({ jwtSecret, now = () => new Date() } = {}
     const filter = isAdmin(request.user) ? {} : { memberIds: request.user.id };
     const projects = await Project.find(filter).select('_id').lean();
     const projectIds = projects.map((project) => String(project._id));
-    response.json(await getDashboardData(projectIds, request.user.id, now));
+    response.json(await getDashboardData(projectIds, request.user.id, now, request.query.today));
   });
   return router;
 }

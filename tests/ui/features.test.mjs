@@ -1,3 +1,4 @@
+import { localToday } from '../../src/lib/dates.js';
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -469,7 +470,7 @@ describe('comments and notifications', () => {
 
 describe('dashboard, cross-project search, and profile', () => {
   it('shows dashboard task counts for the signed-in user and project summaries', () => {
-    state.queries.set(`dashboard:${lead.id}`, {
+    state.queries.set(`dashboard:${lead.id}:${localToday()}`, {
       data: {
         myTasks: [
         { ...task, id: 'mine-open', title: 'Open and due', assigneeIds: [lead.id], dueDate: '2026-11-01', status: 'To Do' },
@@ -489,6 +490,32 @@ describe('dashboard, cross-project search, and profile', () => {
     expect(screen.getByText('Open and due')).toBeInTheDocument();
     expect(screen.queryByText('Other person task')).not.toBeInTheDocument();
     expect(screen.getByText('1/2 done')).toBeInTheDocument();
+  });
+
+  it('shows zero counts and retries once when a project summary is missing', async () => {
+    const reload = vi.fn();
+    state.queries.set(`dashboard:${lead.id}:${localToday()}`, { data: { projects: [], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } }, error: null, reload });
+    const view = render(h(Dashboard));
+    expect(screen.getByText('0/0 done')).toBeInTheDocument();
+    await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    view.rerender(h(Dashboard));
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('shows only the error state when the dashboard has no data', () => {
+    state.queries.set(`dashboard:${lead.id}:${localToday()}`, { data: undefined, error: new Error('offline'), reload: vi.fn() });
+    render(h(Dashboard));
+    expect(screen.queryByText('Summary unavailable')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('keeps dashboard data and offers retry when refresh fails', () => {
+    const reload = vi.fn();
+    state.queries.set(`dashboard:${lead.id}:${localToday()}`, { data: { projects: [{ projectId: project.id, total: 0, counts: { 'To Do': 0, 'In Progress': 0, Done: 0 }, overdue: 0 }], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } }, error: new Error('offline'), reload });
+    render(h(Dashboard));
+    expect(screen.getByText('0/0 done')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(reload).toHaveBeenCalledOnce();
   });
 
   it('searches tasks assigned to the current user and can switch to everyone', async () => {

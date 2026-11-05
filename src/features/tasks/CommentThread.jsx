@@ -1,5 +1,7 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api/client';
@@ -64,6 +66,7 @@ export function CommentThread({ taskId }) {
         Comments{comments.data ? <span className="tabular"> · {comments.data.length}</span> : null}
       </h3>
 
+      {comments.error && comments.data && <RefreshNotice onRetry={comments.reload} />}
       {comments.loading && !comments.data ? (
         <div className="comment-list">
           {[0, 1].map((i) => (
@@ -76,7 +79,7 @@ export function CommentThread({ taskId }) {
             </div>
           ))}
         </div>
-      ) : comments.error ? (
+      ) : comments.error && !comments.data ? (
         <ErrorState error={comments.error} title="Comments did not load" onRetry={comments.reload} />
       ) : comments.data.length === 0 ? (
         <p className="comments-empty">

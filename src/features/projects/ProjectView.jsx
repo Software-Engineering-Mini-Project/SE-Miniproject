@@ -1,5 +1,7 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NumberFlow from '@number-flow/react';
@@ -141,7 +143,7 @@ export function ProjectView({ projectId }) {
     [tasks],
   );
 
-  if (project.error) {
+  if (project.error && !project.data) {
     const status = project.error.status;
     return (
       <EmptyState
@@ -261,7 +263,9 @@ export function ProjectView({ projectId }) {
         </div>
       </div>
 
-      {tasks.error ? (
+      {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
+      {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
+      {tasks.error && !tasks.data ? (
         <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
       ) : !tasks.data ? (
         <div className="board">

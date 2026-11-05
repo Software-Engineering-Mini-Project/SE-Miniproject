@@ -107,7 +107,7 @@ test('dashboard returns project aggregates and only the caller accessible tasks'
   assert.equal(lead.data.projects.find((project) => project.projectId === 'project-alpha').total, 7);
   assert.ok(lead.data.myTasks.every((task) => task.assigneeIds.includes('user-lead-001')));
   const outsider = call('GET', '/dashboard', { token: login('outsider@example.test') });
-  assert.deepEqual(outsider.data, { projects: [], myTasks: [] });
+  assert.deepEqual(outsider.data, { projects: [], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } });
 });
 
 test('PATCH /notifications/read-all marks only the current caller unread items', () => {
@@ -242,4 +242,26 @@ test('TC-REPORT-02 CSV export escapes cells and neutralises formulas', () => {
 test('unknown routes return the error envelope and never a stack trace (PRJ-SR-006)', () => {
   const { call, login } = setup();
   assertEnvelope(call('GET', '/nope', { token: login('lead@example.test') }), 404, 'NOT_FOUND');
+});
+
+
+test('dashboard and summary use a validated local day; unread count scans once', () => {
+  const { call, login } = setup(() => new Date('2026-10-15T19:00:00.000Z'));
+  const token = login('member@example.test');
+  const opts = { token, query: { today: '2026-10-16' } };
+  const dashboard = call('GET', '/dashboard', opts).data;
+  const summary = call('GET', '/projects/project-alpha/summary', opts).data;
+  assert.equal(dashboard.projects.find((p) => p.projectId === 'project-alpha').overdue, summary.overdue);
+  const count = call('GET', '/notifications/unread-count', { token }).data.unreadCount;
+  assert.equal(typeof count, 'number');
+  assert.equal(call('GET', '/notifications/unread-count', { token }).data.unreadCount, count);
+});
+
+test('unread badge creates due reminders and throttles subsequent scans', () => {
+  const isolated = { ...seed, notifications: [], tasks: [{ ...tasks.find((task) => task.id === 'task-004'), dueDate: '2026-10-16' }] };
+  const server = createMockServer({ seed: isolated, now: () => NOW });
+  const token = server.handle('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }).data.token;
+  const first = server.handle('GET', '/notifications/unread-count', { token });
+  assert.equal(first.data.unreadCount, 1);
+  assert.equal(server.handle('GET', '/notifications/unread-count', { token }).data.unreadCount, 1);
 });
