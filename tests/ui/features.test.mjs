@@ -1,6 +1,6 @@
 import { localToday } from '../../src/lib/dates.js';
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,15 +14,15 @@ const state = vi.hoisted(() => {
     workspace: {},
     api: {
       auth: { register: fn() },
-      users: { updateMe: fn() },
+      users: { updateMe: fn(), list: fn(), setRole: fn() },
       members: { add: fn(), remove: fn() },
-      tasks: { search: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
+      tasks: { search: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
       comments: { list: fn(), create: fn(), remove: fn() },
       notifications: { list: fn(), markRead: fn(), markAllRead: fn() },
       projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn() },
       dashboard: { get: fn() },
     },
-    toast: { success: fn(), error: fn() },
+    toast: { success: fn(), error: fn(), info: fn() },
   };
 });
 
@@ -101,6 +101,8 @@ import { TaskFilters, applyFilters } from '@/features/tasks/TaskFilters';
 import { TaskForm } from '@/features/tasks/TaskForm';
 import { TaskList } from '@/features/tasks/TaskList';
 import { TaskSheet } from '@/features/tasks/TaskSheet';
+import { UsersAdmin } from '@/features/admin/UsersAdmin';
+import { ProjectInsights } from '@/features/projects/ProjectInsights';
 
 const h = React.createElement;
 
@@ -254,6 +256,41 @@ describe('projects and membership', () => {
     expect(screen.getByText('You are not a member of this project')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Back to projects' }));
     expect(state.router.push).toHaveBeenCalledWith('/projects');
+  });
+
+  it('shows the access screen for a definitive 403 even when the project is cached', () => {
+    setupQuery(`project:${project.id}`, project, { error: new ApiError(403, { message: 'Forbidden' }) });
+    setupQuery(`tasks:${project.id}`, [task]);
+    render(h(ProjectView, { projectId: project.id }));
+    expect(screen.getByText('You are not a member of this project')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New task' })).not.toBeInTheDocument();
+    expect(state.workspace.removeProject).toHaveBeenCalledWith(project.id);
+  });
+
+  it('keeps cached project data with a retry notice for a transient failure', () => {
+    setupQuery(`project:${project.id}`, project, { error: new ApiError(0, null) });
+    setupQuery(`tasks:${project.id}`, [task]);
+    render(h(ProjectView, { projectId: project.id }));
+    expect(screen.getByRole('heading', { name: 'Alpha' })).toBeInTheDocument();
+    expect(screen.getByText(/refresh/i)).toBeInTheDocument();
+    expect(state.workspace.removeProject).not.toHaveBeenCalled();
+  });
+
+  it('resolves a ?task= link that is not in the cached list before giving up on it', async () => {
+    const tasksQuery = setupQuery(`tasks:${project.id}`, [task]);
+    setupQuery(`project:${project.id}`, project);
+    state.searchParams.set('task', 'task-new');
+    state.api.tasks.get.mockResolvedValueOnce({ ...task, id: 'task-new', title: 'Just assigned' });
+    const { unmount } = render(h(ProjectView, { projectId: project.id }));
+    await waitFor(() => expect(tasksQuery.setData).toHaveBeenCalledWith(expect.any(Function)));
+    expect(state.toast.error).not.toHaveBeenCalled();
+    unmount();
+
+    state.searchParams.set('task', 'task-gone');
+    state.api.tasks.get.mockRejectedValueOnce(new ApiError(404, { message: 'Task not found.' }));
+    render(h(ProjectView, { projectId: project.id }));
+    await waitFor(() => expect(state.toast.error).toHaveBeenCalledWith('That task no longer exists or you can no longer see it.'));
+    expect(state.router.replace).toHaveBeenCalledWith(`/projects/${project.id}`, { scroll: false });
   });
 
   it('creates a task from the project board and adds it to cached project tasks', async () => {
@@ -547,5 +584,80 @@ describe('dashboard, cross-project search, and profile', () => {
     await user.type(screen.getByLabelText('New password'), 'short');
     await user.click(screen.getByRole('button', { name: 'Change password' }));
     expect(screen.getByText('Use 8+ characters with a letter and a number.')).toBeInTheDocument();
+  });
+});
+
+describe('member removal, admin users, and insights', () => {
+  it('asks before removing a member and blocks adding someone who is already a member', async () => {
+    const user = userEvent.setup();
+    const onMembersChange = vi.fn();
+    state.api.members.remove.mockResolvedValue([lead]);
+    render(h(MembersDialog, { open: true, onOpenChange: vi.fn(), project, canManage: true, onMembersChange }));
+
+    await user.click(screen.getByRole('button', { name: 'Remove Mina Member' }));
+    expect(state.api.members.remove).not.toHaveBeenCalled();
+    const confirm = screen.getByRole('group', { name: 'Confirm removing Mina Member' });
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('group', { name: 'Confirm removing Mina Member' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove Mina Member' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirm removing Mina Member' })).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(state.api.members.remove).toHaveBeenCalledWith(project.id, member.id));
+    expect(onMembersChange).toHaveBeenCalledWith([lead], member.id);
+
+    await user.type(screen.getByPlaceholderText('name@example.test'), 'MINA@example.test');
+    await user.click(screen.getByRole('button', { name: 'Add member' }));
+    expect(screen.getByText('Mina Member is already a member.')).toBeInTheDocument();
+    expect(state.api.members.add).not.toHaveBeenCalled();
+  });
+
+  it('keeps the users page to admins', () => {
+    render(h(UsersAdmin));
+    expect(screen.getByRole('heading', { name: 'Admins only' })).toBeInTheDocument();
+    expect(state.api.users.list).not.toHaveBeenCalled();
+  });
+
+  it('lists users for an admin and changes a role with undo', async () => {
+    const user = userEvent.setup();
+    state.session.user = { id: 'user-admin-001', name: 'Ada Admin', email: 'ada@example.test', role: 'Admin' };
+    const admin = { ...state.session.user, projectCount: 1, createdAt: '2026-10-01T00:00:00.000Z' };
+    const query = setupQuery('admin-users::', {
+      items: [admin, { ...member, projectCount: 2, createdAt: '2026-10-02T00:00:00.000Z' }],
+      page: 1, pageSize: 50, total: 2, roleCounts: { Admin: 1, Lead: 0, Member: 1 },
+    });
+    state.api.users.setRole.mockResolvedValue({ ...member, role: 'Lead' });
+    render(h(UsersAdmin));
+
+    expect(screen.getByLabelText('Role for Ada Admin')).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText('Role for Mina Member'), 'Lead');
+    await waitFor(() => expect(state.api.users.setRole).toHaveBeenCalledWith(member.id, 'Lead'));
+    expect(query.setData).toHaveBeenCalled();
+    const [message, options] = state.toast.success.mock.calls[0];
+    expect(message).toBe('Mina Member is now a Lead.');
+    expect(options.action.label).toBe('Undo');
+  });
+
+  it('shows project workload, due dates and priorities as text-backed charts with a table view', async () => {
+    const user = userEvent.setup();
+    const today = localToday();
+    render(h(ProjectInsights, {
+      members: project.members,
+      tasks: [
+        { ...task, id: 't1', status: 'To Do', dueDate: '2000-01-01', assigneeIds: [member.id] },
+        { ...task, id: 't2', status: 'Done', dueDate: today, assigneeIds: [member.id, lead.id] },
+        { ...task, id: 't3', status: 'In Progress', dueDate: null, priority: 'Low', assigneeIds: [] },
+      ],
+    }));
+    const workload = screen.getByRole('list', { name: 'Tasks per member by status' });
+    expect(within(workload).getByText('Mina Member')).toBeInTheDocument();
+    expect(within(workload).getByText(/To Do 1, In Progress 0, Done 1/)).toBeInTheDocument();
+    expect(within(workload).getByText('Unassigned')).toBeInTheDocument();
+    const due = screen.getByRole('list', { name: 'Open tasks by due date' });
+    expect(within(due).getByTitle('Overdue: 1 task')).toBeInTheDocument();
+    expect(within(due).getByTitle('No due date: 1 task')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Table' }));
+    const table = screen.getByRole('table', { name: 'Tasks per member by status' });
+    expect(within(table).getByRole('rowheader', { name: 'Mina Member' })).toBeInTheDocument();
   });
 });

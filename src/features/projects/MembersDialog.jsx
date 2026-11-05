@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from '@/lib/session';
 import { UserMinus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
@@ -16,6 +17,8 @@ export function MembersDialog({ open, onOpenChange, project, canManage, onMember
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+  const currentUserId = useSession((s) => s.user?.id);
 
   async function add(event) {
     event.preventDefault();
@@ -23,13 +26,21 @@ export function MembersDialog({ open, onOpenChange, project, canManage, onMember
       setError('Enter the email of a registered user.');
       return;
     }
+    const wanted = email.trim().toLowerCase();
+    const existing = project.members.find((m) => m.email?.toLowerCase() === wanted);
+    if (existing) {
+      setError(`${existing.name} is already a member.`);
+      return;
+    }
     setAdding(true);
     setError(null);
     try {
       const members = await api.members.add(project.id, email.trim());
+      const added = members.find((m) => !project.members.some((old) => old.id === m.id));
       onMembersChange(members);
       setEmail('');
-      toast.success('Member added.');
+      if (added) toast.success(`${added.name} was added to ${project.name}.`);
+      else toast.info('That user is already a member.');
     } catch (err) {
       setError(err instanceof ApiError && err.fields?.email ? err.fields.email : describeError(err));
     } finally {
@@ -38,11 +49,14 @@ export function MembersDialog({ open, onOpenChange, project, canManage, onMember
   }
 
   async function remove(member) {
+    setConfirmingId(null);
     setRemovingId(member.id);
     try {
       const members = await api.members.remove(project.id, member.id);
       onMembersChange(members, member.id);
-      toast.success(`${member.name} was removed and unassigned from this project's tasks.`);
+      toast.success(member.id === currentUserId
+        ? `You left ${project.name}.`
+        : `${member.name} was removed and unassigned from this project's tasks.`);
     } catch (err) {
       toast.error(describeError(err));
     } finally {
@@ -60,12 +74,28 @@ export function MembersDialog({ open, onOpenChange, project, canManage, onMember
               <span className="member-name">{member.name}</span>
               <span className="member-email">{member.email}</span>
             </span>
-            <span className="member-role">{member.id === project.ownerId ? 'Owner' : member.role}</span>
-            {canManage && member.id !== project.ownerId ? (
-              <Button variant="ghost" size="sm" iconOnly aria-label={`Remove ${member.name}`} loading={removingId === member.id} onClick={() => remove(member)}>
-                <UserMinus size={15} />
-              </Button>
-            ) : null}
+            {confirmingId === member.id ? (
+              <span className="member-confirm" role="group" aria-label={`Confirm removing ${member.name}`}>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmingId(null)}>
+                  Cancel
+                </Button>
+                <Button variant="danger" size="sm" autoFocus onClick={() => remove(member)}>
+                  {member.id === currentUserId ? 'Leave' : 'Remove'}
+                </Button>
+              </span>
+            ) : (
+              <>
+                <span className="member-role">
+                  {member.id === project.ownerId ? 'Owner' : member.role}
+                  {member.id === currentUserId ? ' · You' : ''}
+                </span>
+                {canManage && member.id !== project.ownerId ? (
+                  <Button variant="ghost" size="sm" iconOnly aria-label={`Remove ${member.name}`} loading={removingId === member.id} onClick={() => setConfirmingId(member.id)}>
+                    <UserMinus size={15} />
+                  </Button>
+                ) : null}
+              </>
+            )}
           </li>
         ))}
       </ul>

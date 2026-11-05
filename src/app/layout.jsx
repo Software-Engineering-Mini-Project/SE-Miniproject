@@ -23,7 +23,8 @@ export default function RootLayout({ children }) {
     <html lang="en" className={geist.variable}>
       <body>
         <Providers>{children}</Providers>
-        <SpeedInsights />
+        {/* Vercel-only: elsewhere its script path does not exist and would 404 on every page. */}
+        {process.env.VERCEL ? <SpeedInsights /> : null}
       </body>
     </html>
   );

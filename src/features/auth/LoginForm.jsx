@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, Info } from 'lucide-react';
 import { apiConfig } from '@/lib/api/client';
 import { ApiError, describeError } from '@/lib/api/errors';
+import { safeNext } from '@/lib/redirect';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
@@ -18,11 +19,6 @@ const DEMO_ACCOUNTS = [
   { role: 'Outsider', email: 'outsider@example.test', note: 'No projects' },
 ];
 const DEMO_PASSWORD = 'Password123!';
-
-/** Only allow same-site relative redirects after sign-in. */
-function safeNext(value) {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard';
-}
 
 export function LoginForm() {
   const router = useRouter();

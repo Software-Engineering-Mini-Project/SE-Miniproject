@@ -22,6 +22,7 @@ const LOGIN_WINDOW_MS = 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ROLES = ['Admin', 'Lead', 'Member'];
 
 class HttpError extends Error {
   constructor(status, errorCode, message, fields) {
@@ -193,6 +194,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (payload.exp * 1000 <= now().getTime()) fail(401, 'TOKEN_EXPIRED', 'Your session has expired. Sign in again.');
     const user = findUser(payload.sub);
     if (!user) fail(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.');
+    if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) fail(401, 'TOKEN_REVOKED', 'Your password was changed. Sign in again.');
     return user;
   }
 
@@ -231,6 +233,11 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }
     return unique;
   }
+
+  const issueToken = (user) => ({
+    token: encodeToken({ sub: user.id, tv: user.tokenVersion ?? 0, exp: Math.floor(now().getTime() / 1000) + TOKEN_TTL_SECONDS }),
+    expiresIn: TOKEN_TTL_SECONDS,
+  });
 
   function notifyAssignment(task, userIds, actor) {
     for (const userId of userIds) {
@@ -348,8 +355,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         fail(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
       }
       loginAttempts.delete(email);
-      const token = encodeToken({ sub: user.id, exp: Math.floor(nowMs / 1000) + TOKEN_TTL_SECONDS });
-      return [200, { token, expiresIn: TOKEN_TTL_SECONDS, user: userDto(user) }];
+      return [200, { ...issueToken(user), user: userDto(user) }];
     }],
 
     ['GET', '/auth/me', ({ user }) => [200, userDto(user)]],
@@ -361,10 +367,46 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
           badRequest('Current password is incorrect.', { currentPassword: 'Current password is incorrect.' });
         }
         user.password = passwordRule(body.newPassword, 'newPassword');
+        // Revokes every earlier session, like the API's tokenVersion.
+        user.tokenVersion = (user.tokenVersion ?? 0) + 1;
       }
       if (name) user.name = name;
       user.updatedAt = stamp();
-      return [200, userDto(user)];
+      return [200, body?.newPassword !== undefined ? { ...userDto(user), ...issueToken(user) } : userDto(user)];
+    }],
+
+    // Admin user management (SRS §2.2).
+    ['GET', '/users', ({ user, query }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can manage user accounts.');
+      const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.pageSize, 10) || 50));
+      const role = query.role ? oneOf(query, 'role', ROLES, { label: 'Role' }) : undefined;
+      const needle = typeof query.q === 'string' ? query.q.trim().toLowerCase() : '';
+      const matches = db.users
+        .filter((u) => (!role || u.role === role) && (!needle || u.name.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle)))
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || a.id.localeCompare(b.id));
+      const items = matches.slice((page - 1) * pageSize, page * pageSize).map((u) => ({
+        ...userDto(u),
+        projectCount: db.projects.filter((p) => p.memberIds.includes(u.id)).length,
+      }));
+      const roleCounts = Object.fromEntries(ROLES.map((r) => [r, db.users.filter((u) => u.role === r).length]));
+      return [200, { items, page, pageSize, total: matches.length, roleCounts }];
+    }],
+
+    ['PATCH', '/users/:userId/role', ({ user, params, body }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can manage user accounts.');
+      idParam(params.userId, 'user');
+      const role = oneOf(body, 'role', ROLES, { label: 'Role' });
+      const target = findUser(params.userId);
+      if (!target) notFound('User');
+      if (target.role === 'Admin' && role !== 'Admin' && db.users.filter((u) => u.role === 'Admin').length === 1) {
+        fail(409, 'LAST_ADMIN', 'The workspace needs at least one admin. Promote someone else first.');
+      }
+      if (target.role !== role) {
+        target.role = role;
+        target.updatedAt = stamp();
+      }
+      return [200, userDto(target)];
     }],
 
     ['GET', '/projects', ({ user }) => {
@@ -437,12 +479,16 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       if (params.userId === project.ownerId) badRequest('The project owner cannot be removed.');
       if (!project.memberIds.includes(params.userId)) notFound('Member');
       project.memberIds = project.memberIds.filter((id) => id !== params.userId);
-      // Removing a member also unassigns them so no task points at a non-member.
+      // Removing a member also unassigns them so no task points at a non-member, and drops their
+      // notifications for the project (they name tasks the user can no longer open).
+      const projectTaskIds = new Set();
       db.tasks
         .filter((t) => t.projectId === project.id)
         .forEach((t) => {
-          t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
+          projectTaskIds.add(t.id);
+          if (t.assigneeIds.includes(params.userId)) t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
         });
+      db.notifications = db.notifications.filter((n) => !(n.userId === params.userId && projectTaskIds.has(n.taskId)));
       project.updatedAt = stamp();
       return [200, projectDto(project).members];
     }],
@@ -643,7 +689,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         body: body ?? {},
       });
       if (method !== 'GET') save();
-      else if (routeMatch.pattern === '/notifications') save();
+      else if (routeMatch.pattern === '/notifications' || routeMatch.pattern === '/notifications/unread-count') save();
       return { status, data: clone(data), headers };
     } catch (error) {
       if (error instanceof HttpError) {

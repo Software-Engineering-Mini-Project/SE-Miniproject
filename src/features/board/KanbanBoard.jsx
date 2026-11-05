@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/core';
 import { Plus } from 'lucide-react';
 import { STATUS_META, TASK_STATUSES } from '@/lib/constants';
+import { isOverdue } from '@/lib/format';
 import { TaskCard } from './TaskCard';
 import './board.css';
 
@@ -101,6 +102,21 @@ function Column({ status, tasks, membersById, onOpen, canCreate, onCreate, canDr
   );
 }
 
+const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 };
+
+/**
+ * Card order inside a column: what needs attention first. Open work: overdue, then priority,
+ * then nearest due date (undated last). Done: most recently finished first.
+ */
+export function compareCards(a, b) {
+  if (a.status === 'Done' && b.status === 'Done') return (b.updatedAt || '').localeCompare(a.updatedAt || '') || a.id.localeCompare(b.id);
+  return Number(isOverdue(b)) - Number(isOverdue(a))
+    || (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1)
+    || (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31')
+    || (a.createdAt || '').localeCompare(b.createdAt || '')
+    || a.id.localeCompare(b.id);
+}
+
 /**
  * Three-column board (TM-F-023). Columns are driven only by persisted status; `onMove`
  * is responsible for the optimistic update and rollback.
@@ -111,6 +127,7 @@ export function KanbanBoard({ tasks, members, onMove, onOpen, canCreate, onCreat
   const byStatus = useMemo(() => {
     const groups = Object.fromEntries(TASK_STATUSES.map((s) => [s, []]));
     tasks.forEach((task) => groups[task.status]?.push(task));
+    Object.values(groups).forEach((list) => list.sort(compareCards));
     return groups;
   }, [tasks]);
   const activeTask = tasks.find((t) => t.id === activeId);

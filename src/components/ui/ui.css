@@ -623,3 +623,18 @@
 }
 
 .refresh-notice { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-3); }
+
+/* "Load more" footer under a paged list. */
+.list-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.list-more-count {
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}

@@ -36,6 +36,13 @@ export function MyTasks() {
     return Object.fromEntries(Object.entries(p).filter(([, v]) => v));
   }, [query, scope, user]);
 
+  // The assignee filter only exists for "Everyone"; never carry a hidden choice across scopes.
+  const changeScope = (next) => {
+    setScope(next);
+    setFilters((f) => ({ ...f, assigneeId: '' }));
+    setQuery((q) => ({ ...q, assigneeId: '' }));
+  };
+
   const results = useQuery(user ? `search:${JSON.stringify(params)}` : null, () => api.tasks.search(params));
   const projectsById = useMemo(() => new Map((projects || []).map((p) => [p.id, p])), [projects]);
   const membersById = useMemo(() => {
@@ -61,10 +68,10 @@ export function MyTasks() {
           resultCount={results.data ? results.data.length : undefined}
         />
         <div className="view-toggle" role="group" aria-label="Whose tasks">
-          <button type="button" aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>
+          <button type="button" aria-pressed={scope === 'mine'} onClick={() => changeScope('mine')}>
             Assigned to me
           </button>
-          <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
+          <button type="button" aria-pressed={scope === 'all'} onClick={() => changeScope('all')}>
             Everyone
           </button>
         </div>

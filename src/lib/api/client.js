@@ -96,7 +96,9 @@ async function request(method, path, { body, query, accept, auth = true, invalid
     return data;
   }
   const error = new ApiError(status, data && typeof data === 'object' ? data : null);
-  if (status === 401 && auth) unauthorizedHandler(error);
+  // A 401 for a token that has since been replaced (e.g. a poll racing a password change) is
+  // stale and must not end the new session.
+  if (status === 401 && auth && token === tokenProvider()) unauthorizedHandler(error);
   throw error;
 }
 
@@ -112,7 +114,12 @@ export const api = {
   },
   users: {
     /** @returns {Promise<User>} TM-F-003 */
+    /** A password change also returns `{ token, expiresIn }`: older sessions are revoked. */
     updateMe: (input) => request('PATCH', '/users/me', { body: input }),
+    /** Admin only. @returns {Promise<{ items: (User & { projectCount: number })[], page: number, pageSize: number, total: number, roleCounts: Record<string, number> }>} */
+    list: ({ q, role, page = 1, pageSize = 50 } = {}) => request('GET', '/users', { query: { q, role, page, pageSize } }),
+    /** Admin only. @returns {Promise<User>} */
+    setRole: (userId, role) => request('PATCH', `/users/${enc(userId)}/role`, { body: { role } }),
   },
   projects: {
     /** @returns {Promise<Project[]>} */
@@ -163,7 +170,7 @@ export const api = {
   },
   notifications: {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */
-    list: (page = 1) => request('GET', '/notifications', { query: { page } }),
+    list: (page = 1, pageSize) => request('GET', '/notifications', { query: { page, pageSize } }),
     unreadCount: () => request('GET', '/notifications/unread-count'),
     markRead: (notificationId) => request('PATCH', `/notifications/${enc(notificationId)}/read`),
     markAllRead: () => request('PATCH', '/notifications/read-all'),

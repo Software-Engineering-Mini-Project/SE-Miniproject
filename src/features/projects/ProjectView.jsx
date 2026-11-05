@@ -2,10 +2,11 @@
 
 import { RefreshNotice } from '@/components/ui/RefreshNotice';
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NumberFlow from '@number-flow/react';
-import { Download, FolderX, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { BarChart3, Download, FolderX, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { statusKey } from '@/components/charts/Charts';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { describeError } from '@/lib/api/errors';
@@ -25,6 +26,7 @@ import { TaskForm } from '@/features/tasks/TaskForm';
 import { TaskList } from '@/features/tasks/TaskList';
 import { TaskSheet } from '@/features/tasks/TaskSheet';
 import { MembersDialog } from './MembersDialog';
+import { ProjectInsights } from './ProjectInsights';
 import { ProjectFormDialog } from './ProjectFormDialog';
 import './projects.css';
 
@@ -32,7 +34,8 @@ const VIEW_KEY = 'taskline.projectView';
 
 function readView() {
   try {
-    return window.localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board';
+    const saved = window.localStorage.getItem(VIEW_KEY);
+    return saved === 'list' || saved === 'insights' ? saved : 'board';
   } catch {
     return 'board';
   }
@@ -47,8 +50,9 @@ function subscribeToView(onChange) {
   };
 }
 
-function downloadText(filename, text, type) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+function downloadText(filename, text, type, { bom = false } = {}) {
+  // A UTF-8 byte-order mark makes Excel read non-ASCII names correctly instead of as mojibake.
+  const url = URL.createObjectURL(new Blob(bom ? [new Uint8Array([0xef, 0xbb, 0xbf]), text] : [text], { type }));
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
@@ -62,6 +66,7 @@ function SummaryStrip({ tasks }) {
   const counts = Object.fromEntries(TASK_STATUSES.map((s) => [s, tasks.filter((t) => t.status === s).length]));
   const overdue = tasks.filter(isOverdue).length;
   const total = tasks.length || 1;
+  const percent = tasks.length ? Math.round((counts.Done / tasks.length) * 100) : 0;
   return (
     <div className="summary-strip" aria-label="Project summary">
       <div className="summary-bar" aria-hidden="true">
@@ -72,7 +77,9 @@ function SummaryStrip({ tasks }) {
       <dl className="summary-stats">
         {TASK_STATUSES.map((s) => (
           <div key={s}>
-            <dt>{s}</dt>
+            <dt>
+              <span className="chart-swatch" data-status={statusKey(s)} aria-hidden="true" /> {s}
+            </dt>
             <dd className="tabular">
               <NumberFlow value={counts[s]} />
             </dd>
@@ -82,6 +89,12 @@ function SummaryStrip({ tasks }) {
           <dt>Overdue</dt>
           <dd className="tabular">
             <NumberFlow value={overdue} />
+          </dd>
+        </div>
+        <div>
+          <dt>Complete</dt>
+          <dd className="tabular">
+            <NumberFlow value={percent} suffix="%" />
           </dd>
         </div>
       </dl>
@@ -107,12 +120,43 @@ export function ProjectView({ projectId }) {
 
   const selectedId = params.get('task');
   const selectedTask = tasks.data?.find((t) => t.id === selectedId) || null;
+  const missingTask = Boolean(selectedId && tasks.data && !selectedTask);
+
+  // 403 and 404 are definitive (membership revoked or project deleted): cached data is stale,
+  // so they win over it. Anything else (network, 5xx) keeps the cached view with a retry notice.
+  const lostStatus = [project.error?.status, tasks.error?.status].find((status) => status === 403 || status === 404);
+  useEffect(() => {
+    if (lostStatus) removeProject(projectId);
+  }, [lostStatus, projectId, removeProject]);
 
   const openTask = useCallback(
     (taskId) => router.replace(`/projects/${projectId}?task=${encodeURIComponent(taskId)}`, { scroll: false }),
     [router, projectId],
   );
   const closeTask = useCallback(() => router.replace(`/projects/${projectId}`, { scroll: false }), [router, projectId]);
+
+  // ?task= names a task the (possibly cached) list does not have: it may be brand new, in another
+  // project, or deleted. Ask the API instead of guessing, and say so when it is really gone.
+  const setTasks = tasks.setData;
+  useEffect(() => {
+    if (!missingTask) return undefined;
+    let cancelled = false;
+    api.tasks.get(selectedId).then(
+      (found) => {
+        if (cancelled) return;
+        if (found.projectId === projectId) setTasks((list) => (list.some((t) => t.id === found.id) ? list : [...list, found]));
+        else router.replace(`/projects/${encodeURIComponent(found.projectId)}?task=${encodeURIComponent(found.id)}`);
+      },
+      (error) => {
+        if (cancelled) return;
+        toast.error(error?.status === 404 || error?.status === 403 ? 'That task no longer exists or you can no longer see it.' : describeError(error));
+        closeTask();
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [missingTask, selectedId, projectId, setTasks, router, closeTask]);
 
   const changeView = (next) => {
     try {
@@ -143,8 +187,8 @@ export function ProjectView({ projectId }) {
     [tasks],
   );
 
-  if (project.error && !project.data) {
-    const status = project.error.status;
+  if ((project.error && !project.data) || lostStatus) {
+    const status = lostStatus || project.error.status;
     return (
       <EmptyState
         icon={FolderX}
@@ -155,7 +199,7 @@ export function ProjectView({ projectId }) {
           </Button>
         }
       >
-        {status === 403 ? 'Ask the project lead to add you.' : describeError(project.error)}
+        {status === 403 ? 'Ask the project lead to add you.' : status === 404 ? 'It may have been deleted.' : describeError(project.error)}
       </EmptyState>
     );
   }
@@ -187,7 +231,7 @@ export function ProjectView({ projectId }) {
         assigneeId: filters.assigneeId || undefined,
       });
       const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
-      downloadText(`${slug}-tasks.csv`, csv, 'text/csv;charset=utf-8');
+      downloadText(`${slug}-tasks.csv`, csv, 'text/csv;charset=utf-8', { bom: true });
       toast.success(hasActiveFilters(filters) ? 'Exported the filtered tasks.' : 'Exported all tasks.');
     } catch (error) {
       toast.error(describeError(error));
@@ -252,13 +296,16 @@ export function ProjectView({ projectId }) {
       {tasks.data ? <SummaryStrip tasks={tasks.data} /> : null}
 
       <div className="project-toolbar">
-        <TaskFilters filters={filters} onChange={setFilters} members={p.members} showStatus={view === 'list'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
+        <TaskFilters filters={filters} onChange={setFilters} members={p.members} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
         <div className="view-toggle" role="group" aria-label="View">
           <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
             <KanbanSquare size={16} aria-hidden="true" /> Board
           </button>
           <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
             <List size={16} aria-hidden="true" /> List
+          </button>
+          <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
+            <BarChart3 size={16} aria-hidden="true" /> Insights
           </button>
         </div>
       </div>
@@ -286,6 +333,8 @@ export function ProjectView({ projectId }) {
         >
           {canManage ? 'Break the work into tasks and assign them to members.' : 'The project lead has not added tasks yet.'}
         </EmptyState>
+      ) : view === 'insights' ? (
+        <ProjectInsights tasks={visibleTasks} members={p.members} />
       ) : view === 'board' ? (
         <KanbanBoard tasks={visibleTasks} members={p.members} onMove={moveTask} onOpen={openTask} canCreate={canManage} onCreate={setCreateStatus} />
       ) : visibleTasks.length ? (
@@ -335,6 +384,13 @@ export function ProjectView({ projectId }) {
         project={p}
         canManage={canManage}
         onMembersChange={(members, removedId) => {
+          // A lead who removes themselves loses access (admins keep it): leave the page.
+          if (removedId && removedId === user?.id && user.role !== 'Admin') {
+            removeProject(p.id);
+            setMembersOpen(false);
+            router.replace('/projects');
+            return;
+          }
           const next = { ...p, members, memberIds: members.map((m) => m.id) };
           project.setData(next);
           upsertProject(next);

@@ -32,7 +32,11 @@ export function ProjectsIndex() {
 
   return (
     <>
-      <PageHeader title="Projects" description="Every project you are a member of." actions={createButton} />
+      <PageHeader
+        title="Projects"
+        description={user?.role === 'Admin' ? 'Every project in the workspace. As an admin you can open and manage all of them.' : 'Every project you are a member of.'}
+        actions={createButton}
+      />
 
       {projectsError && !projects ? (
         <ErrorState error={projectsError} title="Projects did not load" onRetry={loadProjects} />

@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import NumberFlow from '@number-flow/react';
 import { ArrowRight, CalendarCheck2, FolderKanban } from 'lucide-react';
-import { TASK_STATUSES } from '@/lib/constants';
+import { BarList, StatusBar, StatusLegend, statusSummary } from '@/components/charts/Charts';
+import { dueBuckets } from '@/lib/insights';
 import { localToday } from '@/lib/dates';
 import { firstName, isOverdue, plural } from '@/lib/format';
 import { useSession } from '@/lib/session';
@@ -41,7 +42,6 @@ function Stat({ label, value, tone, hint }) {
 
 function ProjectSummaryRow({ project, summary, error }) {
   const s = summary || { total: 0, counts: { 'To Do': 0, 'In Progress': 0, Done: 0 }, overdue: 0 };
-  const total = s?.total || 1;
   return (
     <li>
       <Link href={`/projects/${project.id}`} className="project-summary">
@@ -50,14 +50,11 @@ function ProjectSummaryRow({ project, summary, error }) {
           <span className="project-summary-counts">Summary unavailable</span>
         ) : (
           <>
-            <span className="project-summary-bar" aria-hidden="true">
-              {TASK_STATUSES.map((status) => (
-                <span key={status} data-status={status.toLowerCase().replace(' ', '-')} style={{ flexGrow: s.counts[status] / total }} />
-              ))}
-            </span>
+            <StatusBar counts={s.counts} total={s.total} className="project-summary-bar" />
             <span className="project-summary-counts">
               {s.counts.Done}/{s.total} done
               {s.overdue ? <strong> · {s.overdue} overdue</strong> : null}
+              <span className="visually-hidden">: {statusSummary(s.counts)}</span>
             </span>
           </>
         )}
@@ -92,6 +89,7 @@ export function Dashboard() {
     .filter((t) => t.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || PRIORITY_META[a.priority].rank - PRIORITY_META[b.priority].rank)
     .slice(0, 6);
+  const due = dueBuckets(open, today).map((b) => (b.key === 'overdue' ? { ...b, tone: 'danger' } : b));
 
   return (
     <div className="dashboard">
@@ -152,6 +150,7 @@ export function Dashboard() {
               )}
             </section>
 
+            <div className="dashboard-side">
             <section className="panel dashboard-panel" aria-labelledby="projects-title">
               <div className="panel-head">
                 <h2 id="projects-title">Projects</h2>
@@ -159,6 +158,7 @@ export function Dashboard() {
                   View all
                 </Link>
               </div>
+              {projects?.length && dashboard.data ? <StatusLegend className="panel-legend" /> : null}
               {projects === null || !dashboard.data ? (
                 <div className="attention-list">
                   {[0, 1].map((i) => (
@@ -180,6 +180,27 @@ export function Dashboard() {
                 </>
               )}
             </section>
+
+            <section className="panel dashboard-panel" aria-labelledby="due-chart-title">
+              <div className="panel-head">
+                <h2 id="due-chart-title">When your work is due</h2>
+                <span className="panel-meta">{plural(open.length, 'open task')}</span>
+              </div>
+              {!dashboard.data ? (
+                <div className="attention-list">
+                  <Skeleton height={150} />
+                </div>
+              ) : open.length === 0 ? (
+                <EmptyState icon={CalendarCheck2} title="Nothing open" tone="quiet">
+                  Nothing assigned to you is waiting.
+                </EmptyState>
+              ) : (
+                <div className="panel-body">
+                  <BarList items={due} label="Your open tasks by due date" />
+                </div>
+              )}
+            </section>
+            </div>
           </div>
         </>
       )}

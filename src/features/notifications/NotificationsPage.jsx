@@ -30,22 +30,49 @@ export function NotificationsPage() {
   });
   const [filter, setFilter] = useState('all');
   const [markingAll, setMarkingAll] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const items = inbox.data?.items || [];
   const unread = items.filter((n) => !n.read);
   const shown = filter === 'unread' ? unread : items;
+  // The server count covers every page, not just the ones loaded so far.
+  const unreadTotal = inbox.data?.unreadCount ?? unread.length;
+  const hasMore = Boolean(inbox.data && items.length < inbox.data.total);
 
-  const markLocal = (ids) => {
-    inbox.setData((page) => ({ ...page, items: page.items.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n)) }));
-    setUnread(unread.filter((n) => !ids.includes(n.id)).length);
+  const markLocal = (ids, { all = false } = {}) => {
+    const newlyRead = unread.filter((n) => ids.includes(n.id)).length;
+    const nextUnread = all ? 0 : Math.max(0, unreadTotal - newlyRead);
+    inbox.setData((page) => ({
+      ...page,
+      unreadCount: nextUnread,
+      items: page.items.map((n) => (all || ids.includes(n.id) ? { ...n, read: true } : n)),
+    }));
+    setUnread(nextUnread);
   };
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const next = await api.notifications.list((inbox.data.page || 1) + 1);
+      inbox.setData((page) => {
+        const seen = new Set(page.items.map((n) => n.id));
+        return { ...next, items: [...page.items, ...next.items.filter((n) => !seen.has(n.id))] };
+      });
+      setUnread(next.unreadCount);
+    } catch (error) {
+      toast.error(describeError(error));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function open(notification) {
     if (!notification.read) {
       markLocal([notification.id]);
       api.notifications.markRead(notification.id).catch(() => inbox.reload());
     }
-    if (notification.projectId) router.push(`/projects/${notification.projectId}?task=${notification.taskId}`);
+    if (notification.projectId) router.push(`/projects/${notification.projectId}?task=${encodeURIComponent(notification.taskId)}`);
+    else toast.info('The task for this notification is no longer available.');
   }
 
   async function markAll() {
@@ -53,7 +80,7 @@ export function NotificationsPage() {
     const ids = unread.map((n) => n.id);
     try {
       await api.notifications.markAllRead();
-      markLocal(ids);
+      markLocal(ids, { all: true });
       toast.success('All caught up.');
     } catch (error) {
       toast.error(describeError(error));
@@ -73,10 +100,10 @@ export function NotificationsPage() {
             All
           </button>
           <button type="button" aria-pressed={filter === 'unread'} onClick={() => setFilter('unread')}>
-            Unread{unread.length ? ` (${unread.length})` : ''}
+            Unread{unreadTotal ? ` (${unreadTotal})` : ''}
           </button>
         </div>
-        <Button size="sm" onClick={markAll} loading={markingAll} disabled={!unread.length}>
+        <Button size="sm" onClick={markAll} loading={markingAll} disabled={!unreadTotal}>
           <CheckCheck size={15} /> Mark all as read
         </Button>
       </div>
@@ -91,7 +118,10 @@ export function NotificationsPage() {
           ))}
         </div>
       ) : shown.length === 0 ? (
-        <EmptyState icon={BellOff} title={filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}>
+        <EmptyState
+          icon={BellOff}
+          title={filter === 'unread' ? (unreadTotal ? 'Your unread notifications are further down' : 'No unread notifications') : 'No notifications yet'}
+        >
           You are notified when someone assigns you a task or one of your tasks is due within 24 hours.
         </EmptyState>
       ) : (
@@ -117,6 +147,16 @@ export function NotificationsPage() {
           })}
         </ul>
       )}
+      {hasMore ? (
+        <div className="list-more">
+          <span className="list-more-count">
+            Showing {items.length} of {inbox.data.total}
+          </span>
+          <Button size="sm" onClick={loadMore} loading={loadingMore}>
+            Load older notifications
+          </Button>
+        </div>
+      ) : null}
     </>
   );
 }

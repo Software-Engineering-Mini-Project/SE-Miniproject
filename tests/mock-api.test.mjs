@@ -265,3 +265,44 @@ test('unread badge creates due reminders and throttles subsequent scans', () => 
   assert.equal(first.data.unreadCount, 1);
   assert.equal(server.handle('GET', '/notifications/unread-count', { token }).data.unreadCount, 1);
 });
+
+test('a password change revokes earlier mock sessions and returns a replacement token', () => {
+  const { call, login } = setup();
+  const old = login('member@example.test');
+  const changed = call('PATCH', '/users/me', { token: old, body: { currentPassword: MOCK_PASSWORD, newPassword: 'Rotated12345' } });
+  assert.equal(changed.status, 200);
+  assert.equal(typeof changed.data.token, 'string');
+  assertEnvelope(call('GET', '/auth/me', { token: old }), 401, 'TOKEN_REVOKED');
+  assert.equal(call('GET', '/auth/me', { token: changed.data.token }).status, 200);
+  const renamed = call('PATCH', '/users/me', { token: changed.data.token, body: { name: 'Renamed' } });
+  assert.equal(renamed.data.token, undefined);
+});
+
+test('Admin user management mirrors the API: list, filter, role change and last-admin guard', () => {
+  const { call, login } = setup();
+  const admin = login('admin@example.test');
+  assertEnvelope(call('GET', '/users', { token: login('lead@example.test') }), 403, 'FORBIDDEN');
+  const all = call('GET', '/users', { token: admin });
+  assert.equal(all.data.total, users.length);
+  assert.deepEqual(all.data.roleCounts, { Admin: 1, Lead: 1, Member: 3 });
+  assert.equal(all.data.items.find((u) => u.id === 'user-lead-001').projectCount, 2);
+  assert.ok(all.data.items.every((u) => !('password' in u)));
+  assert.deepEqual(call('GET', '/users', { token: admin, query: { q: 'long.address' } }).data.items.map((u) => u.id), ['user-member-002']);
+  assertEnvelope(call('GET', '/users', { token: admin, query: { role: 'Owner' } }), 400, 'VALIDATION_ERROR');
+
+  const promoted = call('PATCH', '/users/user-outsider-001/role', { token: admin, body: { role: 'Lead' } });
+  assert.equal(promoted.data.role, 'Lead');
+  assert.equal(call('POST', '/projects', { token: login('outsider@example.test'), body: { name: 'Now allowed' } }).status, 201);
+  assertEnvelope(call('PATCH', '/users/user-admin-001/role', { token: admin, body: { role: 'Member' } }), 409, 'LAST_ADMIN');
+  assertEnvelope(call('PATCH', '/users/nobody/role', { token: admin, body: { role: 'Lead' } }), 404, 'NOT_FOUND');
+});
+
+test('removing a member drops their notifications for that project', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  assert.ok(call('GET', '/notifications', { token: member }).data.items.some((n) => n.projectId === 'project-alpha'));
+  assert.equal(call('DELETE', '/projects/project-alpha/members/user-member-001', { token: lead }).status, 200);
+  assert.equal(call('GET', '/notifications', { token: member }).data.items.some((n) => n.projectId === 'project-alpha'), false);
+  assert.equal(call('GET', '/notifications/unread-count', { token: member }).data.unreadCount, 0);
+});

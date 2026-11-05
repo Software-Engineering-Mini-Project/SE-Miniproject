@@ -43,15 +43,15 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--status-todo);
+  background: var(--chart-todo);
 }
 
 .board-column-dot[data-status='progress'] {
-  background: var(--status-progress);
+  background: var(--chart-progress);
 }
 
 .board-column-dot[data-status='done'] {
-  background: var(--status-done);
+  background: var(--chart-done);
 }
 
 .board-column-count {
