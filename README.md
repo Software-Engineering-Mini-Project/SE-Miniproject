@@ -42,18 +42,20 @@ Two layers, defined once in [`src/lib/permissions.js`](src/lib/permissions.js) a
 
 **Workspace role** (per account):
 
-- **Member**: works in the projects they were added to.
-- **Lead**: can also create projects, and becomes their Owner.
-- **Admin**: everything in every project, plus the **Users** page to change roles and deactivate accounts. The last active Admin cannot be demoted.
+- **Member**: creates projects (becoming their Owner), joins open projects, and works in the projects they belong to.
+- **Lead**: the same, and can always create projects, even when an Admin limits creation to leads.
+- **Admin**: everything in every project, plus the **Users** page to change roles, deactivate accounts and change workspace settings. The last active Admin cannot be demoted.
+
+**Open workspace.** Like Jira's team-managed projects, anyone can start a project; an Admin can switch **Who can create projects** to *Leads and admins only*. Each project is **Private** (only people who are added can see it) or **Open** (listed under *Open projects* on the Projects page, where anyone in the workspace can join as a Member). A shared link to an open project offers a **Join project** button instead of an error. A new account starts on a getting-started screen: create a project, join an open one, or send their email to a project owner.
 
 **Project role** (per project):
 
 | | Owner | Manager | Member | Viewer |
 |---|:-:|:-:|:-:|:-:|
 | View, export, comment | ✓ | ✓ | ✓ | ✓ |
-| Move tasks between statuses | ✓ | ✓ | ✓ | |
-| Create, edit, assign and delete tasks | ✓ | ✓ | | |
-| Edit the project; add, remove and change Members and Viewers | ✓ | ✓ | | |
+| Create, edit, assign and move tasks; edit checklists | ✓ | ✓ | ✓ | |
+| Delete tasks and anyone's comments | ✓ | ✓ | | |
+| Edit the project (including Private/Open); add, remove and change Members and Viewers | ✓ | ✓ | | |
 | Grant or revoke Manager, transfer ownership, delete the project | ✓ | | | |
 
 Anyone except the Owner can leave a project. The full matrix is in [docs/backend-api-contract.md §7.5](docs/backend-api-contract.md).
