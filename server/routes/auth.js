@@ -173,6 +173,10 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
       ]);
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
     }
+    // Only after the password matched, so this doesn't reveal which emails have accounts.
+    if (user.deactivatedAt) {
+      throw new HttpError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
+    }
 
     if (bcrypt.getRounds(user.passwordHash) > BCRYPT_COST) {
       const oldHash = user.passwordHash;

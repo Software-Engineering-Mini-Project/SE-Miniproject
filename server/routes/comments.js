@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { Comment } from '../models/index.js';
-import { canManageProject, getTaskForUser, isAdmin } from '../services/access.js';
+import { can } from '../../src/lib/permissions.js';
+import { getTaskForUser } from '../services/access.js';
 import { HttpError } from '../utils/http-error.js';
 import { commentDto, commentDtos } from '../utils/dto.js';
 import { readId, readString, requireObject, invalid } from '../utils/validation.js';
@@ -20,7 +21,7 @@ export function createCommentsRouter({ jwtSecret, now = () => new Date() } = {})
   });
 
   router.post('/tasks/:taskId/comments', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId);
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'comment.create' });
     const body = requireObject(request.body);
     const text = readString(body, 'text', { max: 1000, trim: false, label: 'Comment' });
     if (!text.trim()) invalid('Comment is required.', { text: 'Enter a comment.' });
@@ -33,9 +34,7 @@ export function createCommentsRouter({ jwtSecret, now = () => new Date() } = {})
     const commentId = readId(request.params.commentId, 'Comment');
     const comment = await Comment.findOne({ _id: commentId, taskId: task.id });
     if (!comment) throw new HttpError(404, 'NOT_FOUND', 'Comment not found.');
-    const canDelete = comment.authorId === request.user.id
-      || isAdmin(request.user)
-      || canManageProject(request.user, project);
+    const canDelete = comment.authorId === request.user.id || can(request.user, 'comment.moderate', project);
     if (!canDelete) throw new HttpError(403, 'FORBIDDEN', 'You cannot delete this comment.');
     await comment.deleteOne();
     response.status(204).end();

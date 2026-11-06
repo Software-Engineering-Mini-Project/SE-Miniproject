@@ -10,16 +10,19 @@ import { formatDate, formatDue } from '@/lib/format';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal, Sheet, SheetClose, SheetTitle } from '@/components/ui/Dialog';
-import { DueTag, PriorityTag, StatusChip } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, RiskTag, StatusChip } from '@/components/ui/Tags';
 import { CommentThread } from './CommentThread';
 import { TaskForm } from './TaskForm';
 import './tasks.css';
 
 /**
- * Task details in a side sheet: status for any member (TM-F-012), edit/delete for the
- * project lead or an admin (TM-F-011), comments (TM-F-032).
+ * Task details in a side sheet: status for owners, managers and members (TM-F-012), edit/delete
+ * for owners, managers and admins (TM-F-011), comments for everyone in the project (TM-F-032).
+ * `permissions` comes from src/lib/permissions.js; `assignable` excludes viewers.
  */
-export function TaskSheet({ task, members, canManage, open, onOpenChange, onStatusChange, onUpdated, onDeleted }) {
+const READ_ONLY = { edit: false, remove: false, status: false, comment: false, moderate: false };
+
+export function TaskSheet({ task, members, assignable = members, permissions = READ_ONLY, risk, open, onOpenChange, onStatusChange, onUpdated, onDeleted }) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -47,15 +50,15 @@ export function TaskSheet({ task, members, canManage, open, onOpenChange, onStat
         <div className="sheet-head">
           <StatusChip status={task.status} />
           <div className="sheet-head-actions">
-            {canManage && !editing ? (
-              <>
-                <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-                  <Pencil size={14} /> Edit
-                </Button>
-                <Button variant="ghost" size="sm" iconOnly aria-label="Delete task" onClick={() => setConfirmDelete(true)}>
-                  <Trash2 size={15} />
-                </Button>
-              </>
+            {permissions.edit && !editing ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                <Pencil size={14} /> Edit
+              </Button>
+            ) : null}
+            {permissions.remove && !editing ? (
+              <Button variant="ghost" size="sm" iconOnly aria-label="Delete task" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={15} />
+              </Button>
             ) : null}
             <SheetClose render={<Button variant="ghost" size="sm" iconOnly aria-label="Close task details" />}>
               <X size={16} />
@@ -69,7 +72,7 @@ export function TaskSheet({ task, members, canManage, open, onOpenChange, onStat
               <SheetTitle className="sheet-title">Edit task</SheetTitle>
               <TaskForm
                 initial={task}
-                members={members}
+                members={[...assignable, ...members.filter((m) => task.assigneeIds.includes(m.id) && !assignable.includes(m))]}
                 submitLabel="Save changes"
                 onCancel={() => setEditing(false)}
                 onSubmit={async (payload) => {
@@ -88,14 +91,20 @@ export function TaskSheet({ task, members, canManage, open, onOpenChange, onStat
                 <div>
                   <dt>Status</dt>
                   <dd>
-                    <label htmlFor="sheet-status" className="visually-hidden">
-                      Status
-                    </label>
-                    <select id="sheet-status" className="select select-compact" value={task.status} onChange={(e) => onStatusChange(task.id, e.target.value)}>
-                      {TASK_STATUSES.map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
+                    {permissions.status ? (
+                      <>
+                        <label htmlFor="sheet-status" className="visually-hidden">
+                          Status
+                        </label>
+                        <select id="sheet-status" className="select select-compact" value={task.status} onChange={(e) => onStatusChange(task.id, e.target.value)}>
+                          {TASK_STATUSES.map((s) => (
+                            <option key={s}>{s}</option>
+                          ))}
+                        </select>
+                      </>
+                    ) : (
+                      <StatusChip status={task.status} />
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -108,6 +117,15 @@ export function TaskSheet({ task, members, canManage, open, onOpenChange, onStat
                   <dt>Due</dt>
                   <dd>{task.dueDate ? <DueTag task={task} /> : <span className="muted">{formatDue(null)}</span>}</dd>
                 </div>
+                {risk ? (
+                  <div>
+                    <dt>Forecast</dt>
+                    <dd className="task-forecast">
+                      <span className="tabular">{Math.round(risk.probability * 100)}%</span> chance of finishing by the due date
+                      <RiskTag risk={risk} />
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Assignees</dt>
                   <dd>
@@ -132,7 +150,7 @@ export function TaskSheet({ task, members, canManage, open, onOpenChange, onStat
                 Created {formatDate(task.createdAt)} · Updated {formatDate(task.updatedAt)}
               </p>
 
-              <CommentThread taskId={task.id} />
+              <CommentThread taskId={task.id} canComment={permissions.comment} canModerate={permissions.moderate} />
             </>
           )}
         </div>

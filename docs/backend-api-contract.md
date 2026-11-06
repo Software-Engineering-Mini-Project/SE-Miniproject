@@ -39,12 +39,13 @@ The web app defaults to HTTP mode. To use the browser mock without MongoDB, set 
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
-| Email | Role | Projects |
+| Email | Workspace role | Project roles |
 |---|---|---|
-| `admin@example.test` | Admin | owns Beta |
-| `lead@example.test` | Lead | owns Alpha, member of Beta |
-| `member@example.test` | Member | Alpha |
-| `member.two.with.a.long.address@example.test` | Member | Alpha (long name on purpose) |
+| `admin@example.test` | Admin | Owner of Beta |
+| `lead@example.test` | Lead | Owner of Alpha, Manager of Beta |
+| `member@example.test` | Member | Member of Alpha |
+| `member.two.with.a.long.address@example.test` | Member | Member of Alpha (long name on purpose) |
+| `viewer@example.test` | Member | Viewer of Alpha (read-only) |
 | `outsider@example.test` | Member | none: use it for negative access tests |
 
 Seed your **test** database from `fixtures/*.json`. Hash `Password123!` with bcrypt when seeding.
@@ -142,6 +143,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 
 // Task
 { id, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
+  completedAt /* ISO timestamp while Done, else null; server-set (§7.6) */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
 
 // Comment
@@ -222,30 +224,35 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 ### 6.2 Projects and members (TM-F-020, TM-F-021)
 
+Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permissions.js); the API, the mock API and the UI all import it. See §7.5 for the full matrix.
+
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects where the user is in `memberIds` (Admin: all) | |
-| `POST /projects` | Lead, Admin | `{ name, description? }` | `201 Project`. `ownerId` = caller, `memberIds` = [caller] | `403` for Member, `400` |
-| `GET /projects/:projectId` | member | | `200 Project` | `403` non-member, `404` |
-| `PATCH /projects/:projectId` | project Lead (a member), Admin | `{ name?, description? }` | `200 Project` | `403`, `404`, `400` |
-| `DELETE /projects/:projectId` | project Lead, Admin | | `204`, cascades per D11 | `403`, `404` |
-| `GET /projects/:projectId/members` | member | | `200 Member[]` | `403`, `404` |
-| `POST /projects/:projectId/members` | project Lead, Admin | `{ email }` (D4) | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `403` |
-| `DELETE /projects/:projectId/members/:userId` | project Lead, Admin | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the owner, `404` if not a member, `403` |
+| `POST /projects` | workspace Lead, Admin | `{ name, description? }` | `201 Project`. The caller becomes its Owner. | `403` for Member, `400` |
+| `GET /projects/:projectId` | any project role | | `200 Project` | `403` non-member, `404` |
+| `PATCH /projects/:projectId` | Owner, Manager, Admin | `{ name?, description? }` | `200 Project` | `403`, `404`, `400` |
+| `DELETE /projects/:projectId` | Owner, Admin | | `204`, cascades per D11 | `403`, `404` |
+| `GET /projects/:projectId/members` | any project role | | `200 Member[]`, each with `projectRole` | `403`, `404` |
+| `POST /projects/:projectId/members` | Owner, Manager, Admin | `{ email, role? }`; `role` is `Manager`, `Member` (default) or `Viewer`. Only an Owner or Admin may add a Manager. | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `400` with `fields.email` if the account is deactivated, `400` bad role, `403` |
+| `PATCH /projects/:projectId/members/:userId` | Owner, Manager, Admin | `{ role }`: `Owner` (transfer), `Manager`, `Member` or `Viewer` | `200 Member[]`. Transfer: the previous owner becomes a Manager. Changing someone to Viewer unassigns them from the project's tasks. Audited (`change: { field: 'projectRole', from, to }`). | `400` bad role, changing the Owner's role, or transferring to a deactivated account; `403` (only an Owner or Admin grants, revokes or removes Manager, and transfers); `404` not a member |
+| `DELETE /projects/:projectId/members/:userId` | Owner, Manager, Admin; **any member for themselves** (leave) | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the Owner, `404` if not a member, `403` |
 
-"Project Lead" means role `Lead` **and** listed in that project's `memberIds`. A Lead who isn't in the project gets 403.
+**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects (Lead, Admin) and who manages accounts (Admin); a workspace Lead has no extra rights inside a project they aren't a member of.
+
+**Migration.** Before project roles, any workspace Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
 
 ### 6.3 Tasks (TM-F-010..012, TM-F-022, TM-F-023, TM-F-040)
 
 | Method and path | Who | Body or query | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
-| `POST /projects/:projectId/tasks` | project Lead, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400`, `403` |
+| `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer), `403` |
 | `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
-| `PATCH /tasks/:taskId` | project Lead, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
-| `DELETE /tasks/:taskId` | project Lead, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
-| `PATCH /tasks/:taskId/status` | **any member** (D12) | `{ status }` | `200 { taskId, status, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
+| `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
+| `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
+| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 
 **Filter semantics** (identical for both list endpoints and the CSV export):
 - `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`.
@@ -262,8 +269,8 @@ For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /tasks/:taskId/comments` | member | | `200 Comment[]`, **oldest first**, each with `author` (D6) | `403`, `404` |
-| `POST /tasks/:taskId/comments` | member | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
-| `DELETE /tasks/:taskId/comments/:commentId` | comment author, project Lead, or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
+| `POST /tasks/:taskId/comments` | any project role, Viewers included | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
+| `DELETE /tasks/:taskId/comments/:commentId` | comment author, Owner, Manager or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
 
 Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip or HTML-encode it on the way in. The frontend renders it as plain text, so it can't run. The fixture comment `comment-004` covers this case.
 
@@ -333,16 +340,38 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 
 ### 7.5 Authorization matrix
 
-| Action | Admin | Project Lead | Project Member | Non-member |
-|---|---|---|---|---|
-| List or view project, tasks, members, summary, export | ✅ | ✅ | ✅ | 403 |
-| Create project | ✅ | ✅ (any Lead) | 403 | 403 |
-| Edit or delete project, add or remove members | ✅ | ✅ | 403 | 403 |
-| Create, edit, delete task; change assignees | ✅ | ✅ | 403 | 403 |
-| Change task status | ✅ | ✅ | ✅ (D12) | 403 |
-| Read or post comments | ✅ | ✅ | ✅ | 403 |
-| Read or mark notifications | own only | own only | own only | own only (others' → 404) |
-| List users, change roles | ✅ | 403 | 403 | 403 |
+Workspace roles (on the account):
+
+| Workspace role | Can |
+|---|---|
+| Admin | Everything in every project; list users, change workspace roles, deactivate and reactivate accounts |
+| Lead | Create projects (and becomes their Owner) |
+| Member | Work in the projects they are added to |
+
+Project roles (per project, from `src/lib/permissions.js`). A workspace Admin can do every action in every project, but can only be assigned tasks where they are a member.
+
+| Action | Owner | Manager | Member | Viewer | Non-member |
+|---|---|---|---|---|---|
+| View project, tasks, members, summary; export CSV | ✅ | ✅ | ✅ | ✅ | 403 |
+| Comment; delete own comment | ✅ | ✅ | ✅ | ✅ | 403 |
+| Change task status (D12) | ✅ | ✅ | ✅ | 403 | 403 |
+| Be assigned tasks | ✅ | ✅ | ✅ | 400 | 400 |
+| Create, edit, delete and assign tasks | ✅ | ✅ | 403 | 403 | 403 |
+| Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
+| Edit project details | ✅ | ✅ | 403 | 403 | 403 |
+| Add, remove, and change Members and Viewers | ✅ | ✅ | 403 | 403 | 403 |
+| Grant, revoke or remove Manager | ✅ | 403 | 403 | 403 | 403 |
+| Transfer ownership; delete the project | ✅ | 403 | 403 | 403 | 403 |
+| Leave the project | 400 (transfer first) | ✅ | ✅ | ✅ | 403 |
+
+Notifications: own only, for everyone (others' → 404).
+
+**Account deactivation** (`PATCH /users/:userId/status` `{ active }`, Admin only). Deactivation bumps the token version, so every session ends at once (`401 ACCOUNT_DEACTIVATED`), and sign-in returns `403 ACCOUNT_DEACTIVATED`, but only after the password matched, so it doesn't reveal which emails exist. The account's projects, tasks and comments stay. An Admin can't deactivate themselves; deactivated Admins don't count toward the last-Admin guard. `GET /users` accepts `status=active|deactivated` and returns `deactivatedCount`; every user DTO has `active`.
+
+### 7.6 Completion time (`completedAt`)
+The server sets `completedAt`; clients can't write it. It is stamped when a task enters `Done` (through `PATCH /tasks/:taskId/status`, `PATCH /tasks/:taskId` or a create with `status: "Done"`), kept if a Done task is set to Done again or edited in other ways, and cleared to `null` when the task leaves `Done`. Tasks completed before the field existed are backfilled from `updatedAt` by the `completedAt` migration (`npm run db:migrate`, also run on API startup). The CSV export columns are unchanged.
+
+The web app's delivery forecast (`src/lib/forecast.js`) reads only `completedAt` and the open tasks, so it needs no endpoint of its own.
 
 ---
 

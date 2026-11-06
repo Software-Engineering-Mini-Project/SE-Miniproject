@@ -26,8 +26,11 @@ export function authenticate({ jwtSecret }) {
       return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
     }
 
-    const user = await User.findById(payload.sub).select('_id name email role tokenVersion').lean();
+    const user = await User.findById(payload.sub).select('_id name email role tokenVersion deactivatedAt').lean();
     if (!user) return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
+    if (user.deactivatedAt) {
+      return next(new HttpError(401, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.'));
+    }
     // Tokens issued before tokenVersion existed carry no `tv`; they match version 0 only.
     if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
       return next(new HttpError(401, 'TOKEN_REVOKED', 'Your password was changed. Sign in again.'));

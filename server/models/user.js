@@ -11,6 +11,8 @@ const userSchema = createSchema({
   // so every session issued before the change stops working.
   tokenVersion: { type: Number, default: 0, min: 0 },
   role: { type: String, enum: ['Admin', 'Lead', 'Member'], default: 'Member', required: true },
+  // Set by an Admin to block sign-in without deleting the account (its tasks and comments stay).
+  deactivatedAt: { type: Date, default: null },
 });
 
 userSchema.index({ emailNormalized: 1 }, { unique: true });

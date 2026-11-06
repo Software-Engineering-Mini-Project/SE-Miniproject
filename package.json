@@ -14,10 +14,11 @@
     "seed:demo": "node scripts/seed.js --demo-dates",
     "user:role": "node scripts/set-role.js",
     "db:indexes": "node scripts/sync-indexes.js",
+    "db:migrate": "node scripts/migrate.js",
     "lint": "eslint .",
     "test": "npm run test:api && npm run test:web",
     "test:api": "node --test \"server/tests/*.test.mjs\"",
-    "test:web": "node --test tests/fixtures.test.mjs tests/mock-api.test.mjs && vitest run",
+    "test:web": "node --test tests/fixtures.test.mjs tests/permissions.test.mjs tests/forecast.test.mjs tests/mock-api.test.mjs && vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:load": "node scripts/load-test.mjs"

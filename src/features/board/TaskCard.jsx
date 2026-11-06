@@ -2,10 +2,10 @@
 
 import { forwardRef } from 'react';
 import { AvatarStack } from '@/components/ui/Avatar';
-import { DueTag, PriorityTag } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, RiskTag } from '@/components/ui/Tags';
 import { isOverdue } from '@/lib/format';
 
-export const TaskCard = forwardRef(function TaskCard({ task, assignees = [], placeholder, overlay, ...rest }, ref) {
+export const TaskCard = forwardRef(function TaskCard({ task, assignees = [], risk, placeholder, overlay, ...rest }, ref) {
   return (
     <article
       ref={ref}
@@ -18,6 +18,7 @@ export const TaskCard = forwardRef(function TaskCard({ task, assignees = [], pla
     >
       <div className="task-card-top">
         <PriorityTag priority={task.priority} />
+        <RiskTag risk={risk} />
       </div>
       <h3 className="task-card-title">{task.title}</h3>
       <div className="task-card-meta">

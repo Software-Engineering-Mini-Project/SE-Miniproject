@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { Comment, Notification, Project, Task, User } from '../models/index.js';
+import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
 import { getProjectForUser, getTaskForUser, isAdmin } from '../services/access.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
@@ -19,6 +20,16 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
+const TASK_FIELDS = '_id title description status priority dueDate completedAt projectId assigneeIds createdAt updatedAt';
+// The export leaves out descriptions (an inclusion projection can't also exclude a field).
+const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '');
+
+/** Sets the status and keeps completedAt in step: stamped on entering Done, cleared on leaving. */
+function applyStatus(task, status, now) {
+  if (status === task.status && (status !== 'Done' || task.completedAt)) return;
+  task.status = status;
+  task.completedAt = status === 'Done' ? now() : null;
+}
 const PRIORITIES = ['High', 'Medium', 'Low'];
 
 function readTaskFilters(query, { includeProjectId = false } = {}) {
@@ -62,13 +73,16 @@ function readTaskInput(body, { create = false } = {}) {
 }
 
 async function validateAssignees(assigneeIds, project) {
-  const projectMembers = new Set(project.memberIds.map(String));
   const users = await User.find({ _id: { $in: assigneeIds } }).select('_id');
   const registered = new Set(users.map((user) => user.id));
-  if (assigneeIds.some((id) => !registered.has(id) || !projectMembers.has(id))) {
+  if (assigneeIds.some((id) => !registered.has(id) || !projectRoleOf(project, id))) {
     invalid('Every assignee must be a registered member of this project.', {
       assigneeIds: 'Choose members of this project.',
     });
+  }
+  // Viewers are read-only, so they can't be given work.
+  if (assigneeIds.some((id) => !roleAllows(projectRoleOf(project, id), 'task.assignable'))) {
+    invalid('Viewers cannot be assigned tasks.', { assigneeIds: 'Viewers cannot be assigned tasks.' });
   }
 }
 
@@ -104,7 +118,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
     const filters = readTaskFilters(request.query);
     const tasks = (await Task.find(combineFilters({ projectId: project.id }, filters))
-      .select('_id title status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .select(EXPORT_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .lean()).map(toApi);
     const userIds = [...new Set(tasks.flatMap((task) => task.assigneeIds))];
@@ -118,7 +132,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const filters = readTaskFilters(request.query);
     const options = readListOptions(request.query);
     const tasks = await Task.find(combineFilters({ projectId: project.id }, filters))
-      .select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
       .limit(options.limit)
@@ -127,11 +141,11 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.post('/projects/:projectId/tasks', requireAuth, async (request, response) => {
-    const project = await getProjectForUser(request.user, request.params.projectId, { manage: true });
+    const project = await getProjectForUser(request.user, request.params.projectId, { action: 'task.create' });
     const body = requireObject(request.body);
     const input = readTaskInput(body, { create: true });
     await validateAssignees(input.assigneeIds, project);
-    const task = await Task.create({ ...input, projectId: project.id });
+    const task = await Task.create({ ...input, projectId: project.id, completedAt: input.status === 'Done' ? now() : null });
     await notifyNewAssignees({ task, actorId: request.user.id, now });
     response.status(201).json(task);
   });
@@ -153,7 +167,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     if (projectIds && projectIds.length === 0) return response.json([]);
     const query = projectIds ? combineFilters({ projectId: { $in: projectIds } }, filters) : combineFilters({}, filters);
     const tasks = await Task.find(query)
-      .select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
       .limit(options.limit)
@@ -167,20 +181,22 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.patch('/tasks/:taskId', requireAuth, async (request, response) => {
-    const { task, project } = await getTaskForUser(request.user, request.params.taskId, { manage: true });
+    const { task, project } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.edit' });
     const body = requireObject(request.body);
     const input = readTaskInput(body);
     if (Object.keys(input).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a task field to update.');
     if (input.assigneeIds) await validateAssignees(input.assigneeIds, project);
     const previousIds = task.assigneeIds.map(String);
-    Object.assign(task, input);
+    const { status, ...rest } = input;
+    Object.assign(task, rest);
+    if (status) applyStatus(task, status, now);
     await task.save();
     await notifyNewAssignees({ task, previousIds, actorId: request.user.id, now });
     response.json(task);
   });
 
   router.delete('/tasks/:taskId', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId, { manage: true });
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.delete' });
     await Promise.all([
       Comment.deleteMany({ taskId: task.id }),
       Notification.deleteMany({ taskId: task.id }),
@@ -190,11 +206,11 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   });
 
   router.patch('/tasks/:taskId/status', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId);
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.status' });
     const body = requireObject(request.body);
-    task.status = readEnum(body, 'status', STATUSES, { label: 'Status' });
+    applyStatus(task, readEnum(body, 'status', STATUSES, { label: 'Status' }), now);
     await task.save();
-    response.json({ taskId: task.id, status: task.status, updatedAt: task.updatedAt });
+    response.json({ taskId: task.id, status: task.status, completedAt: task.completedAt, updatedAt: task.updatedAt });
   });
 
   return router;

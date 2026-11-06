@@ -30,6 +30,8 @@ test('synthetic fixtures include all required roles and an outsider (TM-F-021, P
 
 test('task fixtures cover all board statuses and priorities (TM-F-012, TM-F-023)', () => {
   assert.deepEqual(new Set(tasks.map((t) => t.status)), new Set(['To Do', 'In Progress', 'Done']));
+  // completedAt is set exactly when a task is Done (the delivery forecast samples it).
+  for (const t of tasks) assert.equal(Boolean(t.completedAt), t.status === 'Done', `${t.id} completedAt`);
   assert.deepEqual(new Set(tasks.map((t) => t.priority)), new Set(['High', 'Medium', 'Low']));
 });
 
@@ -46,11 +48,18 @@ test('every reference resolves and every assignee is a member of the task projec
     assert.ok(userIds.has(project.ownerId));
     assert.ok(project.memberIds.includes(project.ownerId));
     project.memberIds.forEach((id) => assert.ok(userIds.has(id), `${project.id} member ${id}`));
+    // Project roles: managers and viewers are members, never the owner, and never both.
+    for (const id of [...project.managerIds, ...project.viewerIds]) {
+      assert.ok(project.memberIds.includes(id), `${project.id} role holder ${id} is a member`);
+      assert.notEqual(id, project.ownerId);
+    }
+    assert.ok(project.managerIds.every((id) => !project.viewerIds.includes(id)));
   }
   for (const task of tasks) {
     const project = projectIds.get(task.projectId);
     assert.ok(project, `${task.id} project`);
     task.assigneeIds.forEach((id) => assert.ok(project.memberIds.includes(id), `${task.id} assignee ${id}`));
+    task.assigneeIds.forEach((id) => assert.ok(!project.viewerIds.includes(id), `${task.id} assignee ${id} is not a viewer`));
   }
   for (const comment of comments) {
     const task = taskIds.get(comment.taskId);
