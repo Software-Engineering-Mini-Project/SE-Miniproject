@@ -14,8 +14,11 @@ import {
   TASK_STATUSES,
 } from '../../constants.js';
 import {
+  DEFAULT_WORKSPACE_SETTINGS,
   GRANTABLE_PROJECT_ROLES,
+  PROJECT_CREATION,
   PROJECT_ROLES,
+  PROJECT_VISIBILITIES,
   can,
   canCreateProject,
   isAdmin,
@@ -41,8 +44,8 @@ const FORBIDDEN = {
   'project.edit': 'Only the project owner, a manager or an admin can edit this project.',
   'project.delete': 'Only the project owner or an admin can delete this project.',
   'members.manage': 'Only the project owner, a manager or an admin can manage members.',
-  'task.create': 'Only the project owner, a manager or an admin can create tasks.',
-  'task.edit': 'Only the project owner, a manager or an admin can edit tasks.',
+  'task.create': 'Viewers cannot create tasks.',
+  'task.edit': 'Viewers cannot edit tasks.',
   'task.delete': 'Only the project owner, a manager or an admin can delete tasks.',
   'task.status': 'Viewers cannot change task status.',
   'comment.create': 'You cannot comment in this project.',
@@ -93,7 +96,8 @@ export function seedDatabase(seed) {
       emailNormalized: normalizeEmail(u.email),
       password: MOCK_PASSWORD,
     })),
-    projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], ...p })),
+    projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], visibility: 'private', ...p })),
+    settings: { ...DEFAULT_WORKSPACE_SETTINGS },
     tasks: clone(seed.tasks),
     comments: clone(seed.comments),
     notifications: clone(seed.notifications),
@@ -145,6 +149,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   }
 
   const nextId = (prefix) => `${prefix}-${++db.counter}`;
+  const settings = () => ({ ...DEFAULT_WORKSPACE_SETTINGS, ...(db.settings ?? {}) });
   const stamp = () => now().toISOString();
 
   // ---------- DTO mapping (never expose password / passwordHash) ----------
@@ -156,6 +161,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   };
   const findUser = (id) => db.users.find((u) => u.id === id);
   const projectDto = (p) => ({
+    visibility: 'private',
     ...clone(p),
     managerIds: [...(p.managerIds ?? [])],
     viewerIds: [...(p.viewerIds ?? [])],
@@ -235,7 +241,11 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     idParam(projectId, 'project');
     const project = db.projects.find((p) => p.id === projectId);
     if (!project) notFound('Project');
-    if (!isMember(user, project)) forbidden('You are not a member of this project.');
+    if (!isMember(user, project)) {
+      // An open project can be joined, so say so; a private one stays opaque.
+      if (project.visibility === 'open') fail(403, 'JOIN_REQUIRED', 'This project is open to everyone in the workspace. Join it to see its work.');
+      forbidden('You are not a member of this project.');
+    }
     if (action !== 'project.view' && !can(user, action, project)) forbidden(FORBIDDEN[action]);
     return project;
   }
@@ -491,14 +501,51 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, { projects: summaries, myTasks, stats }];
     }],
 
+    // Workspace settings: everyone reads them; only Admins change them.
+    ['GET', '/settings', () => [200, settings()]],
+
+    ['PATCH', '/settings', ({ user, body }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can change workspace settings.');
+      const projectCreation = oneOf(body, 'projectCreation', PROJECT_CREATION, { label: 'Project creation' });
+      db.settings = { ...settings(), projectCreation };
+      return [200, settings()];
+    }],
+
+    // Open projects the caller is not in yet. Private projects never appear.
+    ['GET', '/projects/directory', ({ user, query }) => {
+      const needle = typeof query.q === 'string' ? query.q.trim().slice(0, 80).toLowerCase() : '';
+      const list = db.projects
+        .filter((p) => p.visibility === 'open' && !p.memberIds.includes(user.id))
+        .filter((p) => !needle || p.name.toLowerCase().includes(needle))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+        .slice(0, 50)
+        .map((p) => ({ id: p.id, name: p.name, description: p.description, ownerName: findUser(p.ownerId)?.name ?? null, memberCount: p.memberIds.length }));
+      return [200, list];
+    }],
+
     ['POST', '/projects', ({ user, body }) => {
-      if (!canCreateProject(user)) forbidden('Only a Lead or an admin can create projects.');
+      if (!canCreateProject(user, settings())) forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
       const name = str(body, 'name', { max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, max: LIMITS.descriptionMax, label: 'Description' }) || '';
+      const visibility = oneOf(body, 'visibility', PROJECT_VISIBILITIES, { required: false, label: 'Visibility' }) ?? 'private';
       const at = stamp();
-      const project = { id: nextId('project'), name, description, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
+      const project = { id: nextId('project'), name, description, visibility, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
       db.projects.push(project);
       return [201, projectDto(project)];
+    }],
+
+    // Anyone may join an open project as a Member; joining twice is harmless.
+    ['POST', '/projects/:projectId/join', ({ user, params }) => {
+      idParam(params.projectId, 'project');
+      const project = db.projects.find((p) => p.id === params.projectId);
+      if (!project) notFound('Project');
+      const alreadyMember = project.memberIds.includes(user.id);
+      if (!alreadyMember && project.visibility !== 'open') forbidden('This project is private. Ask its owner or a manager to add you.');
+      if (!alreadyMember) {
+        project.memberIds.push(user.id);
+        project.updatedAt = stamp();
+      }
+      return [alreadyMember ? 200 : 201, projectDto(project)];
     }],
 
     ['GET', '/projects/:projectId', ({ user, params }) => [200, projectDto(projectFor(user, params.projectId))]],
@@ -507,8 +554,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const project = projectFor(user, params.projectId, { action: 'project.edit' });
       const name = str(body, 'name', { required: false, max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, min: 0, max: LIMITS.descriptionMax, label: 'Description' });
+      const visibility = oneOf(body, 'visibility', PROJECT_VISIBILITIES, { required: false, label: 'Visibility' });
       if (name) project.name = name;
       if (description !== undefined) project.description = description;
+      if (visibility) project.visibility = visibility;
       project.updatedAt = stamp();
       return [200, projectDto(project)];
     }],
