@@ -4,12 +4,25 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const queryCache = new Map();
 const inFlight = new Map();
+const listeners = new Map();
+const generations = new Map();
 let cacheVersion = 0;
 
 export function clearQueryCache() {
   cacheVersion += 1;
   queryCache.clear();
   inFlight.clear();
+}
+
+export function invalidateQuery(prefix) {
+  const keys = new Set([...queryCache.keys(), ...inFlight.keys(), ...listeners.keys()]);
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) continue;
+    queryCache.delete(key);
+    inFlight.delete(key);
+    generations.set(key, (generations.get(key) || 0) + 1);
+    for (const listener of listeners.get(key) || []) listener();
+  }
 }
 
 export function prefetchQuery(key, fetcher) {
@@ -20,8 +33,9 @@ function fetchQuery(key, fetcher) {
   const existing = inFlight.get(key);
   if (existing) return existing;
   const version = cacheVersion;
+  const generation = generations.get(key);
   const request = Promise.resolve().then(fetcher).then((data) => {
-    if (version === cacheVersion) queryCache.set(key, data);
+    if (version === cacheVersion && generation === generations.get(key)) queryCache.set(key, data);
     return data;
   }).finally(() => {
     if (inFlight.get(key) === request) inFlight.delete(key);
@@ -61,7 +75,7 @@ export function useQuery(key, fetcher) {
       key: currentKey,
       data: keepData ? (s.key === currentKey ? s.data : cached) : cached,
       error: null,
-      loading: !queryCache.has(currentKey),
+      loading: keepData && s.key === currentKey && s.data !== undefined ? false : !queryCache.has(currentKey),
     }));
     try {
       const data = await fetchQuery(currentKey, () => currentFetcherRef.current());
@@ -80,7 +94,11 @@ export function useQuery(key, fetcher) {
 
   useEffect(() => {
     if (key === null) return;
+    const refresh = () => run({ keepData: true });
+    if (!listeners.has(key)) listeners.set(key, new Set());
+    listeners.get(key).add(refresh);
     run();
+    return () => { listeners.get(key)?.delete(refresh); if (!listeners.get(key)?.size) listeners.delete(key); };
   }, [key, run]);
 
   const setData = useCallback((updater) => {

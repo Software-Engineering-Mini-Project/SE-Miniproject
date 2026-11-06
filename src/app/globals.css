@@ -28,13 +28,20 @@
   --accent-soft: #e5ebfd;
   --accent-ink: #ffffff;
 
-  /* Task status (TM-F-012 / TM-F-023) */
-  --status-todo: #5f636c;
-  --status-todo-soft: #e7e7e3;
+  /* Task status (TM-F-012 / TM-F-023). Text-on-tint pairs for labelled chips, all >= 5:1. */
+  --status-todo: #5a45b8;
+  --status-todo-soft: #eeebfb;
   --status-progress: #a54d07;
   --status-progress-soft: #fbeedd;
-  --status-done: #16723a;
-  --status-done-soft: #dff1e5;
+  --status-done: #16598f;
+  --status-done-soft: #e2eef8;
+
+  /* Status marks in charts, board dots and progress bars. Validated as a set (dataviz
+     validate_palette.js, light): chroma, lightness band, CVD separation (worst protan 20.8)
+     and >= 3:1 against the surface all pass. The old gray/orange/green failed for protan (5.6). */
+  --chart-todo: #8a6fd6;
+  --chart-progress: #c0670a;
+  --chart-done: #1b6fa8;
 
   /* Priority */
   --priority-high: #b3261e;

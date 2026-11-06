@@ -107,7 +107,7 @@ test('dashboard returns project aggregates and only the caller accessible tasks'
   assert.equal(lead.data.projects.find((project) => project.projectId === 'project-alpha').total, 7);
   assert.ok(lead.data.myTasks.every((task) => task.assigneeIds.includes('user-lead-001')));
   const outsider = call('GET', '/dashboard', { token: login('outsider@example.test') });
-  assert.deepEqual(outsider.data, { projects: [], myTasks: [] });
+  assert.deepEqual(outsider.data, { projects: [], myTasks: [], stats: { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 } });
 });
 
 test('PATCH /notifications/read-all marks only the current caller unread items', () => {
@@ -242,4 +242,131 @@ test('TC-REPORT-02 CSV export escapes cells and neutralises formulas', () => {
 test('unknown routes return the error envelope and never a stack trace (PRJ-SR-006)', () => {
   const { call, login } = setup();
   assertEnvelope(call('GET', '/nope', { token: login('lead@example.test') }), 404, 'NOT_FOUND');
+});
+
+
+test('dashboard and summary use a validated local day; unread count scans once', () => {
+  const { call, login } = setup(() => new Date('2026-10-15T19:00:00.000Z'));
+  const token = login('member@example.test');
+  const opts = { token, query: { today: '2026-10-16' } };
+  const dashboard = call('GET', '/dashboard', opts).data;
+  const summary = call('GET', '/projects/project-alpha/summary', opts).data;
+  assert.equal(dashboard.projects.find((p) => p.projectId === 'project-alpha').overdue, summary.overdue);
+  const count = call('GET', '/notifications/unread-count', { token }).data.unreadCount;
+  assert.equal(typeof count, 'number');
+  assert.equal(call('GET', '/notifications/unread-count', { token }).data.unreadCount, count);
+});
+
+test('unread badge creates due reminders and throttles subsequent scans', () => {
+  const isolated = { ...seed, notifications: [], tasks: [{ ...tasks.find((task) => task.id === 'task-004'), dueDate: '2026-10-16' }] };
+  const server = createMockServer({ seed: isolated, now: () => NOW });
+  const token = server.handle('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }).data.token;
+  const first = server.handle('GET', '/notifications/unread-count', { token });
+  assert.equal(first.data.unreadCount, 1);
+  assert.equal(server.handle('GET', '/notifications/unread-count', { token }).data.unreadCount, 1);
+});
+
+test('a password change revokes earlier mock sessions and returns a replacement token', () => {
+  const { call, login } = setup();
+  const old = login('member@example.test');
+  const changed = call('PATCH', '/users/me', { token: old, body: { currentPassword: MOCK_PASSWORD, newPassword: 'Rotated12345' } });
+  assert.equal(changed.status, 200);
+  assert.equal(typeof changed.data.token, 'string');
+  assertEnvelope(call('GET', '/auth/me', { token: old }), 401, 'TOKEN_REVOKED');
+  assert.equal(call('GET', '/auth/me', { token: changed.data.token }).status, 200);
+  const renamed = call('PATCH', '/users/me', { token: changed.data.token, body: { name: 'Renamed' } });
+  assert.equal(renamed.data.token, undefined);
+});
+
+test('Admin user management mirrors the API: list, filter, role change and last-admin guard', () => {
+  const { call, login } = setup();
+  const admin = login('admin@example.test');
+  assertEnvelope(call('GET', '/users', { token: login('lead@example.test') }), 403, 'FORBIDDEN');
+  const all = call('GET', '/users', { token: admin });
+  assert.equal(all.data.total, users.length);
+  assert.deepEqual(all.data.roleCounts, { Admin: 1, Lead: 1, Member: 4 });
+  assert.equal(all.data.items.find((u) => u.id === 'user-lead-001').projectCount, 2);
+  assert.ok(all.data.items.every((u) => !('password' in u)));
+  assert.deepEqual(call('GET', '/users', { token: admin, query: { q: 'long.address' } }).data.items.map((u) => u.id), ['user-member-002']);
+  assertEnvelope(call('GET', '/users', { token: admin, query: { role: 'Owner' } }), 400, 'VALIDATION_ERROR');
+
+  const promoted = call('PATCH', '/users/user-outsider-001/role', { token: admin, body: { role: 'Lead' } });
+  assert.equal(promoted.data.role, 'Lead');
+  assert.equal(call('POST', '/projects', { token: login('outsider@example.test'), body: { name: 'Now allowed' } }).status, 201);
+  assertEnvelope(call('PATCH', '/users/user-admin-001/role', { token: admin, body: { role: 'Member' } }), 409, 'LAST_ADMIN');
+  assertEnvelope(call('PATCH', '/users/nobody/role', { token: admin, body: { role: 'Lead' } }), 404, 'NOT_FOUND');
+});
+
+test('removing a member drops their notifications for that project', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  assert.ok(call('GET', '/notifications', { token: member }).data.items.some((n) => n.projectId === 'project-alpha'));
+  assert.equal(call('DELETE', '/projects/project-alpha/members/user-member-001', { token: lead }).status, 200);
+  assert.equal(call('GET', '/notifications', { token: member }).data.items.some((n) => n.projectId === 'project-alpha'), false);
+  assert.equal(call('GET', '/notifications/unread-count', { token: member }).data.unreadCount, 0);
+});
+
+test('project roles mirror the API: viewers read and comment, managers manage, owners transfer', () => {
+  const { call, login } = setup();
+  const viewer = login('viewer@example.test');
+  const lead = login('lead@example.test');
+  const roleOf = (list, id) => list.find((member) => member.id === id)?.projectRole;
+
+  assert.equal(roleOf(call('GET', '/projects/project-alpha/members', { token: viewer }).data, 'user-viewer-001'), 'Viewer');
+  assertEnvelope(call('PATCH', '/tasks/task-001/status', { token: viewer, body: { status: 'Done' } }), 403, 'FORBIDDEN');
+  assert.equal(call('POST', '/tasks/task-001/comments', { token: viewer, body: { text: 'Noted.' } }).status, 201);
+  assertEnvelope(call('PATCH', '/tasks/task-001', { token: lead, body: { assigneeIds: ['user-viewer-001'] } }), 400, 'VALIDATION_ERROR');
+
+  // Lead is a Manager in Beta: may edit, may not delete or grant Manager.
+  assert.equal(call('PATCH', '/projects/project-beta', { token: lead, body: { name: 'Beta 2' } }).status, 200);
+  assertEnvelope(call('DELETE', '/projects/project-beta', { token: lead }), 403, 'FORBIDDEN');
+  assertEnvelope(call('POST', '/projects/project-beta/members', { token: lead, body: { email: 'member@example.test', role: 'Manager' } }), 403, 'FORBIDDEN');
+  assert.equal(roleOf(call('POST', '/projects/project-beta/members', { token: lead, body: { email: 'member@example.test', role: 'Viewer' } }).data, 'user-member-001'), 'Viewer');
+
+  // Owner transfers Alpha; the old owner becomes a Manager and loses delete.
+  const transferred = call('PATCH', '/projects/project-alpha/members/user-member-002', { token: lead, body: { role: 'Owner' } });
+  assert.equal(roleOf(transferred.data, 'user-member-002'), 'Owner');
+  assert.equal(roleOf(transferred.data, 'user-lead-001'), 'Manager');
+  assertEnvelope(call('DELETE', '/projects/project-alpha', { token: lead }), 403, 'FORBIDDEN');
+  assertEnvelope(call('DELETE', '/projects/project-alpha/members/user-member-002', { token: lead }), 400, 'VALIDATION_ERROR');
+  // Leaving is open to any non-owner.
+  assert.equal(call('DELETE', '/projects/project-alpha/members/user-viewer-001', { token: viewer }).status, 200);
+});
+
+test('deactivation mirrors the API: signs the user out, blocks sign-in and re-adding', () => {
+  const { call, login } = setup();
+  const admin = login('admin@example.test');
+  const member = login('member@example.test');
+  assertEnvelope(call('PATCH', '/users/user-admin-001/status', { token: admin, body: { active: false } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('PATCH', '/users/user-member-001/status', { token: admin, body: { active: false } }).data.active, false);
+  assertEnvelope(call('GET', '/auth/me', { token: member }), 401, 'ACCOUNT_DEACTIVATED');
+  assertEnvelope(call('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }), 403, 'ACCOUNT_DEACTIVATED');
+  assert.deepEqual(call('GET', '/users', { token: admin, query: { status: 'deactivated' } }).data.items.map((u) => u.id), ['user-member-001']);
+  const lead = login('lead@example.test');
+  call('DELETE', '/projects/project-alpha/members/user-member-001', { token: lead });
+  assertEnvelope(call('POST', '/projects/project-alpha/members', { token: lead, body: { email: 'member@example.test' } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('PATCH', '/users/user-member-001/status', { token: admin, body: { active: true } }).status, 200);
+  assert.equal(call('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }).status, 200);
+});
+
+test('completedAt mirrors the API: stamped on Done by any route, kept on re-Done, cleared on reopen', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const done = call('PATCH', '/tasks/task-001/status', { token: lead, body: { status: 'Done' } });
+  assert.equal(done.status, 200);
+  assert.equal(done.data.completedAt, NOW.toISOString());
+  assert.equal(call('PATCH', '/tasks/task-001/status', { token: lead, body: { status: 'Done' } }).data.completedAt, NOW.toISOString());
+  assert.equal(call('PATCH', '/tasks/task-001/status', { token: lead, body: { status: 'To Do' } }).data.completedAt, null);
+
+  // A full update: renaming leaves a completion alone; reopening clears it.
+  const finished = tasks.find((task) => task.id === 'task-006');
+  assert.equal(call('PATCH', '/tasks/task-006', { token: lead, body: { title: 'Renamed' } }).data.completedAt, finished.completedAt);
+  assert.equal(call('PATCH', '/tasks/task-006', { token: lead, body: { status: 'In Progress' } }).data.completedAt, null);
+  assert.equal(call('PATCH', '/tasks/task-002', { token: lead, body: { status: 'Done' } }).data.completedAt, NOW.toISOString());
+
+  const created = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Logged late', status: 'Done' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.completedAt, NOW.toISOString());
+  assert.equal(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Open' } }).data.completedAt, null);
 });

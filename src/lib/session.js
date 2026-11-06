@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { api, configureApi } from './api/client.js';
 import { clearQueryCache } from './hooks/useQuery.js';
+import { useWorkspace } from './workspace.js';
 
 const TOKEN_KEY = 'taskline.session';
 
@@ -34,8 +35,10 @@ function writeStoredToken(token, expiresIn) {
 }
 
 /**
- * status: 'unknown' before the stored session is checked, then 'authenticated' or 'anonymous'.
- * reason: why the session ended, shown on the sign-in screen ('expired' | 'signed-out').
+ * status: 'unknown' before the stored session is checked, then 'authenticated' or 'anonymous';
+ * 'unavailable' when the stored session could not be checked (offline, server error). The token
+ * is kept in that case, so `retryRestore()` can pick the session up again.
+ * reason: why the session ended, shown on the sign-in screen ('expired' | 'deactivated' | 'signed-out').
  */
 export const useSession = create((set, get) => ({
   status: 'unknown',
@@ -54,10 +57,27 @@ export const useSession = create((set, get) => ({
     try {
       const user = await api.auth.me();
       set({ user, status: 'authenticated' });
-    } catch {
-      writeStoredToken(null);
-      set({ token: null, user: null, status: 'anonymous' });
+    } catch (error) {
+      // Only a 401 means the token is bad. A network blip or a 5xx must not sign the user out.
+      if (error?.status === 401) {
+        writeStoredToken(null);
+        set({ token: null, user: null, status: 'anonymous', reason: error.errorCode === 'ACCOUNT_DEACTIVATED' ? 'deactivated' : 'expired' });
+      } else {
+        set({ status: 'unavailable' });
+      }
     }
+  },
+
+  retryRestore() {
+    if (get().status !== 'unavailable') return Promise.resolve();
+    set({ status: 'unknown', token: null });
+    return get().restore();
+  },
+
+  /** Swaps in a fresh token (after a password change revoked the old one). */
+  replaceToken(token, expiresIn) {
+    writeStoredToken(token, expiresIn);
+    set({ token });
   },
 
   async signIn(email, password) {
@@ -76,13 +96,16 @@ export const useSession = create((set, get) => ({
   signOut(reason = 'signed-out') {
     writeStoredToken(null);
     clearQueryCache();
+    // Drop the previous user's projects and unread count so the next account never sees them.
+    useWorkspace.getState().clear();
     set({ token: null, user: null, status: 'anonymous', reason });
   },
 }));
 
 configureApi({
   getToken: () => useSession.getState().token,
-  onUnauthorized: () => {
-    if (useSession.getState().status === 'authenticated') useSession.getState().signOut('expired');
+  onUnauthorized: (error) => {
+    if (useSession.getState().status !== 'authenticated') return;
+    useSession.getState().signOut(error?.errorCode === 'ACCOUNT_DEACTIVATED' ? 'deactivated' : 'expired');
   },
 });

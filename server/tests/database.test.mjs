@@ -17,7 +17,7 @@ after(async () => {
 });
 
 test('fixture helper seeds a fresh in-memory database with synthetic entities', async () => {
-  assert.equal(await User.countDocuments(), 5);
+  assert.equal(await User.countDocuments(), 6);
   assert.equal(await Project.countDocuments(), 2);
   assert.equal(await Task.countDocuments(), 10);
   assert.equal(await Comment.countDocuments(), 4);

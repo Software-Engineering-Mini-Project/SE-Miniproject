@@ -57,7 +57,7 @@
 }
 
 .stat[data-tone='good'] .stat-value {
-  color: var(--status-done);
+  color: var(--success);
 }
 
 .stat-hint {
@@ -87,6 +87,25 @@
 
 .dashboard-panel {
   padding: 8px;
+}
+
+.dashboard-side {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.panel-legend {
+  padding: 0 12px 6px;
+}
+
+.panel-meta {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.panel-body {
+  padding: 4px 12px 12px;
 }
 
 .panel-head {
@@ -213,31 +232,13 @@
 }
 
 .project-summary-bar {
-  display: flex;
   flex: 1;
-  gap: 2px;
-  height: 8px;
-  overflow: hidden;
-  border-radius: var(--radius-full);
-  background: var(--surface-2);
-}
-
-.project-summary-bar span {
-  flex-basis: 0;
-  border-radius: var(--radius-full);
-  background: var(--status-todo);
-}
-
-.project-summary-bar [data-status='in-progress'] {
-  background: var(--status-progress);
-}
-
-.project-summary-bar [data-status='done'] {
-  background: var(--status-done);
 }
 
 .project-summary-counts {
-  flex: none;
+  /* Fixed width so every project's bar has the same length; only the split differs. */
+  flex: 0 0 9.5rem;
+  white-space: nowrap;
   font-size: var(--text-xs);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;

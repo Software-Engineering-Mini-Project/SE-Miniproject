@@ -6,23 +6,20 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, Info } from 'lucide-react';
 import { apiConfig } from '@/lib/api/client';
 import { ApiError, describeError } from '@/lib/api/errors';
+import { safeNext } from '@/lib/redirect';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
 import { PasswordInput } from './PasswordInput';
 
 const DEMO_ACCOUNTS = [
-  { role: 'Lead', email: 'lead@example.test', note: 'Manages Alpha' },
+  { role: 'Lead', email: 'lead@example.test', note: 'Owns Alpha, manages Beta' },
   { role: 'Member', email: 'member@example.test', note: 'Works on Alpha' },
-  { role: 'Admin', email: 'admin@example.test', note: 'Owns Beta' },
+  { role: 'Viewer', email: 'viewer@example.test', note: 'Read-only on Alpha' },
+  { role: 'Admin', email: 'admin@example.test', note: 'Owns Beta, manages users' },
   { role: 'Outsider', email: 'outsider@example.test', note: 'No projects' },
 ];
 const DEMO_PASSWORD = 'Password123!';
-
-/** Only allow same-site relative redirects after sign-in. */
-function safeNext(value) {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard';
-}
 
 export function LoginForm() {
   const router = useRouter();
@@ -85,6 +82,12 @@ export function LoginForm() {
           <p className="form-alert" data-tone="info" role="status">
             <Info size={16} aria-hidden="true" />
             Your session expired. Sign in again to continue.
+          </p>
+        ) : null}
+        {reason === 'deactivated' && !formError ? (
+          <p className="form-alert" role="alert">
+            <AlertCircle size={16} aria-hidden="true" />
+            This account was deactivated. Contact a workspace admin.
           </p>
         ) : null}
         {formError ? (

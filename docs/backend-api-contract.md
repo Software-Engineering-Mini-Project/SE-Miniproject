@@ -9,10 +9,10 @@
 
 ## 1. Where things stand
 
-- **The frontend is built** (Next.js 15, React 19) in ``. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
+- **The frontend is built** (Next.js 16, React 19) in `src/`. It has every v1.0 screen: auth, dashboard, projects, the Kanban board, task details, comments, notifications, search, profile and CSV export.
 - **The API contract is implemented** in `server/`, including auth, projects/members, tasks, comments, notifications, summaries, CSV export, access control, validation, and audit logging. The web app uses the real HTTP API by default via [`src/lib/api/client.js`](../src/lib/api/client.js).
 - The browser mock at [`src/lib/api/mock/server.js`](../src/lib/api/mock/server.js) remains available for frontend-only work (`NEXT_PUBLIC_API_MODE=mock`). It has no database and no real password hashing, and its tokens are not real JWTs.
-- **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. 19 contract tests check it, each named after an STP test ID ([`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
+- **The mock is your reference.** It implements the contract below: paths, status codes, the error envelope, roles, membership checks, validation and notifications. Its contract tests are named after STP test IDs ([`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs)). If your API returns the same thing for the same request, the frontend works unchanged.
 - **For local use:** configure MongoDB and `JWT_SECRET`, seed a local/test database, then run the app. The automated suite checks the API and mock against this contract; follow §12 for a browser smoke test against a live local database.
 
 Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll update this file and the frontend.
@@ -22,26 +22,30 @@ Wherever this document and the SRS/SAD disagree, the SRS wins. Tell me and I'll 
 ## 2. Quick start
 
 ```bash
-# install dependencies from the repository root
+# from the repository root
 npm ci                 # once, after cloning
-copy server/.env.example to server/.env
-# set MONGODB_URI and a strong JWT_SECRET in server/.env
-copy .env.example to .env.local
-# set NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api in .env.local
-npm run seed  # clears selected collections; local/test DB only
-npm run dev
+cp .env.example .env.local
+# set MONGODB_URI (a local/test database) and a JWT_SECRET of 32+ random characters
+npm run db:indexes     # creates the unique email and query indexes
+npm run seed           # replaces every collection with the fixtures; refuses non-local hosts
+npm run dev            # Next.js and the Express API on one port (PORT, default 3000 in .env.example)
 ```
 
-The web app defaults to HTTP mode. To use the browser mock without starting MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `.env.local` and run `npm run dev:web`.
+`npm run seed:demo` loads the same fixtures with their dates moved to today, so the dashboard shows a realistic mix of overdue, due-soon and later work. The E2E suite expects the unshifted `npm run seed`.
+
+The web app defaults to HTTP mode. To use the browser mock without MongoDB, set `NEXT_PUBLIC_API_MODE=mock` in `.env.local` and run `npx next dev`.
+
+**First Admin of a new deployment:** register normally, then run `npm run user:role -- you@example.com Admin` against that database. From then on, Admins change roles on the in-app **Users** page.
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
-| Email | Role | Projects |
+| Email | Workspace role | Project roles |
 |---|---|---|
-| `admin@example.test` | Admin | owns Beta |
-| `lead@example.test` | Lead | owns Alpha, member of Beta |
-| `member@example.test` | Member | Alpha |
-| `member.two.with.a.long.address@example.test` | Member | Alpha (long name on purpose) |
+| `admin@example.test` | Admin | Owner of Beta |
+| `lead@example.test` | Lead | Owner of Alpha, Manager of Beta |
+| `member@example.test` | Member | Member of Alpha |
+| `member.two.with.a.long.address@example.test` | Member | Member of Alpha (long name on purpose) |
+| `viewer@example.test` | Member | Viewer of Alpha (read-only) |
 | `outsider@example.test` | Member | none: use it for negative access tests |
 
 Seed your **test** database from `fixtures/*.json`. Hash `Password123!` with bcrypt when seeding.
@@ -139,6 +143,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 
 // Task
 { id, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
+  completedAt /* ISO timestamp while Done, else null; server-set (§7.6) */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
 
 // Comment
@@ -193,7 +198,7 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 - **Always creates role `Member`.** Ignore any `role` sent in the body (SRS §2.2).
 - `201 { userId, email }`
 - `400 VALIDATION_ERROR` (with `fields`), or `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive.
-- Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing.
+- Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing. Only requests that pass validation count, so typos do not use up the allowance.
 
 #### `POST /auth/login` (public)
 - Body: `{ email, password }`
@@ -208,33 +213,46 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 - Body: any of `{ name }`, or `{ currentPassword, newPassword }`.
 - Changing the password requires the correct `currentPassword`; otherwise `400` with `fields.currentPassword`.
 - Returns `200 User`. The new password must work on the next login.
+- **A password change revokes every existing session** (each token carries the user's `tokenVersion` as claim `tv`). The response then also contains `token` and `expiresIn`, which the client must use from then on. Older tokens get `401 TOKEN_REVOKED`.
+
+#### Admin: user accounts and roles (SRS §2.2)
+
+| Method and path | Who | Body or query | Success | Errors |
+|---|---|---|---|---|
+| `GET /users` | Admin | `q` (name or email, case-insensitive), `role`, `page`, `pageSize` (max 100) | `200 { items, page, pageSize, total, roleCounts }`. Each item is a `User` plus `projectCount`; newest first. | `403` non-Admin, `400` bad role or paging |
+| `PATCH /users/:userId/role` | Admin | `{ role: "Admin" \| "Lead" \| "Member" }` | `200 User`. Takes effect on the user's next request (roles are read from the database). Audit-logged with `change: { field, from, to }`. | `409 LAST_ADMIN` when it would leave no Admin, `404`, `400`, `403` |
 
 ### 6.2 Projects and members (TM-F-020, TM-F-021)
+
+Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permissions.js); the API, the mock API and the UI all import it. See §7.5 for the full matrix.
 
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects where the user is in `memberIds` (Admin: all) | |
-| `POST /projects` | Lead, Admin | `{ name, description? }` | `201 Project`. `ownerId` = caller, `memberIds` = [caller] | `403` for Member, `400` |
-| `GET /projects/:projectId` | member | | `200 Project` | `403` non-member, `404` |
-| `PATCH /projects/:projectId` | project Lead (a member), Admin | `{ name?, description? }` | `200 Project` | `403`, `404`, `400` |
-| `DELETE /projects/:projectId` | project Lead, Admin | | `204`, cascades per D11 | `403`, `404` |
-| `GET /projects/:projectId/members` | member | | `200 Member[]` | `403`, `404` |
-| `POST /projects/:projectId/members` | project Lead, Admin | `{ email }` (D4) | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `403` |
-| `DELETE /projects/:projectId/members/:userId` | project Lead, Admin | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project.** | `400` if removing the owner, `404` if not a member, `403` |
+| `POST /projects` | workspace Lead, Admin | `{ name, description? }` | `201 Project`. The caller becomes its Owner. | `403` for Member, `400` |
+| `GET /projects/:projectId` | any project role | | `200 Project` | `403` non-member, `404` |
+| `PATCH /projects/:projectId` | Owner, Manager, Admin | `{ name?, description? }` | `200 Project` | `403`, `404`, `400` |
+| `DELETE /projects/:projectId` | Owner, Admin | | `204`, cascades per D11 | `403`, `404` |
+| `GET /projects/:projectId/members` | any project role | | `200 Member[]`, each with `projectRole` | `403`, `404` |
+| `POST /projects/:projectId/members` | Owner, Manager, Admin | `{ email, role? }`; `role` is `Manager`, `Member` (default) or `Viewer`. Only an Owner or Admin may add a Manager. | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `400` with `fields.email` if the account is deactivated, `400` bad role, `403` |
+| `PATCH /projects/:projectId/members/:userId` | Owner, Manager, Admin | `{ role }`: `Owner` (transfer), `Manager`, `Member` or `Viewer` | `200 Member[]`. Transfer: the previous owner becomes a Manager. Changing someone to Viewer unassigns them from the project's tasks. Audited (`change: { field: 'projectRole', from, to }`). | `400` bad role, changing the Owner's role, or transferring to a deactivated account; `403` (only an Owner or Admin grants, revokes or removes Manager, and transfers); `404` not a member |
+| `DELETE /projects/:projectId/members/:userId` | Owner, Manager, Admin; **any member for themselves** (leave) | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the Owner, `404` if not a member, `403` |
 
-"Project Lead" means role `Lead` **and** listed in that project's `memberIds`. A Lead who isn't in the project gets 403.
+**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects (Lead, Admin) and who manages accounts (Admin); a workspace Lead has no extra rights inside a project they aren't a member of.
+
+**Migration.** Before project roles, any workspace Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
 
 ### 6.3 Tasks (TM-F-010..012, TM-F-022, TM-F-023, TM-F-040)
 
 | Method and path | Who | Body or query | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
-| `POST /projects/:projectId/tasks` | project Lead, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400`, `403` |
+| `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer), `403` |
 | `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
-| `PATCH /tasks/:taskId` | project Lead, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
-| `DELETE /tasks/:taskId` | project Lead, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
-| `PATCH /tasks/:taskId/status` | **any member** (D12) | `{ status }` | `200 { taskId, status, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
+| `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
+| `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
+| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 
 **Filter semantics** (identical for both list endpoints and the CSV export):
 - `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`.
@@ -251,8 +269,8 @@ For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /tasks/:taskId/comments` | member | | `200 Comment[]`, **oldest first**, each with `author` (D6) | `403`, `404` |
-| `POST /tasks/:taskId/comments` | member | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
-| `DELETE /tasks/:taskId/comments/:commentId` | comment author, project Lead, or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
+| `POST /tasks/:taskId/comments` | any project role, Viewers included | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
+| `DELETE /tasks/:taskId/comments/:commentId` | comment author, Owner, Manager or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
 
 Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip or HTML-encode it on the way in. The frontend renders it as plain text, so it can't run. The fixture comment `comment-004` covers this case.
 
@@ -322,15 +340,38 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 
 ### 7.5 Authorization matrix
 
-| Action | Admin | Project Lead | Project Member | Non-member |
-|---|---|---|---|---|
-| List or view project, tasks, members, summary, export | ✅ | ✅ | ✅ | 403 |
-| Create project | ✅ | ✅ (any Lead) | 403 | 403 |
-| Edit or delete project, add or remove members | ✅ | ✅ | 403 | 403 |
-| Create, edit, delete task; change assignees | ✅ | ✅ | 403 | 403 |
-| Change task status | ✅ | ✅ | ✅ (D12) | 403 |
-| Read or post comments | ✅ | ✅ | ✅ | 403 |
-| Read or mark notifications | own only | own only | own only | own only (others' → 404) |
+Workspace roles (on the account):
+
+| Workspace role | Can |
+|---|---|
+| Admin | Everything in every project; list users, change workspace roles, deactivate and reactivate accounts |
+| Lead | Create projects (and becomes their Owner) |
+| Member | Work in the projects they are added to |
+
+Project roles (per project, from `src/lib/permissions.js`). A workspace Admin can do every action in every project, but can only be assigned tasks where they are a member.
+
+| Action | Owner | Manager | Member | Viewer | Non-member |
+|---|---|---|---|---|---|
+| View project, tasks, members, summary; export CSV | ✅ | ✅ | ✅ | ✅ | 403 |
+| Comment; delete own comment | ✅ | ✅ | ✅ | ✅ | 403 |
+| Change task status (D12) | ✅ | ✅ | ✅ | 403 | 403 |
+| Be assigned tasks | ✅ | ✅ | ✅ | 400 | 400 |
+| Create, edit, delete and assign tasks | ✅ | ✅ | 403 | 403 | 403 |
+| Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
+| Edit project details | ✅ | ✅ | 403 | 403 | 403 |
+| Add, remove, and change Members and Viewers | ✅ | ✅ | 403 | 403 | 403 |
+| Grant, revoke or remove Manager | ✅ | 403 | 403 | 403 | 403 |
+| Transfer ownership; delete the project | ✅ | 403 | 403 | 403 | 403 |
+| Leave the project | 400 (transfer first) | ✅ | ✅ | ✅ | 403 |
+
+Notifications: own only, for everyone (others' → 404).
+
+**Account deactivation** (`PATCH /users/:userId/status` `{ active }`, Admin only). Deactivation bumps the token version, so every session ends at once (`401 ACCOUNT_DEACTIVATED`), and sign-in returns `403 ACCOUNT_DEACTIVATED`, but only after the password matched, so it doesn't reveal which emails exist. The account's projects, tasks and comments stay. An Admin can't deactivate themselves; deactivated Admins don't count toward the last-Admin guard. `GET /users` accepts `status=active|deactivated` and returns `deactivatedCount`; every user DTO has `active`.
+
+### 7.6 Completion time (`completedAt`)
+The server sets `completedAt`; clients can't write it. It is stamped when a task enters `Done` (through `PATCH /tasks/:taskId/status`, `PATCH /tasks/:taskId` or a create with `status: "Done"`), kept if a Done task is set to Done again or edited in other ways, and cleared to `null` when the task leaves `Done`. Tasks completed before the field existed are backfilled from `updatedAt` by the `completedAt` migration (`npm run db:migrate`, also run on API startup). The CSV export columns are unchanged.
+
+The web app's delivery forecast (`src/lib/forecast.js`) reads only `completedAt` and the open tasks, so it needs no endpoint of its own.
 
 ---
 
@@ -375,7 +416,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 10. Testing
 
-- **Port the contract tests.** [`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs) has 19 tests named after STP IDs: TC-AUTH-01/02/03, TC-SEC-02/03/06, TC-PROJ-01/02, TC-TASK-01/02/03, TC-BOARD-01, TC-NOTIF-01/02, TC-COMM-01, TC-SEARCH-01, TC-REPORT-01/02. Each one is `request → expected status + errorCode`. Rewrite them with Supertest against `app.js` and they become your API integration suite (STP §5.1).
+- **Contract tests.** [`tests/mock-api.test.mjs`](../tests/mock-api.test.mjs) names its tests after STP IDs: TC-AUTH-01/02/03, TC-SEC-02/03/06, TC-PROJ-01/02, TC-TASK-01/02/03, TC-BOARD-01, TC-NOTIF-01/02, TC-COMM-01, TC-SEARCH-01, TC-REPORT-01/02. Each one is `request → expected status + errorCode`. Rewrite them with Supertest against `app.js` and they become your API integration suite (STP §5.1).
 - **Seed** a dedicated test database from `fixtures/*.json` before each run. Never use production data (STP §5.4).
 - **Expected numbers with the fixtures:**
   - Alpha summary is `{ "To Do": 3, "In Progress": 2, "Done": 2 }`, `total` 7, `overdue` 1 on 2026-10-16.
@@ -387,7 +428,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 11. Maintenance notes
 
-1. **CI and workspaces:** the root `package.json` and lockfile manage the app. GitHub Actions runs API and Web checks on Node 22 and 24; keep those workspace commands aligned with the package names in each app's `package.json`.
+1. **CI:** the root `package.json` and lockfile manage the app. GitHub Actions runs one `verify` job on Node 22: lint, API and web tests, a mock-mode build with the full E2E suite, then an HTTP-mode build with the full E2E suite against a MongoDB service.
 2. **Keep SAD §4 in sync** with this contract when decisions change (SRS §3.2 asks for the final contract to live in the repo).
 3. **Resolve the SRS version question** before later work changes requirements: the reviewed copy is v1.0 while Issue #2 cites v1.3.
 
@@ -395,12 +436,8 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 
 ## 12. Using the frontend with the API
 
-1. Run your API on `http://localhost:4000` with CORS allowing `http://localhost:3000`.
-2. Configure `.env.local`:
-   ```
-   NEXT_PUBLIC_API_MODE=http
-   NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
-   ```
+1. The API is served by the same process as the web app (`npm run dev`), under `/api`.
+2. Configure `.env.local` from `.env.example` (`NEXT_PUBLIC_API_MODE=http`, `NEXT_PUBLIC_API_BASE_URL=/api`).
 3. Seed a local/test database with `npm run seed`, then start the app with `npm run dev`. In HTTP mode, sign in using a seeded account or register a new user. Seeded fixture users share password `Password123!`.
 4. Smoke test in this order:
    - register → sign in → dashboard
@@ -426,3 +463,7 @@ The only file in the web app that knows about URLs is [`src/lib/api/client.js`](
 | Requirements and design | `Templates/SRS_*.pdf`, `Templates/SAD_*.pdf`, `Templates/STP_*.pdf` (on the `Templates` branch) |
 
 Questions or disagreements: message me. If a requirement is genuinely ambiguous, open a GitHub issue and label it `decision` so the whole team can see it.
+
+The dashboard accepts an optional `today=YYYY-MM-DD` query parameter, as does `GET /projects/:projectId/summary`. A valid calendar date within one day of the server's UTC date is used for overdue calculations; otherwise the server uses its UTC date. `GET /dashboard` returns `projects`, up to 500 open assigned `myTasks` ordered with dated tasks first, and uncapped `stats` containing `openAssigned`, `dueIn7Days`, `overdue`, and `completed`.
+
+`GET /notifications/unread-count` returns `{ unreadCount }` for the signed-in user and may generate due reminders, throttled to once per user per 15 minutes. `GET /notifications` generates due reminders at most once per user per 15 minutes.

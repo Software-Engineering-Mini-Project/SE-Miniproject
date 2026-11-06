@@ -72,3 +72,45 @@ The automated verification above supplements the existing real-API + seeded-Mong
 | Defects | #1–#6 | No confirmed failure or defect surfaced in the verified suites; no bug issue was created. |
 
 The GitHub Project board still needs its owner to reflect these statuses if its fields/cards are not already current; this repository register is the reviewed evidence snapshot, not a claim that board fields were edited.
+
+## End-to-end validation run (2026-11-06, branch `fix/e2e-validation`)
+
+Scope: `main` at `0013a75` plus open PR #58 (`fix/dashboard-consistency`), validated end to end and then fixed. This is automated and developer verification, not Trisha's QA sign-off.
+
+### Defects found and fixed
+
+| Area | Defect (how it was found) | Requirement | Fix and regression test |
+|---|---|---|---|
+| Roles | No way to manage user accounts or roles: `GET /api/users` and role changes returned 404, so no registered user could ever become a Lead (API probe). | SRS §2.2 | Admin-only `GET /api/users`, `PATCH /api/users/:userId/role`, Users page, last-Admin guard, audit record, `npm run user:role`. `server/tests/accounts-and-access.test.mjs`, `tests/mock-api.test.mjs`, `tests/ui/features.test.mjs`, axe scan in `e2e/accessibility.spec.js`. |
+| Sessions | A token issued before a password change kept working (API probe: 200 after the change). | TM-F-003, TM-NF-003 | Token version claim; password change revokes older sessions and returns a new token. `accounts-and-access.test.mjs`, `session.test.mjs`. |
+| Access | A removed member kept their notifications and could still read task titles from the removed project; removal also bumped `updatedAt` on unrelated tasks (API probe). | PRJ-SR-003, TM-F-021 | Notifications for that project are deleted; only the member's own tasks change. `accounts-and-access.test.mjs`. |
+| Registration | Five typos used up the per-IP registration limit and then blocked a valid sign-up; duplicates were caught only by an index that production does not auto-create (API probe). | TM-F-001 | Validate before reserving a slot; check for duplicates before insert. `accounts-and-access.test.mjs`. |
+| Shell | Choosing the current page in the mobile drawer threw `ReferenceError: setDrawerOpen is not defined` and left the drawer open (code review: `setDrawerOpen` is not defined anywhere). | TM-NF-004 | Fixed handler. New keyboard/drawer check in `e2e/accessibility.spec.js`. |
+| Sign-in | `?next=/\evil.example` passed the same-site check (backslash is treated as a slash by browsers). | PRJ-SR-004 | `src/lib/redirect.js`. `tests/ui/format-redirect.test.mjs`. |
+| Session restore | Any network or server error during restore signed the user out. | TM-NF-002 | Only a 401 ends the session; otherwise a retry screen. `session.test.mjs`. |
+| Privacy | The previous user's projects and unread count stayed in memory after sign-out. | PRJ-SR-003 | Cleared on sign-out and expiry. `session.test.mjs`. |
+| PR #58 | CI failed (`@fixtures` alias missing in Vitest); a 403/404 on a cached project kept showing stale data (review finding). | TM-F-020 | Alias and test env fixed; definitive 403/404 shows the access screen. `features.test.mjs`. |
+| Notifications | Only the first 50 were reachable; the unread count was computed from the loaded page. | TM-F-030 | "Load older notifications"; server `unreadCount` used. |
+| Members | Removal had no confirmation; "Member added." was shown for someone already in the project; a Lead removing themselves stayed on a page they could no longer use. | TM-F-021 | Inline confirmation, duplicate check, redirect. `features.test.mjs`, `e2e/project-member-management.spec.mjs`. |
+| Other UI | "yesterday" for events two calendar days back; stale hidden assignee filter on My tasks; Admin projects text; CSV without BOM (Excel mojibake); missing favicon; Speed Insights 404 outside Vercel; stale `?task=` links did nothing. | TM-F-040..042 | Fixed; `format-redirect.test.mjs`, `features.test.mjs`, `e2e/search-dashboard-csv.spec.mjs`. |
+| Tests | `performance-dashboard.spec.mjs` could not pass against a production HTTP build (its request observer is mock-only); CI only ran one spec against the real API. | TC-CI-01 | The spec counts network requests in HTTP mode; CI runs every spec against MongoDB. |
+| Charts | Status colours (gray/orange/green) failed colour-blind separation (protan ΔE 5.6). | TM-NF-004 | Validated chart palette (worst protan ΔE 20.8); legends and text twins on every chart. |
+
+### Added
+
+Project **Insights** view (workload per member, due-date and priority charts, table view), a dashboard due-date chart, status legends, urgency ordering of board cards, `npm run seed:demo`, a seed guard for non-local databases, and `npm run test:load` with [performance evidence](performance-evidence.md).
+
+### Results
+
+| Check | Result |
+|---|---|
+| `npm run lint` | Pass |
+| API tests (`npm run test:api`) | Pass, 62/62 |
+| Mock contract and fixture tests | Pass, 33/33 |
+| UI tests (Vitest) | Pass, 61/61 |
+| E2E, mock build (`NEXT_PUBLIC_API_MODE=mock`) | Pass, 19/19 |
+| E2E, HTTP build against seeded MongoDB | Pass, 19/19 |
+| TC-PERF-01 (10 users, 60 s, local) | Pass, p95 61 ms, 0 errors |
+| TC-PERF-02 (100 users, 60 s, local) | Pass, p95 625 ms, 0 errors; staging run still required |
+
+Before these fixes, on `main`: unit and API suites passed and the real-API E2E passed 15/15. The defects above sit outside what those suites exercised.

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Notification, Task } from '../models/index.js';
+import { Notification, Task, User } from '../models/index.js';
 import { HttpError } from '../utils/http-error.js';
 import { readFilterString, readId, invalid } from '../utils/validation.js';
 import { toApi } from '../utils/to-api.js';
@@ -56,8 +56,23 @@ export function createNotificationsRouter({ jwtSecret, now = () => new Date() } 
   const router = Router();
   const requireAuth = authenticate({ jwtSecret });
 
+  async function maybeGenerateDueReminders(userId) {
+    const timestamp = now();
+    const previous = await User.findOneAndUpdate({ _id: userId, $or: [{ lastReminderScanAt: { $lte: new Date(timestamp.getTime() - 15 * 60 * 1000) } }, { lastReminderScanAt: null }] }, { $set: { lastReminderScanAt: timestamp } }, { timestamps: false, returnDocument: 'before' }).lean();
+    if (!previous) return;
+    try { await generateDueReminders(now, userId); } catch (error) {
+      await User.updateOne({ _id: userId, lastReminderScanAt: timestamp }, { $set: { lastReminderScanAt: previous.lastReminderScanAt ?? null } }, { timestamps: false });
+      throw error;
+    }
+  }
+
+  router.get('/notifications/unread-count', requireAuth, async (request, response) => {
+    await maybeGenerateDueReminders(request.user.id);
+    const unreadCount = await Notification.countDocuments({ userId: request.user.id, read: false });
+    response.json({ unreadCount });
+  });
   router.get('/notifications', requireAuth, async (request, response) => {
-    await generateDueReminders(now, request.user.id);
+    await maybeGenerateDueReminders(request.user.id);
     const page = readPositiveInteger(request.query, 'page', 1, Number.MAX_SAFE_INTEGER);
     const pageSize = readPositiveInteger(request.query, 'pageSize', 50, 100);
     const filter = { userId: request.user.id };
@@ -83,7 +98,7 @@ export function createNotificationsRouter({ jwtSecret, now = () => new Date() } 
   });
 
   router.patch('/notifications/:notificationId/read', requireAuth, async (request, response) => {
-    await generateDueReminders(now, request.user.id);
+    await maybeGenerateDueReminders(request.user.id);
     const notificationId = readId(request.params.notificationId, 'Notification');
     const notification = await Notification.findOne({ _id: notificationId, userId: request.user.id });
     if (!notification) throw new HttpError(404, 'NOT_FOUND', 'Notification not found.');

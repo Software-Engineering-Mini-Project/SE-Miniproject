@@ -45,7 +45,7 @@ async function savedStatus(page, title, status, drop) {
   await drop();
   await expect
     .poll(() =>
-      page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v1') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title),
+      page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title),
     )
     .toBe(status);
 }

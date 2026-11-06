@@ -6,11 +6,12 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short
 const dateYearFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-const startOfToday = () => {
-  const d = new Date();
+const startOfDay = (value = new Date()) => {
+  const d = new Date(value);
   d.setHours(0, 0, 0, 0);
   return d;
 };
+const startOfToday = () => startOfDay();
 
 /** Parses 'YYYY-MM-DD' as a local calendar date. */
 export function parseDueDate(value) {
@@ -48,14 +49,18 @@ export function formatDate(iso) {
   return dateYearFmt.format(new Date(iso));
 }
 
-export function formatRelative(iso) {
+/** "just now", "5 min ago", "today at 09:30", "yesterday at 18:05", "3 Oct", "3 Oct 2025". */
+export function formatRelative(iso, now = new Date()) {
   const then = new Date(iso);
-  const diff = Date.now() - then.getTime();
+  if (Number.isNaN(then.getTime())) return '';
+  const diff = now.getTime() - then.getTime();
   if (diff < 60 * 1000) return 'just now';
   if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)} min ago`;
-  if (diff < DAY && then.getDate() === new Date().getDate()) return `today at ${timeFmt.format(then)}`;
-  if (diff < 2 * DAY) return `yesterday at ${timeFmt.format(then)}`;
-  return dateFmt.format(then);
+  // Calendar days, not 24-hour blocks: 23:50 two days ago is not "yesterday".
+  const days = Math.round((startOfDay(now) - startOfDay(then)) / DAY);
+  if (days === 0) return `today at ${timeFmt.format(then)}`;
+  if (days === 1) return `yesterday at ${timeFmt.format(then)}`;
+  return then.getFullYear() === now.getFullYear() ? dateFmt.format(then) : dateYearFmt.format(then);
 }
 
 export function initials(name = '') {

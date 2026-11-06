@@ -9,6 +9,9 @@ const taskSchema = createSchema({
   dueDate: { type: String, default: null },
   projectId: { type: String, ref: 'Project', required: true },
   assigneeIds: [{ type: String, ref: 'User' }],
+  // Set by the server when the task enters Done and cleared when it leaves; the delivery
+  // forecast (src/lib/forecast.js) samples throughput from it.
+  completedAt: { type: Date, default: null },
 });
 
 taskSchema.index({ projectId: 1, status: 1, dueDate: 1 });

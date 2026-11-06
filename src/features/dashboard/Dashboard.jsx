@@ -1,11 +1,15 @@
 'use client';
 
-import { useMemo } from 'react';
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
+import { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import NumberFlow from '@number-flow/react';
 import { ArrowRight, CalendarCheck2, FolderKanban } from 'lucide-react';
-import { TASK_STATUSES } from '@/lib/constants';
-import { daysUntil, firstName, isOverdue, plural } from '@/lib/format';
+import { BarList, StatusBar, StatusLegend, statusSummary } from '@/components/charts/Charts';
+import { dueBuckets } from '@/lib/insights';
+import { localToday } from '@/lib/dates';
+import { firstName, isOverdue, plural } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { useQuery } from '@/lib/hooks/useQuery';
 import { api } from '@/lib/api/client';
@@ -36,27 +40,23 @@ function Stat({ label, value, tone, hint }) {
   );
 }
 
-function ProjectSummaryRow({ project, summary }) {
-  const s = summary;
-  const total = s?.total || 1;
+function ProjectSummaryRow({ project, summary, error }) {
+  const s = summary || { total: 0, counts: { 'To Do': 0, 'In Progress': 0, Done: 0 }, overdue: 0 };
   return (
     <li>
       <Link href={`/projects/${project.id}`} className="project-summary">
         <span className="project-summary-name">{project.name}</span>
-        {s ? (
+        {error && !summary ? (
+          <span className="project-summary-counts">Summary unavailable</span>
+        ) : (
           <>
-            <span className="project-summary-bar" aria-hidden="true">
-              {TASK_STATUSES.map((status) => (
-                <span key={status} data-status={status.toLowerCase().replace(' ', '-')} style={{ flexGrow: s.counts[status] / total }} />
-              ))}
-            </span>
+            <StatusBar counts={s.counts} total={s.total} className="project-summary-bar" />
             <span className="project-summary-counts">
               {s.counts.Done}/{s.total} done
               {s.overdue ? <strong> · {s.overdue} overdue</strong> : null}
+              <span className="visually-hidden">: {statusSummary(s.counts)}</span>
             </span>
           </>
-        ) : (
-          <Skeleton width="100%" height={8} />
         )}
         <ArrowRight size={16} className="project-summary-arrow" aria-hidden="true" />
       </Link>
@@ -67,22 +67,29 @@ function ProjectSummaryRow({ project, summary }) {
 export function Dashboard() {
   const user = useSession((s) => s.user);
   const projects = useWorkspace((s) => s.projects);
-  const dashboard = useQuery(user ? `dashboard:${user.id}` : null, () => api.dashboard.get());
+  const today = localToday();
+  const dashboard = useQuery(user ? `dashboard:${user.id}:${today}` : null, () => api.dashboard.get(today));
+  const { data: dashboardData, reload: reloadDashboard } = dashboard;
   const tasks = dashboard.data?.myTasks;
   const summariesByProjectId = useMemo(() => new Map((dashboard.data?.projects || []).map((item) => [item.projectId, item])), [dashboard.data]);
+  const missingProjects = (projects || []).filter((project) => !summariesByProjectId.has(project.id)).map((project) => project.id).join(',');
+  const lastMissing = useRef('');
+  useEffect(() => {
+    if (dashboardData && missingProjects && lastMissing.current !== missingProjects) {
+      lastMissing.current = missingProjects;
+      reloadDashboard();
+    } else if (!missingProjects) lastMissing.current = '';
+  }, [dashboardData, reloadDashboard, missingProjects]);
   const projectsById = useMemo(() => new Map((projects || []).map((p) => [p.id, p])), [projects]);
 
   const mine = useMemo(() => (tasks || []).filter((t) => t.assigneeIds.includes(user?.id)), [tasks, user]);
   const open = mine.filter((t) => t.status !== 'Done');
-  const overdue = open.filter(isOverdue);
-  const dueThisWeek = open.filter((t) => {
-    const days = daysUntil(t.dueDate);
-    return days !== null && days >= 0 && days <= 7;
-  });
+  const stats = dashboard.data?.stats || { openAssigned: 0, dueIn7Days: 0, overdue: 0, completed: 0 };
   const attention = [...open]
     .filter((t) => t.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || PRIORITY_META[a.priority].rank - PRIORITY_META[b.priority].rank)
     .slice(0, 6);
+  const due = dueBuckets(open, today).map((b) => (b.key === 'overdue' ? { ...b, tone: 'danger' } : b));
 
   return (
     <div className="dashboard">
@@ -93,15 +100,16 @@ export function Dashboard() {
         </h1>
       </header>
 
-      {dashboard.error ? (
-        <ErrorState error={dashboard.error} onRetry={dashboard.reload} />
+      {dashboard.error && !dashboard.data ? (
+        <><ErrorState error={dashboard.error} onRetry={dashboard.reload} /></>
       ) : (
         <>
+          {dashboard.error && <RefreshNotice onRetry={dashboard.reload} />}
           <dl className="stats" aria-busy={!dashboard.data}>
-            <Stat label="Assigned to you" value={open.length} hint="Not done yet" />
-            <Stat label="Due in 7 days" value={dueThisWeek.length} tone={dueThisWeek.length ? 'warn' : undefined} />
-            <Stat label="Overdue" value={overdue.length} tone={overdue.length ? 'danger' : undefined} />
-            <Stat label="Completed" value={mine.length - open.length} tone="good" />
+            <Stat label="Assigned to you" value={stats.openAssigned} hint="Not done yet" />
+            <Stat label="Due in 7 days" value={stats.dueIn7Days} tone={stats.dueIn7Days ? 'warn' : undefined} />
+            <Stat label="Overdue" value={stats.overdue} tone={stats.overdue ? 'danger' : undefined} />
+            <Stat label="Completed" value={stats.completed} tone="good" />
           </dl>
 
           <div className="dashboard-grid">
@@ -142,6 +150,7 @@ export function Dashboard() {
               )}
             </section>
 
+            <div className="dashboard-side">
             <section className="panel dashboard-panel" aria-labelledby="projects-title">
               <div className="panel-head">
                 <h2 id="projects-title">Projects</h2>
@@ -149,6 +158,7 @@ export function Dashboard() {
                   View all
                 </Link>
               </div>
+              {projects?.length && dashboard.data ? <StatusLegend className="panel-legend" /> : null}
               {projects === null || !dashboard.data ? (
                 <div className="attention-list">
                   {[0, 1].map((i) => (
@@ -163,13 +173,34 @@ export function Dashboard() {
                 <>
                   <ul className="project-summaries">
                     {projects.map((project) => (
-                      <ProjectSummaryRow key={project.id} project={project} summary={summariesByProjectId.get(project.id)} />
+                      <ProjectSummaryRow key={project.id} project={project} summary={summariesByProjectId.get(project.id)} error={dashboard.error} />
                     ))}
                   </ul>
                   <p className="panel-foot">{plural(projects.length, 'project')} you can access</p>
                 </>
               )}
             </section>
+
+            <section className="panel dashboard-panel" aria-labelledby="due-chart-title">
+              <div className="panel-head">
+                <h2 id="due-chart-title">When your work is due</h2>
+                <span className="panel-meta">{plural(open.length, 'open task')}</span>
+              </div>
+              {!dashboard.data ? (
+                <div className="attention-list">
+                  <Skeleton height={150} />
+                </div>
+              ) : open.length === 0 ? (
+                <EmptyState icon={CalendarCheck2} title="Nothing open" tone="quiet">
+                  Nothing assigned to you is waiting.
+                </EmptyState>
+              ) : (
+                <div className="panel-body">
+                  <BarList items={due} label="Your open tasks by due date" />
+                </div>
+              )}
+            </section>
+            </div>
           </div>
         </>
       )}

@@ -58,6 +58,7 @@ test('TM-F-020..023 project members can be managed and assigned tasks stay withi
 
   await page.getByRole('button', { name: 'Members: 2' }).click();
   await page.getByRole('button', { name: `Remove ${MEMBER_NAME}` }).click();
+  await page.getByRole('group', { name: `Confirm removing ${MEMBER_NAME}` }).getByRole('button', { name: 'Remove' }).click();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Members: 1' })).toBeVisible();
   await page.getByRole('region', { name: /^To Do/ }).getByRole('button', { name: new RegExp(taskTitle) }).click();

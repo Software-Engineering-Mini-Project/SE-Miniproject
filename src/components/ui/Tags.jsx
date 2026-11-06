@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronsUp, ChevronUp, Minus } from 'lucide-react';
+import { CalendarClock, ChevronsUp, ChevronUp, Gauge, Minus } from 'lucide-react';
 import { PRIORITY_META, STATUS_META } from '@/lib/constants';
 import { daysUntil, formatDue, isOverdue } from '@/lib/format';
 
@@ -21,6 +21,24 @@ export function PriorityTag({ priority }) {
       <Icon size={14} strokeWidth={2.5} aria-hidden="true" />
       {meta.label}
       <span className="visually-hidden"> priority</span>
+    </span>
+  );
+}
+
+const RISK_LABEL = { 'at-risk': 'At risk', tight: 'Tight' };
+
+/**
+ * Forecast flag for a task whose due date the delivery forecast doubts (src/lib/forecast.js).
+ * On-track tasks show nothing, so the flag stays rare enough to mean something.
+ */
+export function RiskTag({ risk }) {
+  if (!risk || !RISK_LABEL[risk.level]) return null;
+  const percent = Math.round(risk.probability * 100);
+  return (
+    <span className="risk-tag" data-level={risk.level} title={`Forecast: ${percent}% chance of finishing by the due date`}>
+      <Gauge size={13} aria-hidden="true" />
+      {RISK_LABEL[risk.level]}
+      <span className="visually-hidden">: {percent}% chance of finishing by the due date</span>
     </span>
   );
 }

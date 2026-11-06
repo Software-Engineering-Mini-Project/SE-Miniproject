@@ -30,7 +30,7 @@ test('Server-Timing includes database and total durations on every API response'
   const { app } = captureApp((router) => router.get('/api/__test/timing', (_request, response) => response.json({ ok: true })));
   const response = await request(app).get('/api/__test/timing');
   assert.equal(response.status, 200);
-  assert.match(response.headers['server-timing'], /^db;dur=\d+\.\d, total;dur=\d+\.\d$/);
+  assert.match(response.headers['server-timing'], /^db;dur=\d+\.\d, dbq;desc="0", total;dur=\d+\.\d$/);
 });
 
 test('health responds without waiting for database middleware', async () => {

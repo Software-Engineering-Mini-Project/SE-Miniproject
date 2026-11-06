@@ -283,6 +283,17 @@
   min-height: 100dvh;
 }
 
+.shell-offline-icon {
+  color: var(--ink-3);
+}
+
+.shell-offline-text {
+  max-width: 32ch;
+  margin: 0;
+  color: var(--ink-2);
+  text-align: center;
+}
+
 .shell-loading-bar {
   position: relative;
   width: 120px;

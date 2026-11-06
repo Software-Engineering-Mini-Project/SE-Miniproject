@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Dialog } from '@base-ui/react/dialog';
-import { Bell, FolderKanban, LayoutDashboard, ListChecks, LogOut, Menu as MenuIcon, RotateCcw, UserRound, X } from 'lucide-react';
+import { Bell, CloudOff, FolderKanban, LayoutDashboard, ListChecks, LogOut, Menu as MenuIcon, RotateCcw, UserRound, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { localToday } from '@/lib/dates';
+import { invalidateQuery } from '@/lib/hooks/useQuery';
 import { APP_NAME } from '@/lib/brand';
 import { apiConfig, resetMockData } from '@/lib/api/client';
 import { useSession } from '@/lib/session';
@@ -22,6 +24,7 @@ const NAV = [
   { href: '/tasks', label: 'My tasks', icon: ListChecks },
   { href: '/notifications', label: 'Notifications', icon: Bell, badge: 'unread' },
   { href: '/projects', label: 'Projects', icon: FolderKanban, exact: true },
+  { href: '/admin/users', label: 'Users', icon: UsersRound, role: 'Admin' },
 ];
 
 function isActive(pathname, item) {
@@ -33,11 +36,10 @@ function SidebarContent({ onNavigate }) {
   const router = useRouter();
   const user = useSession((s) => s.user);
   const signOut = useSession((s) => s.signOut);
-  const { projects, unreadCount, clear } = useWorkspace();
+  const { projects, unreadCount } = useWorkspace();
 
   const handleSignOut = () => {
     signOut();
-    clear();
     router.replace('/login');
   };
 
@@ -54,7 +56,7 @@ function SidebarContent({ onNavigate }) {
       </Link>
 
       <nav aria-label="Main" className="sidebar-nav">
-        {NAV.map((item) => {
+        {NAV.filter((item) => !item.role || item.role === user?.role).map((item) => {
           const Icon = item.icon;
           const active = isActive(pathname, item);
           return (
@@ -94,7 +96,7 @@ function SidebarContent({ onNavigate }) {
                   </li>
                 );
               })}
-          {projects?.length === 0 ? <li className="sidebar-empty">No projects yet</li> : null}
+          {projects?.length === 0 ? <li className="sidebar-empty">{user?.role === 'Member' ? 'Not added to a project yet' : 'No projects yet'}</li> : null}
         </ul>
       </div>
 
@@ -129,6 +131,7 @@ export function AppShell({ children }) {
   const router = useRouter();
   const pathname = usePathname();
   const status = useSession((s) => s.status);
+  const retryRestore = useSession((s) => s.retryRestore);
   const userId = useSession((s) => s.user?.id);
   const { loadProjects, loadUnread, loadDashboard } = useWorkspace();
   const [drawer, setDrawer] = useState({ pathname, open: false });
@@ -140,12 +143,45 @@ export function AppShell({ children }) {
 
   useEffect(() => {
     if (status !== 'authenticated') return undefined;
-    Promise.all([loadProjects(), loadUnread(), loadDashboard(userId)]);
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') loadUnread();
-    }, 60_000);
-    return () => clearInterval(timer);
+    Promise.all([loadProjects(), loadUnread(), ...(window.location.pathname === '/dashboard' ? [] : [loadDashboard(userId)])]);
+    let timer;
+    let lastDay = localToday();
+    let hidden = document.visibilityState === 'hidden';
+    const startPolling = () => { if (!timer) timer = setInterval(loadUnread, 60_000); };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hidden = true;
+        clearInterval(timer);
+        timer = undefined;
+      } else {
+        // Back on the tab: catch up on what teammates changed while it was hidden.
+        if (hidden) {
+          loadUnread();
+          loadProjects();
+        }
+        const today = localToday();
+        if (today !== lastDay) { lastDay = today; invalidateQuery('dashboard:'); }
+        hidden = false;
+        startPolling();
+      }
+    };
+    if (!hidden) startPolling();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisibilityChange); };
   }, [status, userId, loadProjects, loadUnread, loadDashboard]);
+
+  if (status === 'unavailable') {
+    return (
+      <div className="shell-loading" role="alert">
+        <Wordmark />
+        <CloudOff size={28} aria-hidden="true" className="shell-offline-icon" />
+        <p className="shell-offline-text">We could not reach the server to restore your session.</p>
+        <Button variant="primary" onClick={() => retryRestore()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   if (status !== 'authenticated') {
     return (
@@ -177,7 +213,7 @@ export function AppShell({ children }) {
               <Dialog.Close render={<Button variant="ghost" iconOnly size="sm" className="drawer-close" aria-label="Close navigation" />}>
                 <X size={18} />
               </Dialog.Close>
-              <SidebarContent onNavigate={() => setDrawerOpen(false)} />
+              <SidebarContent onNavigate={() => setDrawer({ pathname, open: false })} />
             </Dialog.Popup>
           </Dialog.Portal>
         </Dialog.Root>

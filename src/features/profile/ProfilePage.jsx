@@ -19,6 +19,7 @@ import '@/features/dashboard/dashboard.css';
 export function ProfilePage() {
   const user = useSession((s) => s.user);
   const setUser = useSession((s) => s.setUser);
+  const replaceToken = useSession((s) => s.replaceToken);
   const [name, setName] = useState(user?.name || '');
   const [nameError, setNameError] = useState(null);
   const [savingName, setSavingName] = useState(false);
@@ -53,9 +54,12 @@ export function ProfilePage() {
     if (Object.keys(errors).length) return;
     setSavingPw(true);
     try {
-      await api.users.updateMe(pw);
+      const { token, expiresIn, ...updated } = await api.users.updateMe(pw);
+      // The server revokes every older session on a password change and returns a new token.
+      if (token) replaceToken(token, expiresIn);
+      setUser(updated);
       setPw({ currentPassword: '', newPassword: '' });
-      toast.success('Password changed. Use it next time you sign in.');
+      toast.success('Password changed. Other devices were signed out.');
     } catch (error) {
       if (error instanceof ApiError && error.fields) setPwErrors(error.fields);
       else toast.error(describeError(error));

@@ -19,9 +19,9 @@ const VIEWPORTS = {
 
 const APP_PAGES = ['/dashboard', '/projects', PROJECT_PATH, '/tasks', '/notifications', '/profile'];
 
-async function signIn(page) {
+async function signIn(page, email = LEAD_EMAIL) {
   await page.goto('/login');
-  await page.getByLabel('Email').fill(LEAD_EMAIL);
+  await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -74,6 +74,21 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       await page.getByRole('button', { name: 'New task' }).click();
       await expect(page.getByRole('dialog', { name: 'New task' })).toBeVisible();
       await expectAccessible(page, 'New task dialog');
+      await page.keyboard.press('Escape');
+
+      await page.getByRole('button', { name: 'Insights' }).click();
+      await expect(page.getByRole('list', { name: 'Tasks per member by status' })).toBeVisible();
+      // The forecast's state depends on how far today is from the fixture dates; scan whichever shows.
+      await expect(page.getByRole('region', { name: /Delivery forecast/ })).toBeVisible();
+      await expectAccessible(page, 'Project insights');
+    });
+
+    test('admin users page', async ({ page }) => {
+      await signIn(page, 'admin@example.test');
+      await page.goto('/admin/users');
+      await settle(page);
+      await expect(page.getByRole('list', { name: 'Users' })).toBeVisible();
+      await expectAccessible(page, '/admin/users');
     });
   });
 }
@@ -110,5 +125,19 @@ test.describe('TC-UX-01 keyboard', () => {
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/projects$/);
     await expect(drawer).toBeHidden();
+  });
+
+  test('mobile: choosing the current page in the drawer closes it without a script error', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setViewportSize(VIEWPORTS.mobile);
+    await signIn(page);
+    await settle(page);
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Navigation' });
+    await drawer.getByRole('link', { name: 'Dashboard' }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    expect(errors).toEqual([]);
   });
 });

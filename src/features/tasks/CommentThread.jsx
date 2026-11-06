@@ -1,5 +1,7 @@
 'use client';
 
+import { RefreshNotice } from '@/components/ui/RefreshNotice';
+
 import { useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api/client';
@@ -14,7 +16,7 @@ import { Modal } from '@/components/ui/Dialog';
 import { useSession } from '@/lib/session';
 
 /** Task comments (TM-F-032). Text is rendered as text, never as HTML. */
-export function CommentThread({ taskId }) {
+export function CommentThread({ taskId, canComment = true, canModerate = false }) {
   const comments = useQuery(`comments:${taskId}`, () => api.comments.list(taskId));
   const user = useSession((session) => session.user);
   const [text, setText] = useState('');
@@ -64,6 +66,7 @@ export function CommentThread({ taskId }) {
         Comments{comments.data ? <span className="tabular"> · {comments.data.length}</span> : null}
       </h3>
 
+      {comments.error && comments.data && <RefreshNotice onRetry={comments.reload} />}
       {comments.loading && !comments.data ? (
         <div className="comment-list">
           {[0, 1].map((i) => (
@@ -76,7 +79,7 @@ export function CommentThread({ taskId }) {
             </div>
           ))}
         </div>
-      ) : comments.error ? (
+      ) : comments.error && !comments.data ? (
         <ErrorState error={comments.error} title="Comments did not load" onRetry={comments.reload} />
       ) : comments.data.length === 0 ? (
         <p className="comments-empty">
@@ -95,7 +98,7 @@ export function CommentThread({ taskId }) {
                 </p>
                 <p className="comment-text">{comment.text}</p>
               </div>
-              {user && (user.id === comment.authorId || user.role === 'Lead' || user.role === 'Admin') ? (
+              {user && (user.id === comment.authorId || canModerate) ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -113,41 +116,43 @@ export function CommentThread({ taskId }) {
         </ol>
       )}
 
-      <form
-        className="comment-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          post();
-        }}
-      >
-        <label htmlFor={`comment-${taskId}`} className="visually-hidden">
-          Add a comment
-        </label>
-        <textarea
-          id={`comment-${taskId}`}
-          className="textarea"
-          rows={2}
-          placeholder="Add a comment…"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setError(null);
+      {canComment ? (
+        <form
+          className="comment-composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            post();
           }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) post();
-          }}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={`comment-help-${taskId}`}
-        />
-        <div className="comment-composer-foot">
-          <p id={`comment-help-${taskId}`} className={error || remaining < 0 ? 'field-error' : 'field-hint'} aria-live="polite">
-            {error || (remaining < 100 ? `${remaining} characters left` : 'Ctrl + Enter to post')}
-          </p>
-          <Button type="submit" variant="primary" size="sm" loading={posting} disabled={remaining < 0}>
-            Post
-          </Button>
-        </div>
-      </form>
+        >
+          <label htmlFor={`comment-${taskId}`} className="visually-hidden">
+            Add a comment
+          </label>
+          <textarea
+            id={`comment-${taskId}`}
+            className="textarea"
+            rows={2}
+            placeholder="Add a comment…"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) post();
+            }}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={`comment-help-${taskId}`}
+          />
+          <div className="comment-composer-foot">
+            <p id={`comment-help-${taskId}`} className={error || remaining < 0 ? 'field-error' : 'field-hint'} aria-live="polite">
+              {error || (remaining < 100 ? `${remaining} characters left` : 'Ctrl + Enter to post')}
+            </p>
+            <Button type="submit" variant="primary" size="sm" loading={posting} disabled={remaining < 0}>
+              Post
+            </Button>
+          </div>
+        </form>
+      ) : null}
       <Modal
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => {

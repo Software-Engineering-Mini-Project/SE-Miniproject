@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { User } from '../models/index.js';
-import { commentDtos, projectDtos } from '../utils/dto.js';
+import { commentDto, commentDtos, projectDto, projectDtos } from '../utils/dto.js';
 
 function mockUserFind(rows) {
   let calls = 0;
@@ -11,7 +11,7 @@ function mockUserFind(rows) {
     assert.deepEqual(filter, { _id: { $in: ['user-1', 'user-2'] } });
     return {
       select(fields) {
-        assert.equal(fields, '_id name email role');
+        assert.equal(fields, '_id name email role deactivatedAt');
         return { lean: async () => rows };
       },
     };
@@ -54,4 +54,17 @@ test('commentDtos loads all authors in one query and preserves the safe DTO shap
   } finally {
     query.restore();
   }
+});
+
+
+test('single DTOs use the same serialization as batch DTOs', async () => {
+  const original = User.find;
+  const users = [{ _id: 'user-1', name: 'First', email: 'first@example.test', role: 'Member' }];
+  User.find = () => ({ select: () => ({ lean: async () => users }) });
+  try {
+    const project = { _id: 'p', memberIds: ['user-1'] };
+    const comment = { _id: 'c', authorId: 'user-1', text: 'Hello' };
+    assert.deepEqual(await projectDto(project), (await projectDtos([project]))[0]);
+    assert.deepEqual(await commentDto(comment), (await commentDtos([comment]))[0]);
+  } finally { User.find = original; }
 });

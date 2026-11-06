@@ -10,7 +10,7 @@ import { createUsersRouter } from './users.js';
 export function createApiRouter({ jwtSecret, jwtExpiresIn, now } = {}) {
   const router = Router();
   router.use('/auth', createAuthRouter({ jwtSecret, jwtExpiresIn, now }));
-  router.use('/users', createUsersRouter({ jwtSecret }));
+  router.use('/users', createUsersRouter({ jwtSecret, jwtExpiresIn }));
   router.use(createDashboardRouter({ jwtSecret, now }));
   router.use(createProjectsRouter({ jwtSecret, now }));
   router.use(createTasksRouter({ jwtSecret, now }));

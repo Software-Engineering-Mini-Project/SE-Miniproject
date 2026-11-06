@@ -6,12 +6,27 @@
 // input validation and safe CSV export. It is NOT a security boundary — the real
 // Express API is authoritative (PRJ-SR-003). Passwords here are synthetic fixtures.
 
+import { resolveToday } from '../../dates.js';
 import {
   LIMITS,
   REMINDER_WINDOW_HOURS,
   TASK_PRIORITIES,
   TASK_STATUSES,
 } from '../../constants.js';
+import {
+  GRANTABLE_PROJECT_ROLES,
+  PROJECT_ROLES,
+  can,
+  canCreateProject,
+  isAdmin,
+  memberRemovalError,
+  memberRoleChangeError,
+  projectRoleOf,
+  roleAllows,
+  rolesForNewMember,
+  withMemberRole,
+  withoutMember,
+} from '../../permissions.js';
 import { toCsv } from './csv.js';
 
 export const MOCK_PASSWORD = 'Password123!';
@@ -21,6 +36,17 @@ const LOGIN_WINDOW_MS = 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ROLES = ['Admin', 'Lead', 'Member'];
+const FORBIDDEN = {
+  'project.edit': 'Only the project owner, a manager or an admin can edit this project.',
+  'project.delete': 'Only the project owner or an admin can delete this project.',
+  'members.manage': 'Only the project owner, a manager or an admin can manage members.',
+  'task.create': 'Only the project owner, a manager or an admin can create tasks.',
+  'task.edit': 'Only the project owner, a manager or an admin can edit tasks.',
+  'task.delete': 'Only the project owner, a manager or an admin can delete tasks.',
+  'task.status': 'Viewers cannot change task status.',
+  'comment.create': 'You cannot comment in this project.',
+};
 
 class HttpError extends Error {
   constructor(status, errorCode, message, fields) {
@@ -67,7 +93,7 @@ export function seedDatabase(seed) {
       emailNormalized: normalizeEmail(u.email),
       password: MOCK_PASSWORD,
     })),
-    projects: clone(seed.projects),
+    projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], ...p })),
     tasks: clone(seed.tasks),
     comments: clone(seed.comments),
     notifications: clone(seed.notifications),
@@ -82,7 +108,7 @@ export function seedDatabase(seed) {
  * @param {() => Date} [options.now]
  * @param {string} [options.storageKey]
  */
-export function createMockServer({ seed, storage = null, now = () => new Date(), storageKey = 'taskline.mockdb.v1' }) {
+export function createMockServer({ seed, storage = null, now = () => new Date(), storageKey = 'taskline.mockdb.v2' }) {
   let db = load();
   const loginAttempts = new Map();
 
@@ -122,12 +148,18 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   const stamp = () => now().toISOString();
 
   // ---------- DTO mapping (never expose password / passwordHash) ----------
-  const userDto = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, createdAt: u.createdAt, updatedAt: u.updatedAt });
-  const memberDto = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role });
+  const userDto = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, active: !u.deactivatedAt, createdAt: u.createdAt, updatedAt: u.updatedAt });
+  const memberDto = (u, project) => {
+    const dto = { id: u.id, name: u.name, email: u.email, role: u.role, active: !u.deactivatedAt };
+    if (project) dto.projectRole = projectRoleOf(project, u.id);
+    return dto;
+  };
   const findUser = (id) => db.users.find((u) => u.id === id);
   const projectDto = (p) => ({
     ...clone(p),
-    members: p.memberIds.map(findUser).filter(Boolean).map(memberDto),
+    managerIds: [...(p.managerIds ?? [])],
+    viewerIds: [...(p.viewerIds ?? [])],
+    members: p.memberIds.map(findUser).filter(Boolean).map((u) => memberDto(u, p)),
   });
   const taskDto = (t) => clone(t);
 
@@ -192,30 +224,31 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (payload.exp * 1000 <= now().getTime()) fail(401, 'TOKEN_EXPIRED', 'Your session has expired. Sign in again.');
     const user = findUser(payload.sub);
     if (!user) fail(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.');
+    if (user.deactivatedAt) fail(401, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
+    if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) fail(401, 'TOKEN_REVOKED', 'Your password was changed. Sign in again.');
     return user;
   }
 
-  const isAdmin = (user) => user.role === 'Admin';
-  const isMember = (user, project) => isAdmin(user) || project.memberIds.includes(user.id);
-  const canManage = (user, project) =>
-    isAdmin(user) || (user.role === 'Lead' && project.memberIds.includes(user.id));
+  const isMember = (user, project) => can(user, 'project.view', project);
 
-  function projectFor(user, projectId, { manage = false } = {}) {
+  function projectFor(user, projectId, { action = 'project.view' } = {}) {
     idParam(projectId, 'project');
     const project = db.projects.find((p) => p.id === projectId);
     if (!project) notFound('Project');
     if (!isMember(user, project)) forbidden('You are not a member of this project.');
-    if (manage && !canManage(user, project)) forbidden('Only the project lead or an admin can do this.');
+    if (action !== 'project.view' && !can(user, action, project)) forbidden(FORBIDDEN[action]);
     return project;
   }
 
-  function taskFor(user, taskId, { manage = false } = {}) {
+  function taskFor(user, taskId, { action = 'project.view' } = {}) {
     idParam(taskId, 'task');
     const task = db.tasks.find((t) => t.id === taskId);
     if (!task) notFound('Task');
-    const project = projectFor(user, task.projectId, { manage });
+    const project = projectFor(user, task.projectId, { action });
     return { task, project };
   }
+
+  const members = (project) => projectDto(project).members;
 
   function validateAssignees(body, project) {
     const value = body?.assigneeIds;
@@ -228,8 +261,16 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (outsider) {
       badRequest('Assignees must be members of the project.', { assigneeIds: 'Only project members can be assigned.' });
     }
+    if (unique.some((id) => !roleAllows(projectRoleOf(project, id), 'task.assignable'))) {
+      badRequest('Viewers cannot be assigned tasks.', { assigneeIds: 'Viewers cannot be assigned tasks.' });
+    }
     return unique;
   }
+
+  const issueToken = (user) => ({
+    token: encodeToken({ sub: user.id, tv: user.tokenVersion ?? 0, exp: Math.floor(now().getTime() / 1000) + TOKEN_TTL_SECONDS }),
+    expiresIn: TOKEN_TTL_SECONDS,
+  });
 
   function notifyAssignment(task, userIds, actor) {
     for (const userId of userIds) {
@@ -275,6 +316,21 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     return created;
   }
 
+  function maybeGenerateDueReminders(user) {
+    const timestamp = now().getTime();
+    const previous = user.lastReminderScanAt;
+    if (previous != null && timestamp - previous < 15 * 60 * 1000) return;
+    user.lastReminderScanAt = timestamp;
+    try { generateDueReminders(user); } catch (error) { user.lastReminderScanAt = previous; throw error; }
+  }
+
+  // Mirrors the API: completedAt is stamped on entering Done and cleared on leaving it.
+  function applyStatus(task, status) {
+    if (status === task.status && (status !== 'Done' || task.completedAt)) return;
+    task.status = status;
+    task.completedAt = status === 'Done' ? stamp() : null;
+  }
+
   function removeTaskCascade(taskId) {
     // Deletion policy used by the mock (decision pending in SAD §3.5): cascade comments and notifications.
     db.tasks = db.tasks.filter((t) => t.id !== taskId);
@@ -282,9 +338,8 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     db.notifications = db.notifications.filter((n) => n.taskId !== taskId);
   }
 
-  function isOverdue(task) {
-    if (task.status === 'Done' || !task.dueDate) return false;
-    return Date.parse(`${task.dueDate}T23:59:59Z`) < now().getTime();
+  function isOverdue(task, today = resolveToday(undefined, now())) {
+    return task.status !== 'Done' && Boolean(task.dueDate) && task.dueDate < today;
   }
 
   function matchesFilters(task, query) {
@@ -340,8 +395,8 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         fail(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
       }
       loginAttempts.delete(email);
-      const token = encodeToken({ sub: user.id, exp: Math.floor(nowMs / 1000) + TOKEN_TTL_SECONDS });
-      return [200, { token, expiresIn: TOKEN_TTL_SECONDS, user: userDto(user) }];
+      if (user.deactivatedAt) fail(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
+      return [200, { ...issueToken(user), user: userDto(user) }];
     }],
 
     ['GET', '/auth/me', ({ user }) => [200, userDto(user)]],
@@ -353,10 +408,64 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
           badRequest('Current password is incorrect.', { currentPassword: 'Current password is incorrect.' });
         }
         user.password = passwordRule(body.newPassword, 'newPassword');
+        // Revokes every earlier session, like the API's tokenVersion.
+        user.tokenVersion = (user.tokenVersion ?? 0) + 1;
       }
       if (name) user.name = name;
       user.updatedAt = stamp();
-      return [200, userDto(user)];
+      return [200, body?.newPassword !== undefined ? { ...userDto(user), ...issueToken(user) } : userDto(user)];
+    }],
+
+    // Admin user management (SRS §2.2).
+    ['GET', '/users', ({ user, query }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can manage user accounts.');
+      const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.pageSize, 10) || 50));
+      const role = query.role ? oneOf(query, 'role', ROLES, { label: 'Role' }) : undefined;
+      const status = query.status ? oneOf(query, 'status', ['active', 'deactivated'], { label: 'Status' }) : undefined;
+      const needle = typeof query.q === 'string' ? query.q.trim().toLowerCase() : '';
+      const matches = db.users
+        .filter((u) => !status || (status === 'active') === !u.deactivatedAt)
+        .filter((u) => (!role || u.role === role) && (!needle || u.name.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle)))
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || a.id.localeCompare(b.id));
+      const items = matches.slice((page - 1) * pageSize, page * pageSize).map((u) => ({
+        ...userDto(u),
+        projectCount: db.projects.filter((p) => p.memberIds.includes(u.id)).length,
+      }));
+      const roleCounts = Object.fromEntries(ROLES.map((r) => [r, db.users.filter((u) => u.role === r).length]));
+      const deactivatedCount = db.users.filter((u) => u.deactivatedAt).length;
+      return [200, { items, page, pageSize, total: matches.length, roleCounts, deactivatedCount }];
+    }],
+
+    ['PATCH', '/users/:userId/role', ({ user, params, body }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can manage user accounts.');
+      idParam(params.userId, 'user');
+      const role = oneOf(body, 'role', ROLES, { label: 'Role' });
+      const target = findUser(params.userId);
+      if (!target) notFound('User');
+      if (target.role === 'Admin' && role !== 'Admin' && db.users.filter((u) => u.role === 'Admin' && !u.deactivatedAt && u.id !== target.id).length === 0) {
+        fail(409, 'LAST_ADMIN', 'The workspace needs at least one admin. Promote someone else first.');
+      }
+      if (target.role !== role) {
+        target.role = role;
+        target.updatedAt = stamp();
+      }
+      return [200, userDto(target)];
+    }],
+
+    ['PATCH', '/users/:userId/status', ({ user, params, body }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can manage user accounts.');
+      idParam(params.userId, 'user');
+      if (typeof body?.active !== 'boolean') badRequest('Send active as true or false.', { active: 'Must be true or false.' });
+      if (params.userId === user.id && !body.active) badRequest('You cannot deactivate your own account.');
+      const target = findUser(params.userId);
+      if (!target) notFound('User');
+      if (!target.deactivatedAt !== body.active) {
+        target.deactivatedAt = body.active ? null : stamp();
+        if (!body.active) target.tokenVersion = (target.tokenVersion ?? 0) + 1;
+        target.updatedAt = stamp();
+      }
+      return [200, userDto(target)];
     }],
 
     ['GET', '/projects', ({ user }) => {
@@ -364,25 +473,30 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, list];
     }],
 
-    ['GET', '/dashboard', ({ user }) => {
+    ['GET', '/dashboard', ({ user, query }) => {
+      const today = resolveToday(query.today, now());
+      const weekEnd = new Date(Date.parse(today + 'T00:00:00.000Z') + 7 * 86400000).toISOString().slice(0, 10);
       const projects = db.projects.filter((project) => isMember(user, project));
       const projectIds = new Set(projects.map((project) => project.id));
       const visibleTasks = db.tasks.filter((task) => projectIds.has(task.projectId));
       const summaries = projects.map((project) => {
         const tasks = visibleTasks.filter((task) => task.projectId === project.id);
         const counts = Object.fromEntries(TASK_STATUSES.map((status) => [status, tasks.filter((task) => task.status === status).length]));
-        return { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter(isOverdue).length };
+        return { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter((task) => isOverdue(task, today)).length };
       });
-      const myTasks = visibleTasks.filter((task) => task.assigneeIds.includes(user.id)).slice(0, 500);
-      return [200, { projects: summaries, myTasks }];
+      const assigned = visibleTasks.filter((task) => task.assigneeIds.includes(user.id));
+      const open = assigned.filter((task) => task.status !== 'Done');
+      const stats = { openAssigned: open.length, completed: assigned.length - open.length, overdue: open.filter((task) => isOverdue(task, today)).length, dueIn7Days: open.filter((task) => task.dueDate && task.dueDate >= today && task.dueDate <= weekEnd).length };
+      const myTasks = open.sort((a, b) => Number(!a.dueDate) - Number(!b.dueDate) || (a.dueDate || '').localeCompare(b.dueDate || '') || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(0, 500);
+      return [200, { projects: summaries, myTasks, stats }];
     }],
 
     ['POST', '/projects', ({ user, body }) => {
-      if (user.role === 'Member') forbidden('Only leads and admins can create projects.');
+      if (!canCreateProject(user)) forbidden('Only a Lead or an admin can create projects.');
       const name = str(body, 'name', { max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, max: LIMITS.descriptionMax, label: 'Description' }) || '';
       const at = stamp();
-      const project = { id: nextId('project'), name, description, ownerId: user.id, memberIds: [user.id], createdAt: at, updatedAt: at };
+      const project = { id: nextId('project'), name, description, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
       db.projects.push(project);
       return [201, projectDto(project)];
     }],
@@ -390,7 +504,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     ['GET', '/projects/:projectId', ({ user, params }) => [200, projectDto(projectFor(user, params.projectId))]],
 
     ['PATCH', '/projects/:projectId', ({ user, params, body }) => {
-      const project = projectFor(user, params.projectId, { manage: true });
+      const project = projectFor(user, params.projectId, { action: 'project.edit' });
       const name = str(body, 'name', { required: false, max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, min: 0, max: LIMITS.descriptionMax, label: 'Description' });
       if (name) project.name = name;
@@ -400,7 +514,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['DELETE', '/projects/:projectId', ({ user, params }) => {
-      const project = projectFor(user, params.projectId, { manage: true });
+      const project = projectFor(user, params.projectId, { action: 'project.delete' });
       db.tasks.filter((t) => t.projectId === project.id).forEach((t) => removeTaskCascade(t.id));
       db.projects = db.projects.filter((p) => p.id !== project.id);
       return [204, null];
@@ -409,29 +523,61 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     ['GET', '/projects/:projectId/members', ({ user, params }) => [200, projectDto(projectFor(user, params.projectId)).members]],
 
     ['POST', '/projects/:projectId/members', ({ user, params, body }) => {
-      const project = projectFor(user, params.projectId, { manage: true });
+      const project = projectFor(user, params.projectId, { action: 'members.manage' });
       const email = str(body, 'email', { max: 254, label: 'Email' });
+      const role = body?.role === undefined ? 'Member' : oneOf(body, 'role', GRANTABLE_PROJECT_ROLES, { label: 'Project role' });
+      if (!rolesForNewMember(user, project).includes(role)) forbidden('Only the project owner or an admin can add a manager.');
       const member = db.users.find((u) => u.emailNormalized === normalizeEmail(email));
       if (!member) fail(404, 'NOT_FOUND', 'No registered user has this email.', { email: 'No registered user has this email.' });
-      if (!project.memberIds.includes(member.id)) project.memberIds.push(member.id);
-      project.updatedAt = stamp();
-      return [200, projectDto(project).members];
+      if (member.deactivatedAt) badRequest('That account is deactivated.', { email: 'This account is deactivated.' });
+      if (!project.memberIds.includes(member.id)) {
+        Object.assign(project, withMemberRole(project, member.id, role));
+        project.updatedAt = stamp();
+      }
+      return [200, members(project)];
+    }],
+
+    ['PATCH', '/projects/:projectId/members/:userId', ({ user, params, body }) => {
+      const project = projectFor(user, params.projectId, { action: 'members.manage' });
+      idParam(params.userId, 'user');
+      const role = oneOf(body, 'role', PROJECT_ROLES, { label: 'Project role' });
+      const current = projectRoleOf(project, params.userId);
+      if (!current) notFound('Member');
+      if (current !== role) {
+        const reason = memberRoleChangeError(user, project, params.userId, role);
+        if (reason) (current === 'Owner' ? badRequest : forbidden)(reason);
+        if (role === 'Owner' && findUser(params.userId)?.deactivatedAt) badRequest('Ownership cannot go to a deactivated account.');
+        Object.assign(project, withMemberRole(project, params.userId, role));
+        if (role === 'Viewer') {
+          db.tasks
+            .filter((t) => t.projectId === project.id && t.assigneeIds.includes(params.userId))
+            .forEach((t) => { t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId); });
+        }
+        project.updatedAt = stamp();
+      }
+      return [200, members(project)];
     }],
 
     ['DELETE', '/projects/:projectId/members/:userId', ({ user, params }) => {
-      const project = projectFor(user, params.projectId, { manage: true });
+      const project = projectFor(user, params.projectId);
       idParam(params.userId, 'user');
-      if (params.userId === project.ownerId) badRequest('The project owner cannot be removed.');
-      if (!project.memberIds.includes(params.userId)) notFound('Member');
-      project.memberIds = project.memberIds.filter((id) => id !== params.userId);
-      // Removing a member also unassigns them so no task points at a non-member.
+      const current = projectRoleOf(project, params.userId);
+      if (!current) notFound('Member');
+      const reason = memberRemovalError(user, project, params.userId);
+      if (reason) (current === 'Owner' ? badRequest : forbidden)(reason);
+      Object.assign(project, withoutMember(project, params.userId));
+      // Removing a member also unassigns them so no task points at a non-member, and drops their
+      // notifications for the project (they name tasks the user can no longer open).
+      const projectTaskIds = new Set();
       db.tasks
         .filter((t) => t.projectId === project.id)
         .forEach((t) => {
-          t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
+          projectTaskIds.add(t.id);
+          if (t.assigneeIds.includes(params.userId)) t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
         });
+      db.notifications = db.notifications.filter((n) => !(n.userId === params.userId && projectTaskIds.has(n.taskId)));
       project.updatedAt = stamp();
-      return [200, projectDto(project).members];
+      return [200, members(project)];
     }],
 
     ['GET', '/projects/:projectId/tasks', ({ user, params, query }) => {
@@ -441,7 +587,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['POST', '/projects/:projectId/tasks', ({ user, params, body }) => {
-      const project = projectFor(user, params.projectId, { manage: true });
+      const project = projectFor(user, params.projectId, { action: 'task.create' });
       const title = str(body, 'title', { max: LIMITS.taskTitleMax, label: 'Title' });
       const description = str(body, 'description', { required: false, min: 0, max: LIMITS.descriptionMax, label: 'Description' }) || '';
       const status = oneOf(body, 'status', TASK_STATUSES, { required: false, label: 'Status' }) || 'To Do';
@@ -449,7 +595,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const dueDate = dateOnly(body, 'dueDate', { label: 'Due date' });
       const assigneeIds = validateAssignees(body, project) || [];
       const at = stamp();
-      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, createdAt: at, updatedAt: at };
+      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, completedAt: status === 'Done' ? at : null, createdAt: at, updatedAt: at };
       db.tasks.push(task);
       notifyAssignment(task, assigneeIds, user);
       return [201, taskDto(task)];
@@ -469,7 +615,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     ['GET', '/tasks/:taskId', ({ user, params }) => [200, taskDto(taskFor(user, params.taskId).task)]],
 
     ['PATCH', '/tasks/:taskId', ({ user, params, body }) => {
-      const { task, project } = taskFor(user, params.taskId, { manage: true });
+      const { task, project } = taskFor(user, params.taskId, { action: 'task.edit' });
       const title = str(body, 'title', { required: false, max: LIMITS.taskTitleMax, label: 'Title' });
       const description = str(body, 'description', { required: false, min: 0, max: LIMITS.descriptionMax, label: 'Description' });
       const status = oneOf(body, 'status', TASK_STATUSES, { required: false, label: 'Status' });
@@ -478,7 +624,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const assigneeIds = validateAssignees(body, project);
       if (title) task.title = title;
       if (description !== undefined) task.description = description;
-      if (status) task.status = status;
+      if (status) applyStatus(task, status);
       if (priority) task.priority = priority;
       if (dueDate !== undefined) task.dueDate = dueDate;
       if (assigneeIds) {
@@ -491,17 +637,18 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['DELETE', '/tasks/:taskId', ({ user, params }) => {
-      const { task } = taskFor(user, params.taskId, { manage: true });
+      const { task } = taskFor(user, params.taskId, { action: 'task.delete' });
       removeTaskCascade(task.id);
       return [204, null];
     }],
 
-    // Any project member may move a task between columns (SRS §2.2 "update permitted task status").
+    // Owners, managers and members may move a task between columns (SRS §2.2 "update permitted
+    // task status"); viewers are read-only.
     ['PATCH', '/tasks/:taskId/status', ({ user, params, body }) => {
-      const { task } = taskFor(user, params.taskId);
-      task.status = oneOf(body, 'status', TASK_STATUSES, { label: 'Status' });
+      const { task } = taskFor(user, params.taskId, { action: 'task.status' });
+      applyStatus(task, oneOf(body, 'status', TASK_STATUSES, { label: 'Status' }));
       task.updatedAt = stamp();
-      return [200, { taskId: task.id, status: task.status, updatedAt: task.updatedAt }];
+      return [200, { taskId: task.id, status: task.status, completedAt: task.completedAt ?? null, updatedAt: task.updatedAt }];
     }],
 
     ['GET', '/tasks/:taskId/comments', ({ user, params }) => {
@@ -514,7 +661,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['POST', '/tasks/:taskId/comments', ({ user, params, body }) => {
-      const { task } = taskFor(user, params.taskId);
+      const { task } = taskFor(user, params.taskId, { action: 'comment.create' });
       const text = str(body, 'text', { max: LIMITS.commentMax, label: 'Comment' });
       const comment = { id: nextId('comment'), taskId: task.id, authorId: user.id, text, createdAt: stamp() };
       db.comments.push(comment);
@@ -527,13 +674,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const index = db.comments.findIndex((comment) => comment.id === params.commentId && comment.taskId === task.id);
       if (index < 0) notFound('Comment');
       const comment = db.comments[index];
-      if (comment.authorId !== user.id && !canManage(user, project)) forbidden('You cannot delete this comment.');
+      if (comment.authorId !== user.id && !can(user, 'comment.moderate', project)) forbidden('You cannot delete this comment.');
       db.comments.splice(index, 1);
       return [204, null];
     }],
 
+    ['GET', '/notifications/unread-count', ({ user }) => { maybeGenerateDueReminders(user); return [200, { unreadCount: db.notifications.filter((n) => n.userId === user.id && !n.read).length }]; }],
     ['GET', '/notifications', ({ user, query }) => {
-      generateDueReminders(user);
+      maybeGenerateDueReminders(user);
       const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
       const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.pageSize, 10) || 50));
       const own = db.notifications
@@ -568,11 +716,12 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, { updated }];
     }],
 
-    ['GET', '/projects/:projectId/summary', ({ user, params }) => {
+    ['GET', '/projects/:projectId/summary', ({ user, params, query }) => {
+      const today = resolveToday(query.today, now());
       const project = projectFor(user, params.projectId);
       const tasks = db.tasks.filter((t) => t.projectId === project.id);
       const counts = Object.fromEntries(TASK_STATUSES.map((s) => [s, tasks.filter((t) => t.status === s).length]));
-      return [200, { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter(isOverdue).length }];
+      return [200, { projectId: project.id, total: tasks.length, counts, overdue: tasks.filter((task) => isOverdue(task, today)).length }];
     }],
 
     ['GET', '/projects/:projectId/tasks/export.csv', ({ user, params, query }) => {
@@ -628,7 +777,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         body: body ?? {},
       });
       if (method !== 'GET') save();
-      else if (routeMatch.pattern === '/notifications') save();
+      else if (routeMatch.pattern === '/notifications' || routeMatch.pattern === '/notifications/unread-count') save();
       return { status, data: clone(data), headers };
     } catch (error) {
       if (error instanceof HttpError) {

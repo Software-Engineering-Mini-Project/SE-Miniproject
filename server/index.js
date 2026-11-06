@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import express from 'express';
 import { createApp } from './app.js';
 import { ConfigurationError, loadEnvironment } from './config/env.js';
+import { runMigrations } from './utils/migrations.js';
 
 let config;
 try {
@@ -19,7 +20,17 @@ function connectDatabase() {
       serverSelectionTimeoutMS: 5000,
       maxPoolSize: 5,
       autoIndex: process.env.NODE_ENV !== 'production',
-    }).then((connection) => {
+    }).then(async (connection) => {
+      // Once per process, before the first request is served. A failed migration is logged
+      // and retried on the next cold start instead of taking the API down.
+      if (!cache.migrated) {
+        try {
+          await runMigrations();
+          cache.migrated = true;
+        } catch (error) {
+          console.error(JSON.stringify({ event: 'migration_failed', errorType: error?.name }));
+        }
+      }
       if (cache.promise === pending) cache.promise = null;
       return connection;
     }).catch((error) => {
