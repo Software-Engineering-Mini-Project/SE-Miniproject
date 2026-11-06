@@ -370,3 +370,32 @@ test('completedAt mirrors the API: stamped on Done by any route, kept on re-Done
   assert.equal(created.data.completedAt, NOW.toISOString());
   assert.equal(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Open' } }).data.completedAt, null);
 });
+
+test('checklists mirror the API: members tick, owners edit, viewers cannot, 50-item cap', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  const viewer = login('viewer@example.test');
+  assert.equal(call('GET', '/tasks/task-002', { token: member }).data.checklist.length, 4);
+
+  const added = call('POST', '/tasks/task-002/checklist', { token: lead, body: { text: '  Empty column state ' } });
+  assert.equal(added.status, 201);
+  const item = added.data.checklist.at(-1);
+  assert.deepEqual([item.text, item.done], ['Empty column state', false]);
+  assert.equal(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: member, body: { done: true } }).data.checklist.at(-1).done, true);
+
+  assertEnvelope(call('POST', '/tasks/task-002/checklist', { token: member, body: { text: 'Nope' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: member, body: { text: 'Nope' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: viewer, body: { done: false } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: lead, body: { done: 'yes' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/tasks/task-002/checklist', { token: lead, body: { text: '   ' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('PATCH', '/tasks/task-002/checklist/missing', { token: lead, body: { done: true } }), 404, 'NOT_FOUND');
+
+  assert.equal(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: lead, body: { text: 'Renamed' } }).data.checklist.at(-1).text, 'Renamed');
+  assert.equal(call('DELETE', `/tasks/task-002/checklist/${item.id}`, { token: lead }).data.checklist.length, 4);
+
+  const fresh = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Long one' } }).data;
+  assert.deepEqual(fresh.checklist, []);
+  for (let i = 0; i < 50; i += 1) call('POST', `/tasks/${fresh.id}/checklist`, { token: lead, body: { text: `Step ${i}` } });
+  assertEnvelope(call('POST', `/tasks/${fresh.id}/checklist`, { token: lead, body: { text: 'One too many' } }), 400, 'VALIDATION_ERROR');
+});

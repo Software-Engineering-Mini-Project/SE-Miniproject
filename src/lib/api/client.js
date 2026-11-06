@@ -17,7 +17,8 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ id: string, name: string, email: string, role: import('../constants.js').UserRole, createdAt?: string, updatedAt?: string }} User
  * @typedef {{ id: string, name: string, email: string, role: string, active?: boolean, projectRole?: 'Owner' | 'Manager' | 'Member' | 'Viewer' }} Member
  * @typedef {{ id: string, name: string, description: string, ownerId: string, memberIds: string[], members: Member[], createdAt: string, updatedAt: string }} Project
- * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, projectId: string, assigneeIds: string[], createdAt: string, updatedAt: string }} Task
+ * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, assigneeIds: string[], createdAt: string, updatedAt: string }} Task
+ * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
  * @typedef {{ id: string, userId: string, taskId: string, projectId: string | null, type: 'assignment' | 'due-date', message: string, read: boolean, createdAt: string }} Notification
  * @typedef {{ items: Notification[], page: number, pageSize: number, total: number, unreadCount: number }} NotificationPage
@@ -165,6 +166,13 @@ export const api = {
     remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
     setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:'], body: { status } }),
+  },
+  checklist: {
+    /** @returns {Promise<{ taskId: string, checklist: ChecklistItem[], updatedAt: string }>} */
+    add: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/checklist`, { body: { text } }),
+    /** `changes`: { done } (owners, managers, members) and/or { text } (owners, managers). */
+    update: (taskId, itemId, changes) => request('PATCH', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { body: changes }),
+    remove: (taskId, itemId) => request('DELETE', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`),
   },
   comments: {
     /** @returns {Promise<Comment[]>} TM-F-032. DECISION: each comment embeds `author`. */

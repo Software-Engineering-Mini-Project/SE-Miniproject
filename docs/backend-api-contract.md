@@ -144,7 +144,11 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Task
 { id, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
   completedAt /* ISO timestamp while Done, else null; server-set (§7.6) */,
+  checklist: [{ id, text, done }] /* up to 50 items; changed only through §6.3 checklist routes */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
+
+// Checklist change (every checklist route answers with the whole, current list)
+{ taskId, checklist: [{ id, text, done }], updatedAt }
 
 // Comment
 { id, taskId, authorId, text, createdAt, author: Member | null }
@@ -253,6 +257,11 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
 | `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
 | `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
+| `POST /tasks/:taskId/checklist` | Owner, Manager, Admin | `{ text }` (1–200 chars, trimmed) | `201` checklist change | `400` empty, too long, not text, or the task already has 50 items; `403`, `404` |
+| `PATCH /tasks/:taskId/checklist/:itemId` | `done`: Owner, Manager, Member, Admin (**not Viewer**); `text`: Owner, Manager, Admin | `{ done?: boolean, text?: string }` | `200` checklist change | `400` neither field, `done` not boolean; `403`; `404` task or item |
+| `DELETE /tasks/:taskId/checklist/:itemId` | Owner, Manager, Admin | | `200` checklist change | `403`, `404` task or item |
+
+Checklist routes update one item with a single atomic MongoDB operation (`$push` guarded by the 50-item cap, positional `$set`, `$pull`), so two people working through the same list never overwrite each other. The CSV export leaves checklists out.
 
 **Filter semantics** (identical for both list endpoints and the CSV export):
 - `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`.
@@ -354,9 +363,9 @@ Project roles (per project, from `src/lib/permissions.js`). A workspace Admin ca
 |---|---|---|---|---|---|
 | View project, tasks, members, summary; export CSV | ✅ | ✅ | ✅ | ✅ | 403 |
 | Comment; delete own comment | ✅ | ✅ | ✅ | ✅ | 403 |
-| Change task status (D12) | ✅ | ✅ | ✅ | 403 | 403 |
+| Change task status (D12); tick checklist items | ✅ | ✅ | ✅ | 403 | 403 |
 | Be assigned tasks | ✅ | ✅ | ✅ | 400 | 400 |
-| Create, edit, delete and assign tasks | ✅ | ✅ | 403 | 403 | 403 |
+| Create, edit, delete and assign tasks; add, rename and remove checklist items | ✅ | ✅ | 403 | 403 | 403 |
 | Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
 | Edit project details | ✅ | ✅ | 403 | 403 | 403 |
 | Add, remove, and change Members and Viewers | ✅ | ✅ | 403 | 403 | 403 |

@@ -31,6 +31,8 @@ export const LIMITS = {
   descriptionMax: 2000,
   taskTitleMax: 200,
   commentMax: 1000,
+  checklistItems: 50,
+  checklistItemMax: 200,
   passwordMin: 8,
   passwordMax: 128,
 };
