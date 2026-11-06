@@ -166,8 +166,17 @@ export function Dashboard() {
                   ))}
                 </div>
               ) : projects.length === 0 ? (
-                <EmptyState icon={FolderKanban} title="No projects yet" tone="quiet">
-                  A project lead adds you to projects. You can still update your profile meanwhile.
+                <EmptyState
+                  icon={FolderKanban}
+                  title="No projects yet"
+                  tone="quiet"
+                  action={
+                    <Link href="/projects" className="btn" data-variant="secondary" data-size="sm">
+                      <span className="btn-label">Create or join a project</span>
+                    </Link>
+                  }
+                >
+                  Start your own project, join an open one, or ask a project owner to add you.
                 </EmptyState>
               ) : (
                 <>

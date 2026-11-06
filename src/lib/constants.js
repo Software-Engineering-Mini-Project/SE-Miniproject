@@ -40,5 +40,3 @@ export const LIMITS = {
 // Initial reminder rule proposal from SRS TM-F-031: due within 24 hours and not Done.
 export const REMINDER_WINDOW_HOURS = 24;
 
-/** Roles that may create projects and manage tasks (SRS §2.2). */
-export { canCreateProject as canManageProjects } from './permissions.js';

@@ -19,7 +19,8 @@ const state = vi.hoisted(() => {
       tasks: { search: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
       comments: { list: fn(), create: fn(), remove: fn() },
       notifications: { list: fn(), markRead: fn(), markAllRead: fn() },
-      projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn() },
+      projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn(), directory: fn(), join: fn() },
+      settings: { get: fn(), update: fn() },
       dashboard: { get: fn() },
     },
     toast: { success: fn(), error: fn(), info: fn() },
@@ -156,6 +157,9 @@ beforeEach(() => {
     removeProject: vi.fn(),
     loadUnread: vi.fn(),
     loadDashboard: vi.fn(),
+    settings: { projectCreation: 'everyone' },
+    setSettings: vi.fn(),
+    loadSettings: vi.fn(),
   };
 });
 
@@ -239,13 +243,64 @@ describe('projects and membership', () => {
     await user.type(screen.getByRole('textbox', { name: 'Name' }), 'New workspace');
     await user.click(screen.getByRole('button', { name: 'Create project' }));
 
-    await waitFor(() => expect(state.api.projects.create).toHaveBeenCalledWith({ name: 'New workspace', description: '' }));
+    await waitFor(() => expect(state.api.projects.create).toHaveBeenCalledWith({ name: 'New workspace', description: '', visibility: 'private' }));
     expect(state.workspace.upsertProject).toHaveBeenCalledWith(created);
     expect(state.router.push).toHaveBeenCalledWith('/projects/project-new');
 
+    // Members create projects too, unless an admin limits it to leads.
     state.session.user = { ...state.session.user, role: 'Member' };
     rerender(h(ProjectsIndex));
+    expect(screen.getByRole('button', { name: 'New project' })).toBeInTheDocument();
+    state.workspace.settings = { projectCreation: 'leads' };
+    rerender(h(ProjectsIndex));
     expect(screen.queryByRole('button', { name: 'New project' })).not.toBeInTheDocument();
+  });
+
+  it('gives a new account a getting-started screen with every way into a project', () => {
+    state.workspace.projects = [];
+    state.session.user = { ...member };
+    setupQuery('directory:', []);
+    const { rerender } = render(h(ProjectsIndex));
+    const start = screen.getByRole('region', { name: 'Get started' });
+    expect(within(start).getByRole('heading', { name: 'Create a project' })).toBeInTheDocument();
+    expect(within(start).getByRole('button', { name: 'New project' })).toBeInTheDocument();
+    expect(within(start).getByRole('link', { name: 'Browse' })).toHaveAttribute('href', '#open-projects');
+    expect(within(start).getByText(member.email)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing to join right now/)).toBeInTheDocument();
+
+    state.workspace.settings = { projectCreation: 'leads' };
+    rerender(h(ProjectsIndex));
+    expect(within(screen.getByRole('region', { name: 'Get started' })).queryByRole('button', { name: 'New project' })).not.toBeInTheDocument();
+    expect(screen.getByText(/only leads and admins create projects/)).toBeInTheDocument();
+  });
+
+  it('lists open projects and joins one', async () => {
+    const user = userEvent.setup();
+    const entry = { id: 'project-open', name: 'Design system', description: 'Shared components', ownerName: 'Lena Lead', memberCount: 3 };
+    setupQuery('directory:', [entry]);
+    const joined = { ...project, id: 'project-open', name: 'Design system', visibility: 'open' };
+    state.api.projects.join.mockResolvedValue(joined);
+    render(h(ProjectsIndex));
+
+    const browse = screen.getByRole('region', { name: 'Open projects' });
+    expect(within(browse).getByText('Owned by Lena Lead · 3 members')).toBeInTheDocument();
+    expect(within(browse).getByRole('searchbox', { name: 'Search open projects' })).toBeInTheDocument();
+    await user.click(within(browse).getByRole('button', { name: 'Join Design system' }));
+    await waitFor(() => expect(state.api.projects.join).toHaveBeenCalledWith('project-open'));
+    expect(state.workspace.upsertProject).toHaveBeenCalledWith(joined);
+    expect(state.toast.success).toHaveBeenCalledWith('You joined Design system.');
+    expect(state.router.push).toHaveBeenCalledWith('/projects/project-open');
+  });
+
+  it('offers to join an open project instead of a dead end', async () => {
+    const user = userEvent.setup();
+    setupQuery('project:project-open', undefined, { error: new ApiError(403, { errorCode: 'JOIN_REQUIRED', message: 'Join it.' }) });
+    state.api.projects.join.mockResolvedValue({ ...project, id: 'project-open', name: 'Design system' });
+    render(h(ProjectView, { projectId: 'project-open' }));
+    expect(screen.getByRole('heading', { name: 'This project is open to everyone' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Join project' }));
+    await waitFor(() => expect(state.api.projects.join).toHaveBeenCalledWith('project-open'));
+    expect(state.toast.success).toHaveBeenCalledWith('You joined Design system.');
   });
 
   it('renders project access errors and provides a route back to projects', async () => {
@@ -322,9 +377,12 @@ describe('projects and membership', () => {
 
     await user.type(screen.getByRole('textbox', { name: 'Name' }), '  Alpha  ');
     await user.type(screen.getByRole('textbox', { name: 'Description' }), '  Team workspace  ');
+    expect(screen.getByRole('radio', { name: /Private/ })).toBeChecked();
+    await user.click(screen.getByRole('radio', { name: /Open/ }));
+    expect(within(screen.getByRole('group', { name: 'Who can find it' })).getByRole('radio', { name: /Private/ })).not.toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Create project' }));
 
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Alpha', description: 'Team workspace' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Alpha', description: 'Team workspace', visibility: 'open' }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -653,6 +711,26 @@ describe('member removal, admin users, and insights', () => {
     await user.click(screen.getByRole('button', { name: 'Add member' }));
     expect(screen.getByText('Mina Member is already a member.')).toBeInTheDocument();
     expect(state.api.members.add).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin limit project creation to leads, and rolls back if the API refuses', async () => {
+    const user = userEvent.setup();
+    state.session.user = { id: 'user-admin-001', name: 'Ada Admin', email: 'ada@example.test', role: 'Admin' };
+    setupQuery('admin-users:::', { items: [], page: 1, pageSize: 50, total: 0, roleCounts: { Admin: 1, Lead: 0, Member: 0 } });
+    state.api.settings.update.mockResolvedValueOnce({ projectCreation: 'leads' });
+    render(h(UsersAdmin));
+
+    const select = screen.getByRole('combobox', { name: 'Who can create projects' });
+    expect(select).toHaveValue('everyone');
+    await user.selectOptions(select, 'leads');
+    await waitFor(() => expect(state.api.settings.update).toHaveBeenCalledWith({ projectCreation: 'leads' }));
+    expect(state.workspace.setSettings).toHaveBeenLastCalledWith({ projectCreation: 'leads' });
+    expect(state.toast.success).toHaveBeenCalledWith('Only leads and admins can create projects now.');
+
+    state.api.settings.update.mockRejectedValueOnce(new ApiError(403, { message: 'Only an admin can change workspace settings.' }));
+    await user.selectOptions(select, 'leads');
+    await waitFor(() => expect(state.toast.error).toHaveBeenCalled());
+    expect(state.workspace.setSettings).toHaveBeenLastCalledWith({ projectCreation: 'everyone' });
   });
 
   it('keeps the users page to admins', () => {
