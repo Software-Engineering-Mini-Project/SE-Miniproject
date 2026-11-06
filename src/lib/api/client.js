@@ -16,7 +16,9 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
 /**
  * @typedef {{ id: string, name: string, email: string, role: import('../constants.js').UserRole, createdAt?: string, updatedAt?: string }} User
  * @typedef {{ id: string, name: string, email: string, role: string, active?: boolean, projectRole?: 'Owner' | 'Manager' | 'Member' | 'Viewer' }} Member
- * @typedef {{ id: string, name: string, description: string, ownerId: string, memberIds: string[], members: Member[], createdAt: string, updatedAt: string }} Project
+ * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerId: string, memberIds: string[], managerIds?: string[], viewerIds?: string[], members: Member[], createdAt: string, updatedAt: string }} Project
+ * @typedef {{ id: string, name: string, description: string, ownerName: string | null, memberCount: number }} DirectoryProject
+ * @typedef {{ projectCreation: 'everyone' | 'leads' }} WorkspaceSettings
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, assigneeIds: string[], createdAt: string, updatedAt: string }} Task
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
@@ -124,14 +126,24 @@ export const api = {
     /** Admin only. Deactivating signs the user out everywhere and blocks sign-in. @returns {Promise<User>} */
     setActive: (userId, active) => request('PATCH', `/users/${enc(userId)}/status`, { body: { active } }),
   },
+  settings: {
+    /** Everyone signed in. @returns {Promise<WorkspaceSettings>} */
+    get: () => request('GET', '/settings'),
+    /** Admin only. @returns {Promise<WorkspaceSettings>} */
+    update: (input) => request('PATCH', '/settings', { body: input }),
+  },
   projects: {
     /** @returns {Promise<Project[]>} */
     list: () => request('GET', '/projects'),
+    /** Open projects the caller can join. @returns {Promise<DirectoryProject[]>} */
+    directory: (q) => request('GET', '/projects/directory', { query: { q: q || undefined } }),
+    /** Join an open project as a Member (201; 200 if already in it). @returns {Promise<Project>} */
+    join: (projectId) => request('POST', `/projects/${enc(projectId)}/join`, { invalidates: ['dashboard:', 'directory:', `project:${projectId}`, `tasks:${projectId}`] }),
     /** @returns {Promise<Project>} TM-F-020 */
     create: (input) => request('POST', '/projects', { invalidates: ['dashboard:'], body: input }),
     /** @returns {Promise<Project>} DECISION: response embeds `members` (safe user fields). */
     get: (projectId) => request('GET', `/projects/${enc(projectId)}`),
-    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'], body: input }),
+    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'directory:'], body: input }),
     remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'] }),
     /** @returns {Promise<ProjectSummary>} TM-F-041 */
     summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`, { query: { today: localToday() } }),
@@ -170,7 +182,7 @@ export const api = {
   checklist: {
     /** @returns {Promise<{ taskId: string, checklist: ChecklistItem[], updatedAt: string }>} */
     add: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/checklist`, { body: { text } }),
-    /** `changes`: { done } (owners, managers, members) and/or { text } (owners, managers). */
+    /** `changes`: { done } and/or { text }. Owners, managers and members; viewers cannot. */
     update: (taskId, itemId, changes) => request('PATCH', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { body: changes }),
     remove: (taskId, itemId) => request('DELETE', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`),
   },

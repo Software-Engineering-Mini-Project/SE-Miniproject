@@ -138,8 +138,15 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Member (inside a project, comment author, members endpoints)
 { id, name, email, role }
 
-// Project
-{ id, name, description, ownerId, memberIds: [id], members: [Member], createdAt, updatedAt }
+// Project (visibility defaults to "private")
+{ id, name, description, visibility /* "private" | "open" */, ownerId, memberIds: [id], managerIds: [id], viewerIds: [id],
+  members: [Member], createdAt, updatedAt }
+
+// Directory entry (GET /projects/directory)
+{ id, name, description, ownerName, memberCount }
+
+// Workspace settings (GET/PATCH /settings)
+{ projectCreation /* "everyone" (default) | "leads" */ }
 
 // Task
 { id, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
@@ -233,16 +240,27 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects where the user is in `memberIds` (Admin: all) | |
-| `POST /projects` | workspace Lead, Admin | `{ name, description? }` | `201 Project`. The caller becomes its Owner. | `403` for Member, `400` |
-| `GET /projects/:projectId` | any project role | | `200 Project` | `403` non-member, `404` |
-| `PATCH /projects/:projectId` | Owner, Manager, Admin | `{ name?, description? }` | `200 Project` | `403`, `404`, `400` |
+| `POST /projects` | anyone signed in; only Lead and Admin when the workspace setting is `leads` | `{ name, description?, visibility? }` (`private` default, or `open`) | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` |
+| `GET /projects/directory` | any signed-in user | optional `q` (name contains, case-insensitive, literal text, max 80) | `200 DirectoryEntry[]`: **open** projects the caller is not in, by name, at most 50. Private projects never appear. | |
+| `POST /projects/:projectId/join` | any signed-in user | | `201 Project` when newly joined as a Member (audited `change: { field: 'projectRole', from: null, to: 'Member' }`); `200 Project` if already in it | `403` private project ("Ask its owner or a manager to add you."), `404`, `400` bad id |
+| `GET /projects/:projectId` | any project role | | `200 Project` | `403 JOIN_REQUIRED` for a non-member of an **open** project (the UI offers *Join project*); `403 FORBIDDEN` for a private one; `404` |
+| `PATCH /projects/:projectId` | Owner, Manager, Admin | `{ name?, description?, visibility? }`. Making a project private keeps its members. | `200 Project` | `403`, `404`, `400` |
 | `DELETE /projects/:projectId` | Owner, Admin | | `204`, cascades per D11 | `403`, `404` |
 | `GET /projects/:projectId/members` | any project role | | `200 Member[]`, each with `projectRole` | `403`, `404` |
 | `POST /projects/:projectId/members` | Owner, Manager, Admin | `{ email, role? }`; `role` is `Manager`, `Member` (default) or `Viewer`. Only an Owner or Admin may add a Manager. | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `400` with `fields.email` if the account is deactivated, `400` bad role, `403` |
 | `PATCH /projects/:projectId/members/:userId` | Owner, Manager, Admin | `{ role }`: `Owner` (transfer), `Manager`, `Member` or `Viewer` | `200 Member[]`. Transfer: the previous owner becomes a Manager. Changing someone to Viewer unassigns them from the project's tasks. Audited (`change: { field: 'projectRole', from, to }`). | `400` bad role, changing the Owner's role, or transferring to a deactivated account; `403` (only an Owner or Admin grants, revokes or removes Manager, and transfers); `404` not a member |
 | `DELETE /projects/:projectId/members/:userId` | Owner, Manager, Admin; **any member for themselves** (leave) | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the Owner, `404` if not a member, `403` |
 
-**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects (Lead, Admin) and who manages accounts (Admin); a workspace Lead has no extra rights inside a project they aren't a member of.
+**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects when an Admin limits it to leads, and who manages accounts and settings (Admin); a workspace Lead has no extra rights inside a project they aren't a member of. Every route under a project (tasks, members, summary, export) answers `403 JOIN_REQUIRED` to a non-member of an open project.
+
+#### Workspace settings
+
+| Method and path | Who | Body | Success | Errors |
+|---|---|---|---|---|
+| `GET /settings` | any signed-in user | | `200 { projectCreation }` (defaults when never set) | |
+| `PATCH /settings` | Admin | `{ projectCreation: "everyone" \| "leads" }` | `200 { projectCreation }`. Audited with `change: { field: 'projectCreation', from, to }` when it changes. | `403` non-Admin, `400` missing or unknown value |
+
+Stored as one `settings` document (`_id: 'workspace'`); the seed resets it.
 
 **Migration.** Before project roles, any workspace Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
 
@@ -353,9 +371,9 @@ Workspace roles (on the account):
 
 | Workspace role | Can |
 |---|---|
-| Admin | Everything in every project; list users, change workspace roles, deactivate and reactivate accounts |
-| Lead | Create projects (and becomes their Owner) |
-| Member | Work in the projects they are added to |
+| Admin | Everything in every project; list users, change workspace roles, deactivate and reactivate accounts; change workspace settings |
+| Lead | Create projects (becoming their Owner), always; join open projects |
+| Member | Create projects unless the workspace setting is `leads`; join open projects; work in the projects they belong to |
 
 Project roles (per project, from `src/lib/permissions.js`). A workspace Admin can do every action in every project, but can only be assigned tasks where they are a member.
 
@@ -365,9 +383,11 @@ Project roles (per project, from `src/lib/permissions.js`). A workspace Admin ca
 | Comment; delete own comment | ✅ | ✅ | ✅ | ✅ | 403 |
 | Change task status (D12); tick checklist items | ✅ | ✅ | ✅ | 403 | 403 |
 | Be assigned tasks | ✅ | ✅ | ✅ | 400 | 400 |
-| Create, edit, delete and assign tasks; add, rename and remove checklist items | ✅ | ✅ | 403 | 403 | 403 |
+| Create, edit and assign tasks; add, rename and remove checklist items | ✅ | ✅ | ✅ | 403 ("Viewers cannot create tasks." / "Viewers cannot edit tasks.") | 403 |
+| Delete tasks | ✅ | ✅ | 403 | 403 | 403 |
 | Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
-| Edit project details | ✅ | ✅ | 403 | 403 | 403 |
+| Edit project details, including visibility | ✅ | ✅ | 403 | 403 | 403 |
+| Join the project | already in it (200) | already in it (200) | already in it (200) | already in it (200) | open: ✅ as Member; private: 403 |
 | Add, remove, and change Members and Viewers | ✅ | ✅ | 403 | 403 | 403 |
 | Grant, revoke or remove Manager | ✅ | 403 | 403 | 403 | 403 |
 | Transfer ownership; delete the project | ✅ | 403 | 403 | 403 | 403 |

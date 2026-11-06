@@ -8,7 +8,8 @@ import { describeError } from '@/lib/api/errors';
 import { formatDate, plural } from '@/lib/format';
 import { useQuery } from '@/lib/hooks/useQuery';
 import { useSession } from '@/lib/session';
-import { WORKSPACE_ROLE_SUMMARY } from '@/lib/permissions';
+import { DEFAULT_WORKSPACE_SETTINGS, PROJECT_CREATION, PROJECT_CREATION_LABELS, WORKSPACE_ROLE_SUMMARY } from '@/lib/permissions';
+import { useWorkspace } from '@/lib/workspace';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { RefreshNotice } from '@/components/ui/RefreshNotice';
@@ -18,15 +19,61 @@ import '@/features/tasks/tasks.css';
 import './admin.css';
 
 const ROLES = ['Admin', 'Lead', 'Member'];
-const ROLE_HINT = {
+const roleHint = (role, settings = DEFAULT_WORKSPACE_SETTINGS) => ({
   Admin: 'Every project, every user',
-  Lead: 'Creates projects',
-  Member: 'Works where added',
-};
+  Lead: 'Always creates projects',
+  Member: settings.projectCreation === 'everyone' ? 'Creates and joins projects' : 'Joins open projects',
+})[role];
+
+/** Workspace-wide rules an admin controls (like Jira's global permissions). */
+function WorkspaceSettings() {
+  const loaded = useWorkspace((s) => s.settings);
+  const setSettings = useWorkspace((s) => s.setSettings);
+  const loadSettings = useWorkspace((s) => s.loadSettings);
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+  const [saving, setSaving] = useState(false);
+  const settings = loaded ?? DEFAULT_WORKSPACE_SETTINGS;
+
+  async function change(event) {
+    const projectCreation = event.target.value;
+    const previous = settings;
+    setSettings({ ...settings, projectCreation });
+    setSaving(true);
+    try {
+      setSettings(await api.settings.update({ projectCreation }));
+      toast.success(projectCreation === 'everyone' ? 'Everyone can now create projects.' : 'Only leads and admins can create projects now.');
+    } catch (error) {
+      setSettings(previous);
+      toast.error(`Could not change the setting. ${describeError(error)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="workspace-settings" aria-labelledby="workspace-settings-title">
+      <div>
+        <h2 id="workspace-settings-title" className="workspace-settings-title">Workspace settings</h2>
+        <p className="workspace-settings-hint">Applies to everyone at once. Existing projects keep their owners.</p>
+      </div>
+      <div className="workspace-setting">
+        <label htmlFor="project-creation" className="workspace-setting-label">Who can create projects</label>
+        <select id="project-creation" className="select" value={settings.projectCreation} onChange={change} disabled={saving || !loaded} aria-busy={saving || undefined}>
+          {PROJECT_CREATION.map((value) => (
+            <option key={value} value={value}>{PROJECT_CREATION_LABELS[value]}</option>
+          ))}
+        </select>
+      </div>
+    </section>
+  );
+}
 
 /** Admin user management (SRS §2.2): find accounts, change workspace roles, deactivate accounts. */
 export function UsersAdmin() {
   const me = useSession((s) => s.user);
+  const settings = useWorkspace((s) => s.settings);
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [role, setRole] = useState('');
@@ -132,11 +179,13 @@ export function UsersAdmin() {
             <div key={r}>
               <dt>{r}s</dt>
               <dd>{counts[r]}</dd>
-              <dd className="role-summary-hint" title={WORKSPACE_ROLE_SUMMARY[r]}>{ROLE_HINT[r]}</dd>
+              <dd className="role-summary-hint" title={WORKSPACE_ROLE_SUMMARY[r]}>{roleHint(r, settings ?? undefined)}</dd>
             </div>
           ))}
         </dl>
       ) : null}
+
+      <WorkspaceSettings />
 
       <div className="filters admin-filters" role="search" aria-label="Find users">
         <div className="input-with-icon">

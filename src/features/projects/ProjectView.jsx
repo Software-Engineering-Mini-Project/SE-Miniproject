@@ -5,7 +5,7 @@ import { RefreshNotice } from '@/components/ui/RefreshNotice';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NumberFlow from '@number-flow/react';
-import { BarChart3, Download, FolderX, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { BarChart3, Download, FolderX, Globe, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { statusKey } from '@/components/charts/Charts';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
@@ -22,6 +22,7 @@ import { AvatarStack } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Dialog';
 import { Menu } from '@/components/ui/Menu';
+import { VisibilityBadge } from '@/components/ui/Tags';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
 import { KanbanBoard } from '@/features/board/KanbanBoard';
 import { TaskFilters, EMPTY_FILTERS, applyFilters, hasActiveFilters } from '@/features/tasks/TaskFilters';
@@ -105,6 +106,43 @@ function SummaryStrip({ tasks }) {
           </dd>
         </div>
       </dl>
+    </div>
+  );
+}
+
+function JoinGate({ projectId, onJoined }) {
+  const router = useRouter();
+  const [joining, setJoining] = useState(false);
+  const join = async () => {
+    setJoining(true);
+    try {
+      const joined = await api.projects.join(projectId);
+      onJoined(joined);
+      toast.success(`You joined ${joined.name}.`);
+      // The join invalidates this project's queries, so the board loads in place.
+    } catch (error) {
+      toast.error(describeError(error));
+      setJoining(false);
+    }
+  };
+  return (
+    <div className="join-gate">
+      <EmptyState
+        icon={Globe}
+        title="This project is open to everyone"
+        action={
+          <div className="state-actions">
+            <Button variant="primary" loading={joining} onClick={join}>
+              Join project
+            </Button>
+            <Button variant="ghost" onClick={() => router.push('/projects')}>
+              Back to projects
+            </Button>
+          </div>
+        }
+      >
+        Join it as a member to see the board, add tasks and comment.
+      </EmptyState>
     </div>
   );
 }
@@ -200,6 +238,11 @@ export function ProjectView({ projectId }) {
     [tasks],
   );
 
+  // An open project the user is not in yet: offer to join instead of a dead end.
+  if (project.error?.errorCode === 'JOIN_REQUIRED') {
+    return <JoinGate projectId={projectId} onJoined={upsertProject} />;
+  }
+
   if ((project.error && !project.data) || lostStatus) {
     const status = lostStatus || project.error.status;
     return (
@@ -212,7 +255,7 @@ export function ProjectView({ projectId }) {
           </Button>
         }
       >
-        {status === 403 ? 'Ask the project lead to add you.' : status === 404 ? 'It may have been deleted.' : describeError(project.error)}
+        {status === 403 ? 'It is private. Ask its owner or a manager to add you.' : status === 404 ? 'It may have been deleted.' : describeError(project.error)}
       </EmptyState>
     );
   }
@@ -283,6 +326,7 @@ export function ProjectView({ projectId }) {
         <div className="project-heading">
           <div className="project-title-row">
             <h1 className="page-title">{p.name}</h1>
+            <VisibilityBadge visibility={p.visibility} />
             {myRole ? (
               <span className="role-badge" data-role={myRole.toLowerCase()} title="Your role in this project">
                 {myRole === 'Admin' ? 'Admin access' : myRole}
@@ -367,7 +411,7 @@ export function ProjectView({ projectId }) {
             ) : null
           }
         >
-          {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'The project owner or a manager adds tasks here.'}
+          {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
         </EmptyState>
       ) : view === 'insights' ? (
         <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} onOpenTask={openTask} />

@@ -91,13 +91,65 @@ test('TC-AUTH-03 profile name and password updates persist', () => {
   assert.equal(call('POST', '/auth/login', { body: { email: 'member@example.test', password: 'newpass123' } }).status, 200);
 });
 
-test('TC-PROJ-01 leads create projects; members cannot; outsiders see no projects', () => {
+test('TC-PROJ-01 anyone creates projects by default; an admin can limit it to leads; outsiders see no projects', () => {
   const { call, login } = setup();
   const created = call('POST', '/projects', { token: login('lead@example.test'), body: { name: 'Gamma', description: 'New' } });
   assert.equal(created.status, 201);
   assert.deepEqual(created.data.memberIds, ['user-lead-001']);
-  assertEnvelope(call('POST', '/projects', { token: login('member@example.test'), body: { name: 'Nope' } }), 403, 'FORBIDDEN');
+  assert.equal(created.data.visibility, 'private');
+  const admin = login('admin@example.test');
+  const member = login('member@example.test');
+  assert.equal(call('POST', '/projects', { token: member, body: { name: 'Mine' } }).status, 201);
   assert.deepEqual(call('GET', '/projects', { token: login('outsider@example.test') }).data, []);
+
+  assert.deepEqual(call('GET', '/settings', { token: member }).data, { projectCreation: 'everyone' });
+  assertEnvelope(call('PATCH', '/settings', { token: member, body: { projectCreation: 'leads' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', '/settings', { token: admin, body: { projectCreation: 'nobody' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('PATCH', '/settings', { token: admin, body: {} }), 400, 'VALIDATION_ERROR');
+  assert.deepEqual(call('PATCH', '/settings', { token: admin, body: { projectCreation: 'leads' } }).data, { projectCreation: 'leads' });
+  const blocked = call('POST', '/projects', { token: member, body: { name: 'Not now' } });
+  assertEnvelope(blocked, 403, 'FORBIDDEN');
+  assert.match(blocked.data.message, /only leads and admins can create projects/);
+  assert.equal(call('POST', '/projects', { token: login('lead@example.test'), body: { name: 'Lead one' } }).status, 201);
+});
+
+test('open projects: directory, join, JOIN_REQUIRED and visibility changes mirror the API', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const outsider = login('outsider@example.test');
+  const created = call('POST', '/projects', { token: lead, body: { name: 'Design system', description: 'Shared components', visibility: 'open' } }).data;
+  assert.equal(created.visibility, 'open');
+  assertEnvelope(call('POST', '/projects', { token: lead, body: { name: 'Bad', visibility: 'public' } }), 400, 'VALIDATION_ERROR');
+
+  assert.deepEqual(call('GET', '/projects/directory', { token: outsider }).data, [
+    { id: created.id, name: 'Design system', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 },
+  ]);
+  assert.deepEqual(call('GET', '/projects/directory', { token: lead }).data, [], 'projects you are in are not listed');
+  assert.equal(call('GET', '/projects/directory', { token: outsider, query: { q: 'DESIGN' } }).data.length, 1);
+  assert.equal(call('GET', '/projects/directory', { token: outsider, query: { q: 'alpha' } }).data.length, 0, 'private projects never appear');
+
+  assertEnvelope(call('GET', `/projects/${created.id}`, { token: outsider }), 403, 'JOIN_REQUIRED');
+  assertEnvelope(call('GET', `/projects/${created.id}/tasks`, { token: outsider }), 403, 'JOIN_REQUIRED');
+  assertEnvelope(call('GET', '/projects/project-alpha', { token: outsider }), 403, 'FORBIDDEN');
+
+  const joined = call('POST', `/projects/${created.id}/join`, { token: outsider });
+  assert.equal(joined.status, 201);
+  assert.equal(joined.data.members.find((m) => m.id === 'user-outsider-001').projectRole, 'Member');
+  assert.equal(call('POST', `/projects/${created.id}/join`, { token: outsider }).status, 200, 'joining twice is harmless');
+  assert.equal(call('GET', `/projects/${created.id}`, { token: outsider }).data.memberIds.length, 2);
+  assert.equal(call('POST', `/projects/${created.id}/tasks`, { token: outsider, body: { title: 'First contribution' } }).status, 201);
+
+  const privateJoin = call('POST', '/projects/project-alpha/join', { token: outsider });
+  assertEnvelope(privateJoin, 403, 'FORBIDDEN');
+  assert.equal(privateJoin.data.message, 'This project is private. Ask its owner or a manager to add you.');
+  assertEnvelope(call('POST', '/projects/nope/join', { token: outsider }), 404, 'NOT_FOUND');
+
+  assertEnvelope(call('PATCH', `/projects/${created.id}`, { token: outsider, body: { visibility: 'private' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', `/projects/${created.id}`, { token: lead, body: { visibility: 'secret' } }), 400, 'VALIDATION_ERROR');
+  const toPrivate = call('PATCH', `/projects/${created.id}`, { token: lead, body: { visibility: 'private' } }).data;
+  assert.equal(toPrivate.visibility, 'private');
+  assert.ok(toPrivate.memberIds.includes('user-outsider-001'), 'going private keeps members');
+  assert.deepEqual(call('GET', '/projects/directory', { token: login('admin@example.test') }).data, []);
 });
 
 test('dashboard returns project aggregates and only the caller accessible tasks', () => {
@@ -142,7 +194,10 @@ test('TC-TASK-01 create task validates required fields and defaults status', () 
   assert.equal(created.data.status, 'To Do');
   assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { priority: 'High' } }), 400, 'VALIDATION_ERROR');
   assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', dueDate: '2026-13-45' } }), 400, 'VALIDATION_ERROR');
-  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: login('member@example.test'), body: { title: 'x' } }), 403, 'FORBIDDEN');
+  assert.equal(call('POST', '/projects/project-alpha/tasks', { token: login('member@example.test'), body: { title: 'Member task' } }).status, 201, 'members create tasks');
+  const viewerCreate = call('POST', '/projects/project-alpha/tasks', { token: login('viewer@example.test'), body: { title: 'x' } });
+  assertEnvelope(viewerCreate, 403, 'FORBIDDEN');
+  assert.equal(viewerCreate.data.message, 'Viewers cannot create tasks.');
 });
 
 test('TC-TASK-02 edit and delete persist; delete cascades comments and notifications', () => {
@@ -371,7 +426,7 @@ test('completedAt mirrors the API: stamped on Done by any route, kept on re-Done
   assert.equal(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Open' } }).data.completedAt, null);
 });
 
-test('checklists mirror the API: members tick, owners edit, viewers cannot, 50-item cap', () => {
+test('checklists mirror the API: owners and members edit, viewers cannot, 50-item cap', () => {
   const { call, login } = setup();
   const lead = login('lead@example.test');
   const member = login('member@example.test');
@@ -384,8 +439,12 @@ test('checklists mirror the API: members tick, owners edit, viewers cannot, 50-i
   assert.deepEqual([item.text, item.done], ['Empty column state', false]);
   assert.equal(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: member, body: { done: true } }).data.checklist.at(-1).done, true);
 
-  assertEnvelope(call('POST', '/tasks/task-002/checklist', { token: member, body: { text: 'Nope' } }), 403, 'FORBIDDEN');
-  assertEnvelope(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: member, body: { text: 'Nope' } }), 403, 'FORBIDDEN');
+  const memberItem = call('POST', '/tasks/task-002/checklist', { token: member, body: { text: 'Member step' } }).data.checklist.at(-1);
+  assert.equal(call('PATCH', `/tasks/task-002/checklist/${memberItem.id}`, { token: member, body: { text: 'Renamed by member' } }).status, 200);
+  assert.equal(call('DELETE', `/tasks/task-002/checklist/${memberItem.id}`, { token: member }).status, 200);
+  const viewerAdd = call('POST', '/tasks/task-002/checklist', { token: viewer, body: { text: 'Nope' } });
+  assertEnvelope(viewerAdd, 403, 'FORBIDDEN');
+  assert.equal(viewerAdd.data.message, 'Viewers cannot edit tasks.');
   assertEnvelope(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: viewer, body: { done: false } }), 403, 'FORBIDDEN');
   assertEnvelope(call('PATCH', `/tasks/task-002/checklist/${item.id}`, { token: lead, body: { done: 'yes' } }), 400, 'VALIDATION_ERROR');
   assertEnvelope(call('POST', '/tasks/task-002/checklist', { token: lead, body: { text: '   ' } }), 400, 'VALIDATION_ERROR');

@@ -98,6 +98,20 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       await expectAccessible(page, 'Upcoming agenda');
     });
 
+    test('getting started, open projects and the project form', async ({ page }) => {
+      // The outsider is in no project, so Projects shows the getting-started screen.
+      await signIn(page, 'outsider@example.test');
+      await page.goto('/projects');
+      await settle(page);
+      await expect(page.getByRole('region', { name: 'Get started' })).toBeVisible();
+      await expect(page.getByText(/Nothing to join right now/)).toBeVisible();
+      await expectAccessible(page, 'Getting started');
+      await page.getByRole('region', { name: 'Get started' }).getByRole('button', { name: 'New project' }).click();
+      const dialog = page.getByRole('dialog', { name: 'New project' });
+      await dialog.getByRole('radio', { name: /Open/ }).check();
+      await expectAccessible(page, 'New project dialog');
+    });
+
     test('admin users page', async ({ page }) => {
       await signIn(page, 'admin@example.test');
       await page.goto('/admin/users');

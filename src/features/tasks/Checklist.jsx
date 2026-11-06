@@ -15,8 +15,8 @@ export function checklistProgress(checklist) {
 }
 
 /**
- * A task's checklist in the task sheet. Members tick items off (`canTick`); owners and managers
- * also add and remove them (`canEdit`). Ticks show at once and roll back if the API refuses.
+ * A task's checklist in the task sheet. `canTick` ticks items off (task.status); `canEdit` also adds,
+ * renames and removes them (task.edit). Viewers get neither. Ticks show at once and roll back if the API refuses.
  * `onChange(checklist, updatedAt?)` keeps the parent's task list in step.
  */
 export function Checklist({ task, canTick, canEdit, onChange }) {

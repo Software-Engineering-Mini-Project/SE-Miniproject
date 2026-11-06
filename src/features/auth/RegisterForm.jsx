@@ -64,7 +64,7 @@ export function RegisterForm() {
   return (
     <>
       <h1 className="auth-title">Create your account</h1>
-      <p className="auth-lede">A project lead adds you to projects after you sign up.</p>
+      <p className="auth-lede">Then create a project, join an open one, or get added by a teammate.</p>
 
       <form className="auth-form" noValidate onSubmit={handleSubmit}>
         {formError ? (

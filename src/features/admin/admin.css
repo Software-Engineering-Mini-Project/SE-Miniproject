@@ -150,3 +150,39 @@
     justify-content: flex-start;
   }
 }
+
+/* ---------- Admin: workspace settings ---------- */
+.workspace-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.workspace-settings-title {
+  font-size: var(--text-base);
+  font-weight: 650;
+}
+
+.workspace-settings-hint {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.workspace-setting {
+  display: grid;
+  gap: 6px;
+  flex: 0 1 280px;
+  min-width: 0;
+}
+
+.workspace-setting-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}

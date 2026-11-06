@@ -5,12 +5,30 @@
 import { localToday } from './dates.js';
 import { create } from 'zustand';
 import { api } from './api/client.js';
+import { DEFAULT_WORKSPACE_SETTINGS } from './permissions.js';
 import { prefetchQuery } from './hooks/useQuery.js';
 
 export const useWorkspace = create((set, get) => ({
   projects: null,
   projectsError: null,
   unreadCount: 0,
+  // Workspace settings (who may create projects). null until loaded; the API re-checks anyway.
+  settings: null,
+
+  async loadSettings() {
+    try {
+      const settings = await api.settings.get();
+      set({ settings: { ...DEFAULT_WORKSPACE_SETTINGS, ...settings } });
+    } catch {
+      // Keep the last known settings (the defaults if none); the API explains any refusal.
+      if (!get().settings) set({ settings: DEFAULT_WORKSPACE_SETTINGS });
+    }
+    return get().settings;
+  },
+
+  setSettings(settings) {
+    set({ settings: { ...DEFAULT_WORKSPACE_SETTINGS, ...settings } });
+  },
 
   async loadProjects() {
     try {
@@ -58,6 +76,6 @@ export const useWorkspace = create((set, get) => ({
   },
 
   clear() {
-    set({ projects: null, projectsError: null, unreadCount: 0 });
+    set({ projects: null, projectsError: null, unreadCount: 0, settings: null });
   },
 }));

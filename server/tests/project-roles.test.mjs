@@ -82,10 +82,13 @@ test('a Manager edits the project and manages members, but cannot delete it or g
   assert.equal((await api().post('/api/projects/project-beta/members').set(auth(lead)).send({ email: 'member@example.test', role: 'Owner' })).status, 400);
 });
 
-test('only the Owner (or an Admin) grants Manager; a promoted Member gains task rights at once', async () => {
+test('only the Owner (or an Admin) grants Manager; a promoted Member gains manager rights at once', async () => {
   const lead = await login('lead@example.test');
   const member = await login('member@example.test');
-  assert.equal((await api().post('/api/projects/project-alpha/tasks').set(auth(member)).send({ title: 'Too early' })).status, 403);
+  // Members create and edit tasks, but deleting is for managers.
+  const early = await api().post('/api/projects/project-alpha/tasks').set(auth(member)).send({ title: 'Member task' });
+  assert.equal(early.status, 201, early.text);
+  assert.equal((await api().delete(`/api/tasks/${early.body.id}`).set(auth(member))).status, 403);
 
   const promoted = await api().patch('/api/projects/project-alpha/members/user-member-001').set(auth(lead)).send({ role: 'Manager' });
   assert.equal(promoted.status, 200, promoted.text);
@@ -93,7 +96,7 @@ test('only the Owner (or an Admin) grants Manager; a promoted Member gains task 
   const audit = logRecords.find((record) => record.route === '/api/projects/:projectId/members/:userId' && record.change);
   assert.deepEqual(audit?.change, { field: 'projectRole', from: 'Member', to: 'Manager' });
 
-  assert.equal((await api().post('/api/projects/project-alpha/tasks').set(auth(member)).send({ title: 'Now allowed' })).status, 201);
+  assert.equal((await api().delete(`/api/tasks/${early.body.id}`).set(auth(member))).status, 204, 'a Manager deletes tasks');
   // A Manager can't remove or demote another Manager, and can't delete the project.
   await api().patch('/api/projects/project-alpha/members/user-member-002').set(auth(lead)).send({ role: 'Manager' });
   assert.equal((await api().delete('/api/projects/project-alpha/members/user-member-002').set(auth(member))).status, 403);

@@ -38,7 +38,7 @@ test('tasks carry their checklist; the CSV export does not', async () => {
   assert.doesNotMatch(csv.text, /Lay out the three status columns/);
 });
 
-test('owners add, rename and remove items; members tick them; viewers and outsiders cannot', async () => {
+test('owners and members add, rename, tick and remove items; viewers and outsiders cannot', async () => {
   const added = await api().post('/api/tasks/task-002/checklist').set(auth(tokens.lead)).send({ text: '  Empty column state  ' });
   assert.equal(added.status, 201, added.text);
   const item = added.body.checklist.at(-1);
@@ -51,10 +51,16 @@ test('owners add, rename and remove items; members tick them; viewers and outsid
   assert.equal(ticked.status, 200, ticked.text);
   assert.equal(ticked.body.checklist.at(-1).done, true);
 
-  // Members can tick but not edit.
-  assert.equal((await api().post('/api/tasks/task-002/checklist').set(auth(tokens.member)).send({ text: 'Nope' })).status, 403);
-  assert.equal((await api().patch(`/api/tasks/task-002/checklist/${item.id}`).set(auth(tokens.member)).send({ text: 'Renamed' })).status, 403);
-  assert.equal((await api().delete(`/api/tasks/task-002/checklist/${item.id}`).set(auth(tokens.member))).status, 403);
+  // Members edit the list too.
+  const memberAdded = await api().post('/api/tasks/task-002/checklist').set(auth(tokens.member)).send({ text: 'Member step' });
+  assert.equal(memberAdded.status, 201);
+  const memberItem = memberAdded.body.checklist.at(-1);
+  assert.equal((await api().patch(`/api/tasks/task-002/checklist/${memberItem.id}`).set(auth(tokens.member)).send({ text: 'Member step, renamed' })).status, 200);
+  assert.equal((await api().delete(`/api/tasks/task-002/checklist/${memberItem.id}`).set(auth(tokens.member))).status, 200);
+  // Viewers can't edit it.
+  const viewerAdd = await api().post('/api/tasks/task-002/checklist').set(auth(tokens.viewer)).send({ text: 'Nope' });
+  assert.equal(viewerAdd.status, 403);
+  assert.equal(viewerAdd.body.message, 'Viewers cannot edit tasks.');
   // Viewers can't even tick; outsiders can't see the task.
   const viewer = await api().patch(`/api/tasks/task-002/checklist/${item.id}`).set(auth(tokens.viewer)).send({ done: false });
   assert.equal(viewer.status, 403);

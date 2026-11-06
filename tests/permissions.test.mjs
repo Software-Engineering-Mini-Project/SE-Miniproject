@@ -6,6 +6,7 @@ import {
   PROJECT_ACTION_LABELS,
   can,
   canCreateProject,
+  canJoinProject,
   grantableRolesFor,
   memberRemovalError,
   memberRoleChangeError,
@@ -37,7 +38,7 @@ test('the permission matrix', () => {
   const expected = {
     owner: PROJECT_ACTIONS,
     manager: PROJECT_ACTIONS.filter((action) => !['project.delete', 'project.transfer', 'members.manageManagers'].includes(action)),
-    member: ['project.view', 'project.export', 'task.status', 'task.assignable', 'comment.create'],
+    member: ['project.view', 'project.export', 'task.create', 'task.edit', 'task.status', 'task.assignable', 'comment.create'],
     viewer: ['project.view', 'project.export', 'comment.create'],
     stranger: [],
   };
@@ -52,10 +53,25 @@ test('the permission matrix', () => {
   assert.ok(PROJECT_ACTIONS.every((action) => PROJECT_ACTION_LABELS[action]));
 });
 
-test('workspace roles: only Leads and Admins create projects', () => {
-  assert.equal(canCreateProject(user('a', 'Admin')), true);
-  assert.equal(canCreateProject(user('a', 'Lead')), true);
-  assert.equal(canCreateProject(user('a', 'Member')), false);
+test('project creation follows the workspace setting; Leads and Admins can always create', () => {
+  for (const role of ['Admin', 'Lead', 'Member']) assert.equal(canCreateProject(user('a', role)), true, `${role}, default setting`);
+  const leadsOnly = { projectCreation: 'leads' };
+  assert.equal(canCreateProject(user('a', 'Admin'), leadsOnly), true);
+  assert.equal(canCreateProject(user('a', 'Lead'), leadsOnly), true);
+  assert.equal(canCreateProject(user('a', 'Member'), leadsOnly), false);
+  assert.equal(canCreateProject({ id: 'a', role: 'Admin', active: false }), false, 'deactivated accounts create nothing');
+  assert.equal(canCreateProject(null), false);
+  assert.equal(canCreateProject(user('a', 'Member'), {}), true, 'missing settings fall back to the default');
+});
+
+test('joining: only open projects, only when not already in them', () => {
+  const open = { ...project, visibility: 'open' };
+  assert.equal(canJoinProject(user('stranger'), open), true);
+  assert.equal(canJoinProject(user('member'), open), false, 'already a member');
+  assert.equal(canJoinProject(user('stranger'), project), false, 'private');
+  assert.equal(canJoinProject(user('stranger'), { ...project, visibility: undefined }), false, 'missing visibility means private');
+  assert.equal(canJoinProject(null, open), false);
+  assert.equal(canJoinProject({ id: 'stranger', role: 'Member', deactivatedAt: '2026-01-01' }, open), false);
 });
 
 test('role changes: who may grant what', () => {

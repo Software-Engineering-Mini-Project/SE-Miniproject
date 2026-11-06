@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronsUp, ChevronUp, Gauge, Minus } from 'lucide-react';
+import { CalendarClock, ChevronsUp, ChevronUp, Gauge, Globe, Lock, Minus } from 'lucide-react';
 import { PRIORITY_META, STATUS_META } from '@/lib/constants';
 import { daysUntil, formatDue, isOverdue } from '@/lib/format';
 
@@ -53,6 +53,18 @@ export function DueTag({ task }) {
     <span className="due-tag" data-tone={overdue ? 'overdue' : soon ? 'soon' : undefined}>
       <CalendarClock size={13} aria-hidden="true" />
       {label}
+    </span>
+  );
+}
+
+/** Private (invite only) or Open (anyone in the workspace can join). */
+export function VisibilityBadge({ visibility }) {
+  const open = visibility === 'open';
+  const Icon = open ? Globe : Lock;
+  return (
+    <span className="visibility-badge" data-visibility={open ? 'open' : 'private'}>
+      <Icon size={12} aria-hidden="true" />
+      {open ? 'Open' : 'Private'}
     </span>
   );
 }

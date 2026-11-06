@@ -1,5 +1,6 @@
 // Quick add, checklists and the Upcoming agenda, end to end. Leaves the shared fixtures as it
-// found them: the quick-added task is deleted, and the ticked fixture item is unticked again.
+// found them: the quick-added task is deleted, the ticked fixture item is unticked again, and the
+// member's checklist item is removed.
 import { expect, test } from '@playwright/test';
 
 const PASSWORD = 'Password123!';
@@ -28,6 +29,21 @@ async function saved(page, taskTitle, itemText, done, change) {
     .poll(() => page.evaluate(([t, i]) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}')
       .tasks.find((task) => task.title === t)?.checklist?.find((item) => item.text === i)?.done, [taskTitle, itemText]))
     .toBe(done);
+}
+
+/** Removing is optimistic too; wait until the item is really gone before reloading. */
+async function removed(page, taskTitle, itemText, change) {
+  if (!MOCK_MODE) {
+    const response = page.waitForResponse((r) => r.request().method() === 'DELETE' && /\/tasks\/[^/]+\/checklist\/[^/]+$/.test(r.url()));
+    await change();
+    expect((await response).ok()).toBe(true);
+    return;
+  }
+  await change();
+  await expect
+    .poll(() => page.evaluate(([t, i]) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}')
+      .tasks.find((task) => task.title === t)?.checklist?.some((item) => item.text === i), [taskTitle, itemText]))
+    .toBe(false);
 }
 
 test('an owner quick-adds a task with details, builds its checklist, then deletes it', async ({ page }) => {
@@ -70,13 +86,23 @@ test('an owner quick-adds a task with details, builds its checklist, then delete
   await expect(toDo(page).getByRole('button', { name: new RegExp(title) })).toHaveCount(0);
 });
 
-test('a member ticks checklist items but cannot edit the list, and plans from Upcoming', async ({ page }) => {
+test('a member ticks and edits checklist items, and plans from Upcoming', async ({ page }) => {
   await signIn(page, 'member@example.test');
   await page.goto('/projects/project-alpha?task=task-002');
   const sheet = page.getByRole('dialog');
   await expect(sheet.getByText('2 of 4 done')).toBeVisible();
-  await expect(sheet.getByRole('textbox', { name: 'Add a checklist item' })).toHaveCount(0);
-  await expect(sheet.getByRole('button', { name: /^Remove "/ })).toHaveCount(0);
+
+  // Members edit the list too: add an item, then remove it again.
+  const step = `Member step ${Date.now()}`;
+  const addItem = sheet.getByRole('textbox', { name: 'Add a checklist item' });
+  await addItem.fill(step);
+  await addItem.press('Enter');
+  await expect(sheet.getByRole('checkbox', { name: step })).toBeVisible();
+  await expect(sheet.getByText('2 of 5 done')).toBeVisible();
+  await removed(page, 'Build the project board columns', step, () => sheet.getByRole('button', { name: `Remove "${step}"` }).click());
+  await expect(sheet.getByText('2 of 4 done')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('dialog').getByText('2 of 4 done')).toBeVisible();
 
   const item = sheet.getByRole('checkbox', { name: 'Drag cards between columns' });
   await saved(page, 'Build the project board columns', 'Drag cards between columns', true, () => sheet.getByText('Drag cards between columns').click());
