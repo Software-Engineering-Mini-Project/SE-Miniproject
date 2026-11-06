@@ -595,7 +595,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const dueDate = dateOnly(body, 'dueDate', { label: 'Due date' });
       const assigneeIds = validateAssignees(body, project) || [];
       const at = stamp();
-      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, completedAt: status === 'Done' ? at : null, createdAt: at, updatedAt: at };
+      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
       db.tasks.push(task);
       notifyAssignment(task, assigneeIds, user);
       return [201, taskDto(task)];
@@ -649,6 +649,42 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       applyStatus(task, oneOf(body, 'status', TASK_STATUSES, { label: 'Status' }));
       task.updatedAt = stamp();
       return [200, { taskId: task.id, status: task.status, completedAt: task.completedAt ?? null, updatedAt: task.updatedAt }];
+    }],
+
+    // Checklist items: ticking is progress (task.status); adding, renaming, removing is editing.
+    ['POST', '/tasks/:taskId/checklist', ({ user, params, body }) => {
+      const { task } = taskFor(user, params.taskId, { action: 'task.edit' });
+      const text = str(body, 'text', { max: LIMITS.checklistItemMax, label: 'Checklist item' });
+      task.checklist ??= [];
+      if (task.checklist.length >= LIMITS.checklistItems) {
+        badRequest(`A task can have at most ${LIMITS.checklistItems} checklist items.`, { text: `A task can have at most ${LIMITS.checklistItems} checklist items.` });
+      }
+      task.checklist.push({ id: nextId('check'), text, done: false });
+      task.updatedAt = stamp();
+      return [201, { taskId: task.id, checklist: clone(task.checklist), updatedAt: task.updatedAt }];
+    }],
+
+    ['PATCH', '/tasks/:taskId/checklist/:itemId', ({ user, params, body }) => {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) badRequest('Send a JSON object.');
+      if (body.done !== undefined && typeof body.done !== 'boolean') badRequest('Done must be true or false.', { done: 'Done must be true or false.' });
+      if (body.done === undefined && body.text === undefined) badRequest('Provide done or text to update.');
+      const text = body.text !== undefined ? str(body, 'text', { max: LIMITS.checklistItemMax, label: 'Checklist item' }) : undefined;
+      const { task } = taskFor(user, params.taskId, { action: text !== undefined ? 'task.edit' : 'task.status' });
+      const item = (task.checklist || []).find((entry) => entry.id === params.itemId);
+      if (!item) notFound('Checklist item');
+      if (body.done !== undefined) item.done = body.done;
+      if (text !== undefined) item.text = text;
+      task.updatedAt = stamp();
+      return [200, { taskId: task.id, checklist: clone(task.checklist), updatedAt: task.updatedAt }];
+    }],
+
+    ['DELETE', '/tasks/:taskId/checklist/:itemId', ({ user, params }) => {
+      const { task } = taskFor(user, params.taskId, { action: 'task.edit' });
+      const index = (task.checklist || []).findIndex((entry) => entry.id === params.itemId);
+      if (index < 0) notFound('Checklist item');
+      task.checklist.splice(index, 1);
+      task.updatedAt = stamp();
+      return [200, { taskId: task.id, checklist: clone(task.checklist), updatedAt: task.updatedAt }];
     }],
 
     ['GET', '/tasks/:taskId/comments', ({ user, params }) => {

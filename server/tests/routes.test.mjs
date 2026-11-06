@@ -16,6 +16,11 @@ const app = createApp({
   now: () => FIXED_NOW,
   logger: (record) => logRecords.push(record),
 });
+// Rate-limit counters expire through a MongoDB TTL index, which compares against the real clock.
+// Under FIXED_NOW (in the past) the counters already look expired, and the TTL monitor (every
+// ~60 s) could delete them mid-test. The throttling tests use a clock a day ahead instead.
+const LIMIT_NOW = new Date(Date.now() + 86_400_000);
+const limitApp = createApp({ jwtSecret: JWT_SECRET, now: () => LIMIT_NOW, logger: () => {} });
 
 let database;
 let adminToken;
@@ -99,12 +104,12 @@ test('registration, login, bearer auth, profile updates, and password changes fo
 
 test('registration is limited to five attempts per client IP per ten minutes', async () => {
   const ip = '198.51.100.88';
-  const registrations = await Promise.all(Array.from({ length: 5 }, (_, index) => request(app)
+  const registrations = await Promise.all(Array.from({ length: 5 }, (_, index) => request(limitApp)
     .post('/api/auth/register')
     .set('X-Forwarded-For', ip)
     .send({ name: `Rate Limited ${index}`, email: `register-limit-${index}@example.test`, password: 'Password123!' })));
   assert.deepEqual(registrations.map((response) => response.status), [201, 201, 201, 201, 201]);
-  const limited = await request(app).post('/api/auth/register').set('X-Forwarded-For', ip).send({
+  const limited = await request(limitApp).post('/api/auth/register').set('X-Forwarded-For', ip).send({
     name: 'Must not be created', email: 'register-limit-six@example.test', password: 'Password123!',
   });
   assert.equal(limited.status, 429);
@@ -254,19 +259,19 @@ test('authentication errors and failed-login throttling return stable envelopes'
   assert.equal(expired.body.errorCode, 'TOKEN_EXPIRED');
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const response = await request(app).post('/api/auth/login').send({
+    const response = await request(limitApp).post('/api/auth/login').send({
       email: 'rate-limit@example.test', password: 'WrongPassword123',
     }).set('X-Forwarded-For', '198.51.100.40');
     assert.equal(response.status, 401);
     assert.equal(response.body.errorCode, 'INVALID_CREDENTIALS');
   }
-  const throttled = await request(app).post('/api/auth/login').send({
+  const throttled = await request(limitApp).post('/api/auth/login').send({
     email: 'rate-limit@example.test', password: 'WrongPassword123',
   }).set('X-Forwarded-For', '198.51.100.40');
   assert.equal(throttled.status, 429);
   assert.equal(throttled.body.errorCode, 'RATE_LIMITED');
 
-  const restartedApp = createApp({ jwtSecret: JWT_SECRET, now: () => FIXED_NOW, logger: () => {} });
+  const restartedApp = createApp({ jwtSecret: JWT_SECRET, now: () => LIMIT_NOW, logger: () => {} });
   const afterRestart = await request(restartedApp).post('/api/auth/login').send({
     email: 'rate-limit@example.test', password: 'WrongPassword123',
   }).set('X-Forwarded-For', '198.51.100.40');
@@ -274,7 +279,7 @@ test('authentication errors and failed-login throttling return stable envelopes'
 
   const afterWindowApp = createApp({
     jwtSecret: JWT_SECRET,
-    now: () => new Date(FIXED_NOW.getTime() + 60_001),
+    now: () => new Date(LIMIT_NOW.getTime() + 60_001),
     logger: () => {},
   });
   const afterWindow = await request(afterWindowApp).post('/api/auth/login').send({
@@ -285,12 +290,12 @@ test('authentication errors and failed-login throttling return stable envelopes'
 
 test('failed login throttling also limits account spraying from one forwarded client IP', async () => {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const response = await request(app).post('/api/auth/login').send({
+    const response = await request(limitApp).post('/api/auth/login').send({
       email: `spray-${attempt}@example.test`, password: 'WrongPassword123',
     }).set('X-Forwarded-For', '198.51.100.66');
     assert.equal(response.status, 401, `failed login ${attempt + 1}`);
   }
-  const limited = await request(app).post('/api/auth/login').send({
+  const limited = await request(limitApp).post('/api/auth/login').send({
     email: 'spray-final@example.test', password: 'WrongPassword123',
   }).set('X-Forwarded-For', '198.51.100.66');
   assert.equal(limited.status, 429);

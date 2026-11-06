@@ -60,6 +60,14 @@ Anyone except the Owner can leave a project. The full matrix is in [docs/backend
 
 Changing a password signs out every other session for that account; deactivating an account signs it out everywhere and blocks sign-in until an Admin reactivates it.
 
+## Planning features
+
+- **Quick add** (project board and list): type a whole task on one line, e.g. `Draft the release notes fri !high @mina`. `!high`/`!medium`/`!low` (or `!1`–`!3`) set priority, `@name` assigns a member (first name, email name or a unique prefix; `@me` is you), and `today`, `tomorrow`, `fri`, `next week`, `in 3 days`, `nov 20` or `2026-11-20` set the due date. A preview shows what was understood before anything is created; ✕ on a piece keeps that word as plain text. Parser: [`src/lib/quick-add.js`](src/lib/quick-add.js).
+- **Checklists**: break a task into steps in the task sheet. Members tick steps off; owners and managers add and remove them. Cards show progress (`2/5`). Each change is one atomic update, so people working through the same list don't overwrite each other.
+- **Upcoming** (My tasks): open tasks as an agenda, grouped into Overdue, Today, Tomorrow, each of the next five days, Later and No due date.
+
+Quick-add syntax and the agenda follow [Vikunja](https://github.com/go-vikunja/vikunja) ("Quick Add Magic") and [Planify](https://github.com/alainm23/planify); checklists follow both.
+
 ## Delivery forecast
 
 A project's **Insights** view answers "when will this be done, and which due dates are in trouble?" from the team's own pace instead of estimates. [`src/lib/forecast.js`](src/lib/forecast.js) runs a Monte Carlo simulation over the last six weeks of completions (each task's `completedAt`): every simulated day replays a randomly chosen day of real throughput, 4,000 times, giving a finish date at 50%, 85% and 95% confidence and, for every dated open task, the chance it finishes by its due date. Tasks below 85% are flagged **Tight** and below 50% **At risk** on the board, in the list and in the task sheet.
