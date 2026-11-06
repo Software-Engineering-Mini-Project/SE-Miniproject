@@ -81,6 +81,21 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       // The forecast's state depends on how far today is from the fixture dates; scan whichever shows.
       await expect(page.getByRole('region', { name: /Delivery forecast/ })).toBeVisible();
       await expectAccessible(page, 'Project insights');
+
+      // Quick add with its preview, the task sheet with a checklist, and the Upcoming agenda.
+      await page.getByRole('button', { name: 'Board' }).click();
+      await page.getByRole('textbox', { name: 'Quick add a task' }).fill('Accessibility check tomorrow !high @me');
+      await expect(page.locator('.quick-chip').first()).toBeVisible();
+      await expectAccessible(page, 'Quick add preview');
+      await page.goto(`${PROJECT_PATH}?task=task-002`);
+      await expect(page.getByRole('heading', { name: 'Checklist' })).toBeVisible();
+      await expectAccessible(page, 'Task sheet with checklist');
+      await page.keyboard.press('Escape');
+      await page.goto('/tasks');
+      await settle(page);
+      await page.getByRole('button', { name: 'Upcoming' }).click();
+      await expect(page.locator('.agenda-day').first()).toBeVisible();
+      await expectAccessible(page, 'Upcoming agenda');
     });
 
     test('admin users page', async ({ page }) => {

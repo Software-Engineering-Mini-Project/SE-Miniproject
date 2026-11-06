@@ -27,6 +27,7 @@ import { KanbanBoard } from '@/features/board/KanbanBoard';
 import { TaskFilters, EMPTY_FILTERS, applyFilters, hasActiveFilters } from '@/features/tasks/TaskFilters';
 import { TaskForm } from '@/features/tasks/TaskForm';
 import { TaskList } from '@/features/tasks/TaskList';
+import { QuickAdd } from '@/features/tasks/QuickAdd';
 import { TaskSheet } from '@/features/tasks/TaskSheet';
 import { MembersDialog } from './MembersDialog';
 import { ProjectInsights } from './ProjectInsights';
@@ -35,12 +36,15 @@ import './projects.css';
 
 const VIEW_KEY = 'taskline.projectView';
 
+// Kept in memory too, so switching views still works where storage is blocked.
+let memoryView = null;
+
 function readView() {
   try {
     const saved = window.localStorage.getItem(VIEW_KEY);
     return saved === 'list' || saved === 'insights' ? saved : 'board';
   } catch {
-    return 'board';
+    return memoryView || 'board';
   }
 }
 
@@ -162,6 +166,7 @@ export function ProjectView({ projectId }) {
   }, [missingTask, selectedId, projectId, setTasks, router, closeTask]);
 
   const changeView = (next) => {
+    memoryView = next;
     try {
       window.localStorage.setItem(VIEW_KEY, next);
     } catch {
@@ -329,6 +334,18 @@ export function ProjectView({ projectId }) {
         </div>
       </div>
 
+      {canCreateTask && tasks.data && view !== 'insights' ? (
+        <QuickAdd
+          projectId={p.id}
+          members={assignable}
+          currentUserId={user?.id}
+          onCreated={(created) => {
+            tasks.setData((list) => [...(list || []), created]);
+            toast.success(`Added "${created.title}".`, { action: { label: 'Open', onClick: () => openTask(created.id) } });
+          }}
+        />
+      ) : null}
+
       {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
       {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
       {tasks.error && !tasks.data ? (
@@ -385,6 +402,9 @@ export function ProjectView({ projectId }) {
         onDeleted={(taskId) => {
           closeTask();
           tasks.setData((list) => list.filter((t) => t.id !== taskId));
+        }}
+        onChecklistChange={(taskId, checklist, updatedAt) => {
+          tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, checklist, updatedAt: updatedAt || t.updatedAt } : t)));
         }}
       />
 

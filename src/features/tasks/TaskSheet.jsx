@@ -11,6 +11,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal, Sheet, SheetClose, SheetTitle } from '@/components/ui/Dialog';
 import { DueTag, PriorityTag, RiskTag, StatusChip } from '@/components/ui/Tags';
+import { Checklist } from './Checklist';
 import { CommentThread } from './CommentThread';
 import { TaskForm } from './TaskForm';
 import './tasks.css';
@@ -22,7 +23,7 @@ import './tasks.css';
  */
 const READ_ONLY = { edit: false, remove: false, status: false, comment: false, moderate: false };
 
-export function TaskSheet({ task, members, assignable = members, permissions = READ_ONLY, risk, open, onOpenChange, onStatusChange, onUpdated, onDeleted }) {
+export function TaskSheet({ task, members, assignable = members, permissions = READ_ONLY, risk, open, onOpenChange, onStatusChange, onUpdated, onDeleted, onChecklistChange }) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -146,6 +147,12 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
               </dl>
 
               {task.description ? <p className="task-description">{task.description}</p> : null}
+              <Checklist
+                task={task}
+                canTick={permissions.status}
+                canEdit={permissions.edit}
+                onChange={(checklist, updatedAt) => onChecklistChange?.(task.id, checklist, updatedAt)}
+              />
               <p className="task-stamps">
                 Created {formatDate(task.createdAt)} · Updated {formatDate(task.updatedAt)}
               </p>
