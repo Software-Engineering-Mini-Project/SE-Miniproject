@@ -28,15 +28,17 @@ let leadToken;
 let memberToken;
 let secondMemberToken;
 let outsiderToken;
+let viewerToken;
 
 before(async () => {
   database = await startTestDatabase();
-  [adminToken, leadToken, memberToken, secondMemberToken, outsiderToken] = await Promise.all([
+  [adminToken, leadToken, memberToken, secondMemberToken, outsiderToken, viewerToken] = await Promise.all([
     'admin@example.test',
     'lead@example.test',
     'member@example.test',
     'member.two.with.a.long.address@example.test',
     'outsider@example.test',
+    'viewer@example.test',
   ].map(async (email) => {
     const response = await request(app).post('/api/auth/login').send({ email, password: 'Password123!' });
     assert.equal(response.status, 200, response.text);
@@ -346,8 +348,12 @@ test('project and member endpoints enforce roles, membership, and cascades', asy
   assert.equal(created.status, 201, created.text);
   const projectId = created.body.id;
   assert.deepEqual(created.body.memberIds, ['user-lead-001']);
-  const memberCreate = await request(app).post('/api/projects').set(auth(memberToken)).send({ name: 'Blocked Project' });
-  assert.equal(memberCreate.status, 403);
+  // Anyone may create a project by default (workspace setting projectCreation: 'everyone').
+  const memberCreate = await request(app).post('/api/projects').set(auth(memberToken)).send({ name: 'Member Project' });
+  assert.equal(memberCreate.status, 201, memberCreate.text);
+  assert.equal(memberCreate.body.ownerId, 'user-member-001');
+  assert.equal(memberCreate.body.visibility, 'private');
+  assert.equal((await request(app).delete(`/api/projects/${memberCreate.body.id}`).set(auth(memberToken))).status, 204);
 
   const updated = await request(app).patch(`/api/projects/${projectId}`).set(auth(leadToken)).send({ name: 'Updated Lifecycle' });
   assert.equal(updated.status, 200);
@@ -452,12 +458,21 @@ test('TC-Task-01 creates a task through the API, persists it, and enforces valid
   assert.equal(invalidDate.status, 400);
   assert.equal(invalidDate.body.errorCode, 'VALIDATION_ERROR');
 
-  const forbidden = await request(app)
+  // Members create tasks (like Jira and Azure DevOps contributors); viewers cannot.
+  const memberCreated = await request(app)
     .post('/api/projects/project-alpha/tasks')
     .set(auth(memberToken))
-    .send({ title: 'Member cannot create tasks' });
+    .send({ title: 'Member-created task' });
+  assert.equal(memberCreated.status, 201, memberCreated.text);
+  assert.equal((await request(app).delete(`/api/tasks/${memberCreated.body.id}`).set(auth(memberToken))).status, 403, 'members cannot delete tasks');
+  assert.equal((await request(app).delete(`/api/tasks/${memberCreated.body.id}`).set(auth(leadToken))).status, 204);
+  const forbidden = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(viewerToken))
+    .send({ title: 'Viewer cannot create tasks' });
   assert.equal(forbidden.status, 403);
   assert.equal(forbidden.body.errorCode, 'FORBIDDEN');
+  assert.equal(forbidden.body.message, 'Viewers cannot create tasks.');
 });
 
 test('task, search, status, comment, summary, CSV, and reminder endpoints interoperate', async () => {
@@ -487,7 +502,7 @@ test('task, search, status, comment, summary, CSV, and reminder endpoints intero
   const status = await request(app).patch(`/api/tasks/${taskId}/status`).set(auth(memberToken)).send({ status: 'In Progress' });
   assert.equal(status.status, 200);
   assert.equal(status.body.status, 'In Progress');
-  const forbiddenEdit = await request(app).patch(`/api/tasks/${taskId}`).set(auth(memberToken)).send({ title: 'forbidden' });
+  const forbiddenEdit = await request(app).patch(`/api/tasks/${taskId}`).set(auth(viewerToken)).send({ title: 'forbidden' });
   assert.equal(forbiddenEdit.status, 403);
   const leadEdit = await request(app).patch(`/api/tasks/${taskId}`).set(auth(leadToken)).send({
     title: 'Updated export review', assigneeIds: ['user-member-001', 'user-member-002'],
@@ -604,12 +619,13 @@ test('TC-Task-02 edits task fields, persists changes, and enforces manager autho
   assert.equal(invalidDate.status, 400);
   assert.equal(invalidDate.body.errorCode, 'VALIDATION_ERROR');
 
-  const memberEdit = await request(app)
+  const viewerEdit = await request(app)
     .patch(`/api/tasks/${taskId}`)
-    .set(auth(memberToken))
-    .send({ title: 'Member cannot edit task fields.' });
-  assert.equal(memberEdit.status, 403);
-  assert.equal(memberEdit.body.errorCode, 'FORBIDDEN');
+    .set(auth(viewerToken))
+    .send({ title: 'Viewer cannot edit task fields.' });
+  assert.equal(viewerEdit.status, 403);
+  assert.equal(viewerEdit.body.errorCode, 'FORBIDDEN');
+  assert.equal(viewerEdit.body.message, 'Viewers cannot edit tasks.');
 
   const outsiderEdit = await request(app)
     .patch(`/api/tasks/${taskId}`)

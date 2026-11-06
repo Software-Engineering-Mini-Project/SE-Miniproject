@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { PROJECT_VISIBILITIES } from '../../src/lib/permissions.js';
 import { createSchema } from './schema.js';
 
 const projectSchema = createSchema({
@@ -10,8 +11,11 @@ const projectSchema = createSchema({
   memberIds: [{ type: String, ref: 'User' }],
   managerIds: { type: [{ type: String, ref: 'User' }], default: [] },
   viewerIds: { type: [{ type: String, ref: 'User' }], default: [] },
+  // 'private': invite-only. 'open': listed in the project directory; anyone can join as a Member.
+  visibility: { type: String, enum: PROJECT_VISIBILITIES, default: 'private' },
 });
 
 projectSchema.index({ memberIds: 1 });
+projectSchema.index({ visibility: 1, name: 1 });
 
 export const Project = mongoose.models.Project || mongoose.model('Project', projectSchema);

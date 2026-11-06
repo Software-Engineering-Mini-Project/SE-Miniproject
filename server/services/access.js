@@ -1,19 +1,20 @@
 import { Project, Task } from '../models/index.js';
 import { can, canCreateProject, isAdmin } from '../../src/lib/permissions.js';
+import { getWorkspaceSettings } from './settings.js';
 import { HttpError } from '../utils/http-error.js';
 import { readId } from '../utils/validation.js';
 
 export { isAdmin };
 
 /** Fields every authorization check needs; kept in one place so lean queries never miss one. */
-export const PROJECT_ACCESS_FIELDS = '_id name description ownerId memberIds managerIds viewerIds createdAt updatedAt';
+export const PROJECT_ACCESS_FIELDS = '_id name description ownerId memberIds managerIds viewerIds visibility createdAt updatedAt';
 
 const FORBIDDEN = {
   'project.edit': 'Only the project owner, a manager or an admin can edit this project.',
   'project.delete': 'Only the project owner or an admin can delete this project.',
   'members.manage': 'Only the project owner, a manager or an admin can manage members.',
-  'task.create': 'Only the project owner, a manager or an admin can create tasks.',
-  'task.edit': 'Only the project owner, a manager or an admin can edit tasks.',
+  'task.create': 'Viewers cannot create tasks.',
+  'task.edit': 'Viewers cannot edit tasks.',
   'task.delete': 'Only the project owner, a manager or an admin can delete tasks.',
   'task.status': 'Viewers cannot change task status.',
   'comment.create': 'You cannot comment in this project.',
@@ -33,7 +34,11 @@ export async function getProjectForUser(user, rawProjectId, { action = 'project.
   const project = lean ? await query.select(PROJECT_ACCESS_FIELDS).lean() : await query;
   if (!project) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
   if (lean) project.id = String(project._id);
-  if (!can(user, 'project.view', project)) throw forbidden('You are not a member of this project.');
+  if (!can(user, 'project.view', project)) {
+    // An open project can be joined, so say so (the UI offers a Join button); a private one stays opaque.
+    if (project.visibility === 'open') throw new HttpError(403, 'JOIN_REQUIRED', 'This project is open to everyone in the workspace. Join it to see its work.');
+    throw forbidden('You are not a member of this project.');
+  }
   if (action !== 'project.view' && !can(user, action, project)) {
     throw forbidden(FORBIDDEN[action] ?? 'You do not have permission to do this.');
   }
@@ -52,8 +57,8 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
   return { task, project };
 }
 
-export function requireProjectCreator(user) {
-  if (!canCreateProject(user)) {
-    throw forbidden('Only a Lead or an admin can create projects.');
+export async function requireProjectCreator(user) {
+  if (!canCreateProject(user, await getWorkspaceSettings())) {
+    throw forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
   }
 }

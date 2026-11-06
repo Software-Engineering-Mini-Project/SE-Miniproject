@@ -4,6 +4,7 @@ import { Comment, Notification, Project, Task, User } from '../models/index.js';
 import {
   GRANTABLE_PROJECT_ROLES,
   PROJECT_ROLES,
+  PROJECT_VISIBILITIES,
   memberRemovalError,
   memberRoleChangeError,
   projectRoleOf,
@@ -16,7 +17,7 @@ import { projectDto, projectDtos, projectMembers } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
 import { readListOptions } from '../utils/pagination.js';
 import { getProjectSummaries } from '../services/task-aggregates.js';
-import { normalizeEmail, readEmail, readEnum, readId, readString, requireObject } from '../utils/validation.js';
+import { escapeRegex, normalizeEmail, readEmail, readEnum, readId, readString, requireObject } from '../utils/validation.js';
 
 export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {}) {
   const router = Router();
@@ -34,11 +35,29 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     response.json(await projectDtos(projects));
   });
 
+  // Open projects the caller is not in yet, for "Browse projects". Private projects never appear.
+  router.get('/projects/directory', requireAuth, async (request, response) => {
+    const q = typeof request.query.q === 'string' ? request.query.q.trim().slice(0, 80) : '';
+    const filter = { visibility: 'open', memberIds: { $ne: request.user.id } };
+    if (q) filter.name = { $regex: escapeRegex(q), $options: 'i' };
+    const projects = await Project.find(filter).select('_id name description ownerId memberIds').sort({ name: 1, _id: 1 }).limit(50).lean();
+    const owners = await User.find({ _id: { $in: projects.map((project) => project.ownerId) } }).select('_id name').lean();
+    const ownerNames = new Map(owners.map((owner) => [String(owner._id), owner.name]));
+    response.json(projects.map((project) => ({
+      id: String(project._id),
+      name: project.name,
+      description: project.description,
+      ownerName: ownerNames.get(String(project.ownerId)) ?? null,
+      memberCount: project.memberIds.length,
+    })));
+  });
+
   router.post('/projects', requireAuth, async (request, response) => {
-    requireProjectCreator(request.user);
+    await requireProjectCreator(request.user);
     const body = requireObject(request.body);
     const name = readString(body, 'name', { max: 80, label: 'Project name' });
     const description = readString(body, 'description', { required: false, max: 2000, allowEmpty: true, label: 'Description' });
+    const visibility = body.visibility === undefined ? 'private' : readEnum(body, 'visibility', PROJECT_VISIBILITIES, { label: 'Visibility' });
     const project = await Project.create({
       name,
       description: description ?? '',
@@ -46,8 +65,26 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
       memberIds: [request.user.id],
       managerIds: [],
       viewerIds: [],
+      visibility,
     });
     response.status(201).json(await projectDto(project));
+  });
+
+  // Anyone may join an open project as a Member; joining twice is harmless.
+  router.post('/projects/:projectId/join', requireAuth, async (request, response) => {
+    const projectId = readId(request.params.projectId, 'Project');
+    const project = await Project.findById(projectId).select('_id visibility memberIds').lean();
+    if (!project) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
+    const alreadyMember = project.memberIds.map(String).includes(request.user.id);
+    if (!alreadyMember && project.visibility !== 'open') {
+      throw forbidden('This project is private. Ask its owner or a manager to add you.');
+    }
+    if (!alreadyMember) {
+      await Project.updateOne({ _id: projectId, visibility: 'open' }, { $addToSet: { memberIds: request.user.id } });
+      response.locals.auditChange = { field: 'projectRole', from: null, to: 'Member' };
+    }
+    const joined = await Project.findById(projectId).select(PROJECT_ACCESS_FIELDS).lean();
+    response.status(alreadyMember ? 200 : 201).json(await projectDto(joined));
   });
 
   router.get('/projects/:projectId', requireAuth, async (request, response) => {
@@ -63,6 +100,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     if (body.description !== undefined) {
       changes.description = readString(body, 'description', { required: false, max: 2000, allowEmpty: true, label: 'Description' });
     }
+    if (body.visibility !== undefined) changes.visibility = readEnum(body, 'visibility', PROJECT_VISIBILITIES, { label: 'Visibility' });
     if (Object.keys(changes).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a project field to update.');
     Object.assign(project, changes);
     await project.save();

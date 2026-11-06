@@ -100,7 +100,11 @@ test('only Admins can list users, with search, role filter, paging, role totals 
 test('Admins change roles; the change takes effect at once, is audited, and the last Admin is protected', async () => {
   const admin = await login('admin@example.test');
   const outsider = await login('outsider@example.test');
-  assert.equal((await request(app).post('/api/projects').set(auth(outsider)).send({ name: 'Before promotion' })).status, 403);
+  // With project creation limited to leads, a Member can't create one until promoted.
+  assert.equal((await request(app).patch('/api/settings').set(auth(admin)).send({ projectCreation: 'leads' })).status, 200);
+  const blocked = await request(app).post('/api/projects').set(auth(outsider)).send({ name: 'Before promotion' });
+  assert.equal(blocked.status, 403);
+  assert.match(blocked.body.message, /only leads and admins can create projects/);
 
   const forbidden = await request(app).patch('/api/users/user-outsider-001/role').set(auth(outsider)).send({ role: 'Admin' });
   assert.equal(forbidden.status, 403);
@@ -116,6 +120,7 @@ test('Admins change roles; the change takes effect at once, is audited, and the 
   // The same token now has Lead rights: roles are read from the database on every request.
   const created = await request(app).post('/api/projects').set(auth(outsider)).send({ name: 'After promotion' });
   assert.equal(created.status, 201, created.text);
+  await request(app).patch('/api/settings').set(auth(admin)).send({ projectCreation: 'everyone' });
 
   assert.equal((await request(app).patch('/api/users/user-outsider-001/role').set(auth(admin)).send({ role: 'Owner' })).status, 400);
   assert.equal((await request(app).patch('/api/users/no-such-user/role').set(auth(admin)).send({ role: 'Lead' })).status, 404);
