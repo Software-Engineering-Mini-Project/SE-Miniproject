@@ -1,6 +1,7 @@
 // Replaces every collection with the synthetic fixtures. DESTRUCTIVE: local/test/demo databases only.
 //   npm run seed                      fixture dates exactly as written (what the E2E suite expects)
-//   npm run seed:demo                 dates moved so the demo has overdue, due-soon and later work today
+//   npm run seed:demo                 dates moved so the demo has overdue, due-soon and later work today,
+//                                     plus completed history for the delivery forecast
 //   ... -- --allow-remote-database    required for a non-local host or NODE_ENV=production
 import mongoose from 'mongoose';
 import { loadEnvironment } from '../server/config/env.js';
@@ -21,7 +22,8 @@ try {
   } else {
     await mongoose.connect(environment.mongoUri, { serverSelectionTimeoutMS: 5000 });
     const shiftDays = args.has('--demo-dates') ? daysSinceFixtureAnchor(new Date().toISOString().slice(0, 10)) : 0;
-    const counts = await seedDatabase({ shiftDays });
+    // Demo seeds also get six weeks of completed work, so the delivery forecast has history.
+    const counts = await seedDatabase({ shiftDays, history: args.has('--demo-dates') });
     console.info(JSON.stringify({ event: 'database_seeded', counts, shiftDays }));
   }
 } catch (error) {

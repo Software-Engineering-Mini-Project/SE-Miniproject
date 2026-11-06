@@ -30,6 +30,8 @@ test('synthetic fixtures include all required roles and an outsider (TM-F-021, P
 
 test('task fixtures cover all board statuses and priorities (TM-F-012, TM-F-023)', () => {
   assert.deepEqual(new Set(tasks.map((t) => t.status)), new Set(['To Do', 'In Progress', 'Done']));
+  // completedAt is set exactly when a task is Done (the delivery forecast samples it).
+  for (const t of tasks) assert.equal(Boolean(t.completedAt), t.status === 'Done', `${t.id} completedAt`);
   assert.deepEqual(new Set(tasks.map((t) => t.priority)), new Set(['High', 'Medium', 'Low']));
 });
 

@@ -349,3 +349,24 @@ test('deactivation mirrors the API: signs the user out, blocks sign-in and re-ad
   assert.equal(call('PATCH', '/users/user-member-001/status', { token: admin, body: { active: true } }).status, 200);
   assert.equal(call('POST', '/auth/login', { body: { email: 'member@example.test', password: MOCK_PASSWORD } }).status, 200);
 });
+
+test('completedAt mirrors the API: stamped on Done by any route, kept on re-Done, cleared on reopen', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const done = call('PATCH', '/tasks/task-001/status', { token: lead, body: { status: 'Done' } });
+  assert.equal(done.status, 200);
+  assert.equal(done.data.completedAt, NOW.toISOString());
+  assert.equal(call('PATCH', '/tasks/task-001/status', { token: lead, body: { status: 'Done' } }).data.completedAt, NOW.toISOString());
+  assert.equal(call('PATCH', '/tasks/task-001/status', { token: lead, body: { status: 'To Do' } }).data.completedAt, null);
+
+  // A full update: renaming leaves a completion alone; reopening clears it.
+  const finished = tasks.find((task) => task.id === 'task-006');
+  assert.equal(call('PATCH', '/tasks/task-006', { token: lead, body: { title: 'Renamed' } }).data.completedAt, finished.completedAt);
+  assert.equal(call('PATCH', '/tasks/task-006', { token: lead, body: { status: 'In Progress' } }).data.completedAt, null);
+  assert.equal(call('PATCH', '/tasks/task-002', { token: lead, body: { status: 'Done' } }).data.completedAt, NOW.toISOString());
+
+  const created = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Logged late', status: 'Done' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.completedAt, NOW.toISOString());
+  assert.equal(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Open' } }).data.completedAt, null);
+});

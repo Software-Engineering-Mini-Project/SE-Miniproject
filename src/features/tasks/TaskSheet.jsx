@@ -10,7 +10,7 @@ import { formatDate, formatDue } from '@/lib/format';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal, Sheet, SheetClose, SheetTitle } from '@/components/ui/Dialog';
-import { DueTag, PriorityTag, StatusChip } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, RiskTag, StatusChip } from '@/components/ui/Tags';
 import { CommentThread } from './CommentThread';
 import { TaskForm } from './TaskForm';
 import './tasks.css';
@@ -22,7 +22,7 @@ import './tasks.css';
  */
 const READ_ONLY = { edit: false, remove: false, status: false, comment: false, moderate: false };
 
-export function TaskSheet({ task, members, assignable = members, permissions = READ_ONLY, open, onOpenChange, onStatusChange, onUpdated, onDeleted }) {
+export function TaskSheet({ task, members, assignable = members, permissions = READ_ONLY, risk, open, onOpenChange, onStatusChange, onUpdated, onDeleted }) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -117,6 +117,15 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
                   <dt>Due</dt>
                   <dd>{task.dueDate ? <DueTag task={task} /> : <span className="muted">{formatDue(null)}</span>}</dd>
                 </div>
+                {risk ? (
+                  <div>
+                    <dt>Forecast</dt>
+                    <dd className="task-forecast">
+                      <span className="tabular">{Math.round(risk.probability * 100)}%</span> chance of finishing by the due date
+                      <RiskTag risk={risk} />
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Assignees</dt>
                   <dd>

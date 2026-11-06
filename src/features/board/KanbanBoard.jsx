@@ -37,7 +37,7 @@ function columnCoordinates(event, { context }) {
 
 const dropAnimation = { duration: 220, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' };
 
-function DraggableCard({ task, assignees, onOpen, canDrag }) {
+function DraggableCard({ task, assignees, risk, onOpen, canDrag }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
     data: { status: task.status, title: task.title },
@@ -49,6 +49,7 @@ function DraggableCard({ task, assignees, onOpen, canDrag }) {
       ref={setNodeRef}
       task={task}
       assignees={assignees}
+      risk={risk}
       placeholder={isDragging}
       // dnd-kit marks a disabled draggable aria-disabled, but a read-only card still opens:
       // only add the drag attributes and listeners when dragging is allowed.
@@ -65,7 +66,7 @@ function DraggableCard({ task, assignees, onOpen, canDrag }) {
   );
 }
 
-function Column({ status, tasks, membersById, onOpen, canCreate, onCreate, canDrag }) {
+function Column({ status, tasks, membersById, risk, onOpen, canCreate, onCreate, canDrag }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
   const headingId = `column-${meta.key}`;
@@ -94,6 +95,7 @@ function Column({ status, tasks, membersById, onOpen, canCreate, onCreate, canDr
             key={task.id}
             task={task}
             assignees={task.assigneeIds.map((id) => membersById.get(id)).filter(Boolean)}
+            risk={risk?.get(task.id)}
             onOpen={onOpen}
             canDrag={canDrag}
           />
@@ -108,10 +110,12 @@ const PRIORITY_RANK = { High: 0, Medium: 1, Low: 2 };
 
 /**
  * Card order inside a column: what needs attention first. Open work: overdue, then priority,
- * then nearest due date (undated last). Done: most recently finished first.
+ * then nearest due date (undated last). Done: most recently completed first.
  */
 export function compareCards(a, b) {
-  if (a.status === 'Done' && b.status === 'Done') return (b.updatedAt || '').localeCompare(a.updatedAt || '') || a.id.localeCompare(b.id);
+  if (a.status === 'Done' && b.status === 'Done') {
+    return String(b.completedAt || b.updatedAt || '').localeCompare(String(a.completedAt || a.updatedAt || '')) || a.id.localeCompare(b.id);
+  }
   return Number(isOverdue(b)) - Number(isOverdue(a))
     || (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1)
     || (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31')
@@ -123,7 +127,7 @@ export function compareCards(a, b) {
  * Three-column board (TM-F-023). Columns are driven only by persisted status; `onMove`
  * is responsible for the optimistic update and rollback.
  */
-export function KanbanBoard({ tasks, members, onMove, onOpen, canCreate, onCreate, canDrag = true }) {
+export function KanbanBoard({ tasks, members, risk, onMove, onOpen, canCreate, onCreate, canDrag = true }) {
   const [activeId, setActiveId] = useState(null);
   const membersById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
   const byStatus = useMemo(() => {
@@ -171,6 +175,7 @@ export function KanbanBoard({ tasks, members, onMove, onOpen, canCreate, onCreat
             status={status}
             tasks={byStatus[status]}
             membersById={membersById}
+            risk={risk}
             onOpen={onOpen}
             canCreate={canCreate}
             onCreate={onCreate}
@@ -180,7 +185,7 @@ export function KanbanBoard({ tasks, members, onMove, onOpen, canCreate, onCreat
       </div>
       <DragOverlay dropAnimation={dropAnimation}>
         {activeTask ? (
-          <TaskCard task={activeTask} assignees={activeTask.assigneeIds.map((id) => membersById.get(id)).filter(Boolean)} overlay />
+          <TaskCard task={activeTask} assignees={activeTask.assigneeIds.map((id) => membersById.get(id)).filter(Boolean)} risk={risk?.get(activeTask.id)} overlay />
         ) : null}
       </DragOverlay>
     </DndContext>

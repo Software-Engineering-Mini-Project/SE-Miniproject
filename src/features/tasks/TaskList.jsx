@@ -1,10 +1,10 @@
 'use client';
 
 import { AvatarStack } from '@/components/ui/Avatar';
-import { DueTag, PriorityTag, StatusChip } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, RiskTag, StatusChip } from '@/components/ui/Tags';
 
 /** Dense list view of tasks; rows open the task. Used on the project page and in search. */
-export function TaskList({ tasks, membersById, projectsById, onOpen }) {
+export function TaskList({ tasks, membersById, projectsById, risk, onOpen }) {
   return (
     <ul className="task-list">
       {tasks.map((task) => (
@@ -20,6 +20,7 @@ export function TaskList({ tasks, membersById, projectsById, onOpen }) {
             </span>
             <span className="task-row-due">
               <DueTag task={task} />
+              <RiskTag risk={risk?.get(task.id)} />
             </span>
             <span className="task-row-extra">
               <AvatarStack users={task.assigneeIds.map((id) => membersById?.get(id)).filter(Boolean)} />

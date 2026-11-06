@@ -143,6 +143,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 
 // Task
 { id, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
+  completedAt /* ISO timestamp while Done, else null; server-set (§7.6) */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
 
 // Comment
@@ -251,7 +252,7 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
 | `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
-| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
+| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 
 **Filter semantics** (identical for both list endpoints and the CSV export):
 - `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`.
@@ -366,6 +367,11 @@ Project roles (per project, from `src/lib/permissions.js`). A workspace Admin ca
 Notifications: own only, for everyone (others' → 404).
 
 **Account deactivation** (`PATCH /users/:userId/status` `{ active }`, Admin only). Deactivation bumps the token version, so every session ends at once (`401 ACCOUNT_DEACTIVATED`), and sign-in returns `403 ACCOUNT_DEACTIVATED`, but only after the password matched, so it doesn't reveal which emails exist. The account's projects, tasks and comments stay. An Admin can't deactivate themselves; deactivated Admins don't count toward the last-Admin guard. `GET /users` accepts `status=active|deactivated` and returns `deactivatedCount`; every user DTO has `active`.
+
+### 7.6 Completion time (`completedAt`)
+The server sets `completedAt`; clients can't write it. It is stamped when a task enters `Done` (through `PATCH /tasks/:taskId/status`, `PATCH /tasks/:taskId` or a create with `status: "Done"`), kept if a Done task is set to Done again or edited in other ways, and cleared to `null` when the task leaves `Done`. Tasks completed before the field existed are backfilled from `updatedAt` by the `completedAt` migration (`npm run db:migrate`, also run on API startup). The CSV export columns are unchanged.
+
+The web app's delivery forecast (`src/lib/forecast.js`) reads only `completedAt` and the open tasks, so it needs no endpoint of its own.
 
 ---
 

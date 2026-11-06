@@ -20,6 +20,16 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
+const TASK_FIELDS = '_id title description status priority dueDate completedAt projectId assigneeIds createdAt updatedAt';
+// The export leaves out descriptions (an inclusion projection can't also exclude a field).
+const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '');
+
+/** Sets the status and keeps completedAt in step: stamped on entering Done, cleared on leaving. */
+function applyStatus(task, status, now) {
+  if (status === task.status && (status !== 'Done' || task.completedAt)) return;
+  task.status = status;
+  task.completedAt = status === 'Done' ? now() : null;
+}
 const PRIORITIES = ['High', 'Medium', 'Low'];
 
 function readTaskFilters(query, { includeProjectId = false } = {}) {
@@ -108,7 +118,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
     const filters = readTaskFilters(request.query);
     const tasks = (await Task.find(combineFilters({ projectId: project.id }, filters))
-      .select('_id title status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .select(EXPORT_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .lean()).map(toApi);
     const userIds = [...new Set(tasks.flatMap((task) => task.assigneeIds))];
@@ -122,7 +132,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const filters = readTaskFilters(request.query);
     const options = readListOptions(request.query);
     const tasks = await Task.find(combineFilters({ projectId: project.id }, filters))
-      .select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
       .limit(options.limit)
@@ -135,7 +145,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const body = requireObject(request.body);
     const input = readTaskInput(body, { create: true });
     await validateAssignees(input.assigneeIds, project);
-    const task = await Task.create({ ...input, projectId: project.id });
+    const task = await Task.create({ ...input, projectId: project.id, completedAt: input.status === 'Done' ? now() : null });
     await notifyNewAssignees({ task, actorId: request.user.id, now });
     response.status(201).json(task);
   });
@@ -157,7 +167,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     if (projectIds && projectIds.length === 0) return response.json([]);
     const query = projectIds ? combineFilters({ projectId: { $in: projectIds } }, filters) : combineFilters({}, filters);
     const tasks = await Task.find(query)
-      .select('_id title description status priority dueDate projectId assigneeIds createdAt updatedAt')
+      .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
       .limit(options.limit)
@@ -177,7 +187,9 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     if (Object.keys(input).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a task field to update.');
     if (input.assigneeIds) await validateAssignees(input.assigneeIds, project);
     const previousIds = task.assigneeIds.map(String);
-    Object.assign(task, input);
+    const { status, ...rest } = input;
+    Object.assign(task, rest);
+    if (status) applyStatus(task, status, now);
     await task.save();
     await notifyNewAssignees({ task, previousIds, actorId: request.user.id, now });
     response.json(task);
@@ -196,9 +208,9 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
   router.patch('/tasks/:taskId/status', requireAuth, async (request, response) => {
     const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.status' });
     const body = requireObject(request.body);
-    task.status = readEnum(body, 'status', STATUSES, { label: 'Status' });
+    applyStatus(task, readEnum(body, 'status', STATUSES, { label: 'Status' }), now);
     await task.save();
-    response.json({ taskId: task.id, status: task.status, updatedAt: task.updatedAt });
+    response.json({ taskId: task.id, status: task.status, completedAt: task.completedAt, updatedAt: task.updatedAt });
   });
 
   return router;

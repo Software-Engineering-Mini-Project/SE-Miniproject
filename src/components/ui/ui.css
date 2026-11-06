@@ -638,3 +638,26 @@
   font-size: var(--text-sm);
   color: var(--ink-3);
 }
+
+/* Delivery-forecast flag (src/lib/forecast.js). Only "tight" and "at risk" render. */
+.risk-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.risk-tag[data-level='tight'] {
+  color: var(--status-progress);
+  background: var(--status-progress-soft);
+}
+
+.risk-tag[data-level='at-risk'] {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
