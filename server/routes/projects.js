@@ -12,7 +12,7 @@ import {
   withMemberRole,
   withoutMember,
 } from '../../src/lib/permissions.js';
-import { PROJECT_ACCESS_FIELDS, forbidden, getProjectForUser, isAdmin, requireProjectCreator } from '../services/access.js';
+import { PROJECT_ACCESS_FIELDS, forbidden, getProjectForUser, inOrganisation, isAdmin, requireProjectCreator } from '../services/access.js';
 import { projectDto, projectDtos, projectMembers } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
 import { readListOptions } from '../utils/pagination.js';
@@ -24,7 +24,9 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
   const requireAuth = authenticate({ jwtSecret });
 
   router.get('/projects', requireAuth, async (request, response) => {
-    const filter = isAdmin(request.user) ? {} : { memberIds: request.user.id };
+    const filter = isAdmin(request.user)
+      ? { organisationId: request.user.organisationId }
+      : { organisationId: request.user.organisationId, memberIds: request.user.id };
     const options = readListOptions(request.query);
     const projects = await Project.find(filter)
       .select(PROJECT_ACCESS_FIELDS)
@@ -38,7 +40,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
   // Open projects the caller is not in yet, for "Browse projects". Private projects never appear.
   router.get('/projects/directory', requireAuth, async (request, response) => {
     const q = typeof request.query.q === 'string' ? request.query.q.trim().slice(0, 80) : '';
-    const filter = { visibility: 'open', memberIds: { $ne: request.user.id } };
+    const filter = { organisationId: request.user.organisationId, visibility: 'open', memberIds: { $ne: request.user.id } };
     if (q) filter.name = { $regex: escapeRegex(q), $options: 'i' };
     const projects = await Project.find(filter).select('_id name description ownerId memberIds').sort({ name: 1, _id: 1 }).limit(50).lean();
     const owners = await User.find({ _id: { $in: projects.map((project) => project.ownerId) } }).select('_id name').lean();
@@ -59,6 +61,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     const description = readString(body, 'description', { required: false, max: 2000, allowEmpty: true, label: 'Description' });
     const visibility = body.visibility === undefined ? 'private' : readEnum(body, 'visibility', PROJECT_VISIBILITIES, { label: 'Visibility' });
     const project = await Project.create({
+      organisationId: request.user.organisationId,
       name,
       description: description ?? '',
       ownerId: request.user.id,
@@ -73,8 +76,8 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
   // Anyone may join an open project as a Member; joining twice is harmless.
   router.post('/projects/:projectId/join', requireAuth, async (request, response) => {
     const projectId = readId(request.params.projectId, 'Project');
-    const project = await Project.findById(projectId).select('_id visibility memberIds').lean();
-    if (!project) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
+    const project = await Project.findById(projectId).select('_id organisationId visibility memberIds').lean();
+    if (!project || !inOrganisation(request.user, project)) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
     const alreadyMember = project.memberIds.map(String).includes(request.user.id);
     if (!alreadyMember && project.visibility !== 'open') {
       throw forbidden('This project is private. Ask its owner or a manager to add you.');
@@ -135,8 +138,9 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     if (!rolesForNewMember(request.user, project).includes(role)) {
       throw forbidden('Only the project owner or an admin can add a manager.');
     }
-    const user = await User.findOne({ emailNormalized: normalizeEmail(email) }).select('_id deactivatedAt');
-    if (!user) throw new HttpError(404, 'NOT_FOUND', 'No registered user has that email.', { email: 'Email is not registered.' });
+    // Only people in this organisation can be added; an email registered elsewhere looks unregistered.
+    const user = await User.findOne({ emailNormalized: normalizeEmail(email), organisationId: project.organisationId }).select('_id deactivatedAt');
+    if (!user) throw new HttpError(404, 'NOT_FOUND', 'Nobody in your organisation has that email.', { email: 'Email is not registered in your organisation.' });
     if (user.deactivatedAt) {
       throw new HttpError(400, 'VALIDATION_ERROR', 'That account is deactivated.', { email: 'This account is deactivated.' });
     }

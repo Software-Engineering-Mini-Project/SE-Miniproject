@@ -7,7 +7,7 @@ import { readId } from '../utils/validation.js';
 export { isAdmin };
 
 /** Fields every authorization check needs; kept in one place so lean queries never miss one. */
-export const PROJECT_ACCESS_FIELDS = '_id name description ownerId memberIds managerIds viewerIds visibility createdAt updatedAt';
+export const PROJECT_ACCESS_FIELDS = '_id organisationId name description ownerId memberIds managerIds viewerIds visibility createdAt updatedAt';
 
 const FORBIDDEN = {
   'project.edit': 'Only the project owner, a manager or an admin can edit this project.',
@@ -19,6 +19,11 @@ const FORBIDDEN = {
   'task.status': 'Viewers cannot change task status.',
   'comment.create': 'You cannot comment in this project.',
 };
+
+/** True when `record` belongs to the same organisation as `user`. Nothing crosses organisations. */
+export function inOrganisation(user, record) {
+  return Boolean(user.organisationId) && String(record.organisationId) === String(user.organisationId);
+}
 
 export function forbidden(message) {
   return new HttpError(403, 'FORBIDDEN', message);
@@ -32,7 +37,8 @@ export async function getProjectForUser(user, rawProjectId, { action = 'project.
   const projectId = readId(rawProjectId, 'Project');
   const query = Project.findById(projectId);
   const project = lean ? await query.select(PROJECT_ACCESS_FIELDS).lean() : await query;
-  if (!project) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
+  // Another organisation's project looks exactly like one that doesn't exist, admins included.
+  if (!project || !inOrganisation(user, project)) throw new HttpError(404, 'NOT_FOUND', 'Project not found.');
   if (lean) project.id = String(project._id);
   if (!can(user, 'project.view', project)) {
     // An open project can be joined, so say so (the UI offers a Join button); a private one stays opaque.
@@ -58,7 +64,7 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
 }
 
 export async function requireProjectCreator(user) {
-  if (!canCreateProject(user, await getWorkspaceSettings())) {
+  if (!canCreateProject(user, await getWorkspaceSettings(user.organisationId))) {
     throw forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
   }
 }

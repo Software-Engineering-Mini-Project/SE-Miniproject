@@ -1,8 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { createHmac } from 'node:crypto';
 import { Router } from 'express';
-import { LoginAttempt, User } from '../models/index.js';
+import { LoginAttempt, Organisation, User } from '../models/index.js';
 import { authenticate } from '../middleware/authenticate.js';
+import { findOrganisationByJoinCode, getOrganisationSummary, uniqueJoinCode } from '../services/organisation.js';
+import { ORGANISATION_NAME_MAX, isJoinCodeShape, normalizeJoinCode } from '../../src/lib/organisation.js';
 import { userDto } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
 import { BCRYPT_COST } from '../utils/password.js';
@@ -119,21 +121,50 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     const name = readString(body, 'name', { max: 80, label: 'Name' });
     const email = readEmail(body);
     const password = readPassword(body);
+    const entry = readOrganisationEntry(body);
     const ip = clientIp(request);
     const key = createHmac('sha256', jwtSecret).update(`register\0${ip}`).digest('hex');
     await reserveRegistrationSlot(key, now());
     // The unique index is the real guarantee (E11000 -> 409 in the error handler); this check also
     // keeps duplicates out if a deployment has not yet run `npm run db:indexes`.
     if (await User.exists({ emailNormalized: normalizeEmail(email) })) throw duplicateEmail();
+
+    // Joining needs a valid invite code and makes a Member. Starting an organisation makes its first
+    // Admin: public registration still never hands out the Admin role in an organisation that exists.
+    let organisation;
+    let createdOrganisation = false;
+    if (entry.joinCode) {
+      organisation = await findOrganisationByJoinCode(entry.joinCode);
+      if (!organisation) {
+        throw new HttpError(400, 'VALIDATION_ERROR', 'That invite code is not recognised.', { joinCode: 'That invite code is not recognised. Check it with your admin.' });
+      }
+    } else {
+      organisation = await Organisation.create({ name: entry.organisationName, joinCode: await uniqueJoinCode() });
+      createdOrganisation = true;
+    }
     const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
-    const user = await User.create({
-      name,
-      email,
-      emailNormalized: normalizeEmail(email),
-      passwordHash,
-      role: 'Member',
+    let user;
+    try {
+      user = await User.create({
+        name,
+        email,
+        emailNormalized: normalizeEmail(email),
+        passwordHash,
+        organisationId: String(organisation._id ?? organisation.id),
+        role: createdOrganisation ? 'Admin' : 'Member',
+      });
+    } catch (error) {
+      // Don't leave an empty organisation behind when the account could not be created (e.g. a racing duplicate email).
+      if (createdOrganisation) await Organisation.deleteOne({ _id: organisation.id });
+      throw error;
+    }
+    if (createdOrganisation) await Organisation.updateOne({ _id: organisation.id }, { $set: { createdById: user.id } });
+    response.status(201).json({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      organisation: { id: String(organisation._id ?? organisation.id), name: organisation.name },
     });
-    response.status(201).json({ userId: user.id, email: user.email });
   });
 
   router.post('/login', (request, response, next) => {
@@ -189,12 +220,42 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     }
 
     const { token, expiresIn } = issueToken(user, { jwtSecret, jwtExpiresIn });
-    response.json({ token, expiresIn, user: userDto(user) });
+    response.json({ token, expiresIn, user: userDto(user, await getOrganisationSummary(user.organisationId)) });
   });
 
-  router.get('/me', authenticate({ jwtSecret }), (request, response) => response.json(userDto(request.authUser)));
+  router.get('/me', authenticate({ jwtSecret }), async (request, response) => {
+    response.json(userDto(request.authUser, await getOrganisationSummary(request.authUser.organisationId)));
+  });
 
   return router;
+}
+
+/**
+ * Registration says which organisation the account goes into: an invite code (join as a Member)
+ * or a name (start a new one and become its Admin). Exactly one of the two.
+ */
+function readOrganisationEntry(body) {
+  const hasCode = body.joinCode !== undefined && body.joinCode !== null && body.joinCode !== '';
+  const hasName = body.organisationName !== undefined && body.organisationName !== null && body.organisationName !== '';
+  if (hasCode && hasName) {
+    throw new HttpError(400, 'VALIDATION_ERROR', 'Join an organisation or create one, not both.', {
+      joinCode: 'Use an invite code or an organisation name, not both.',
+    });
+  }
+  if (hasCode) {
+    if (typeof body.joinCode !== 'string') throw new HttpError(400, 'VALIDATION_ERROR', 'Invite code must be text.', { joinCode: 'Invite code must be text.' });
+    const joinCode = normalizeJoinCode(body.joinCode);
+    if (!isJoinCodeShape(joinCode)) {
+      throw new HttpError(400, 'VALIDATION_ERROR', 'That invite code is not recognised.', { joinCode: 'That invite code is not recognised. Check it with your admin.' });
+    }
+    return { joinCode };
+  }
+  if (hasName) {
+    return { organisationName: readString(body, 'organisationName', { max: ORGANISATION_NAME_MAX, label: 'Organisation name' }) };
+  }
+  throw new HttpError(400, 'VALIDATION_ERROR', 'Join an organisation with an invite code, or create one.', {
+    joinCode: "Enter your organisation's invite code, or create a new organisation.",
+  });
 }
 
 function duplicateEmail() {
@@ -244,6 +305,7 @@ export async function updateCurrentUser(user, rawBody, { jwtSecret, jwtExpiresIn
     { returnDocument: 'after', runValidators: true },
   );
   if (!updated) throw new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.');
-  if (!passwordChanged) return userDto(updated);
-  return { ...userDto(updated), ...issueToken(updated, { jwtSecret, jwtExpiresIn }) };
+  const dto = userDto(updated, await getOrganisationSummary(updated.organisationId));
+  if (!passwordChanged) return dto;
+  return { ...dto, ...issueToken(updated, { jwtSecret, jwtExpiresIn }) };
 }

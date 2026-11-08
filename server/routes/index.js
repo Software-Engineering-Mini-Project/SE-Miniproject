@@ -3,6 +3,7 @@ import { createAuthRouter } from './auth.js';
 import { createCommentsRouter } from './comments.js';
 import { createDashboardRouter } from './dashboard.js';
 import { createNotificationsRouter } from './notifications.js';
+import { createOrganisationRouter } from './organisation.js';
 import { createProjectsRouter } from './projects.js';
 import { createSettingsRouter } from './settings.js';
 import { createTasksRouter } from './tasks.js';
@@ -13,6 +14,7 @@ export function createApiRouter({ jwtSecret, jwtExpiresIn, now } = {}) {
   router.use('/auth', createAuthRouter({ jwtSecret, jwtExpiresIn, now }));
   router.use('/users', createUsersRouter({ jwtSecret, jwtExpiresIn }));
   router.use('/settings', createSettingsRouter({ jwtSecret }));
+  router.use('/organisation', createOrganisationRouter({ jwtSecret, now }));
   router.use(createDashboardRouter({ jwtSecret, now }));
   router.use(createProjectsRouter({ jwtSecret, now }));
   router.use(createTasksRouter({ jwtSecret, now }));

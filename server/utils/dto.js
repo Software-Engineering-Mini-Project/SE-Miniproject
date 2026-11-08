@@ -5,7 +5,8 @@ import { toApi } from './to-api.js';
 /** User fields the member and author DTOs need; one constant so every query selects the same set. */
 export const MEMBER_FIELDS = '_id name email role deactivatedAt';
 
-export function userDto(user) {
+/** `organisation` ({ id, name }) is added for the signed-in user's own session; lists of accounts omit it. */
+export function userDto(user, organisation) {
   return {
     id: user.id,
     name: user.name,
@@ -14,6 +15,7 @@ export function userDto(user) {
     active: !user.deactivatedAt,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
+    ...(organisation ? { organisation } : {}),
   };
 }
 

@@ -143,7 +143,7 @@ test('Admins change roles; the change takes effect at once, is audited, and the 
   await request(app).patch('/api/users/user-admin-001/role').set(auth(newAdmin)).send({ role: 'Admin' });
   await request(app).patch('/api/users/user-outsider-001/role').set(auth(admin)).send({ role: 'Member' });
   assert.deepEqual(
-    (await User.find({}).sort({ _id: 1 }).lean()).map((user) => [user._id, user.role]),
+    (await User.find({ organisationId: 'org-acme' }).sort({ _id: 1 }).lean()).map((user) => [user._id, user.role]),
     [['user-admin-001', 'Admin'], ['user-lead-001', 'Lead'], ['user-member-001', 'Member'], ['user-member-002', 'Member'], ['user-outsider-001', 'Member'], ['user-viewer-001', 'Member']],
   );
 });
@@ -176,14 +176,14 @@ test('invalid registrations do not use up the per-IP registration limit, and dup
     .post('/api/auth/register').set('X-Forwarded-For', ip).send({ name: 'Typo', email: 'not-an-email', password: 'short' })));
   assert.deepEqual(typos.map((response) => response.status), [400, 400, 400, 400, 400, 400]);
   const valid = await request(app).post('/api/auth/register').set('X-Forwarded-For', ip).send({
-    name: 'After Typos', email: 'after-typos@example.test', password: 'Password123',
+    name: 'After Typos', email: 'after-typos@example.test', password: 'Password123', joinCode: 'ACMELABS',
   });
   assert.equal(valid.status, 201, valid.text);
 
   await User.collection.dropIndex('emailNormalized_1');
   try {
     const duplicate = await request(app).post('/api/auth/register').set('X-Forwarded-For', '203.0.113.78').send({
-      name: 'Duplicate', email: 'AFTER-TYPOS@example.test', password: 'Password123',
+      name: 'Duplicate', email: 'AFTER-TYPOS@example.test', password: 'Password123', joinCode: 'ACMELABS',
     });
     assert.equal(duplicate.status, 409);
     assert.equal(duplicate.body.errorCode, 'DUPLICATE_EMAIL');

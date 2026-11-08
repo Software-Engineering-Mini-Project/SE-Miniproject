@@ -10,7 +10,7 @@ import { updateCurrentUser } from './auth.js';
 
 export const ROLES = ['Admin', 'Lead', 'Member'];
 const STATUSES = ['active', 'deactivated'];
-const ACTIVE_ADMIN = { role: 'Admin', deactivatedAt: null };
+const activeAdmins = (organisationId) => ({ organisationId, role: 'Admin', deactivatedAt: null });
 
 function requireAdmin(request) {
   if (!isAdmin(request.user)) throw new HttpError(403, 'FORBIDDEN', 'Only an admin can manage user accounts.');
@@ -46,7 +46,8 @@ export function createUsersRouter({ jwtSecret, jwtExpiresIn } = {}) {
     const status = request.query.status === undefined || request.query.status === ''
       ? undefined
       : readEnum(request.query, 'status', STATUSES, { label: 'Status' });
-    const filter = {};
+    const organisationId = request.user.organisationId;
+    const filter = { organisationId };
     if (q) {
       const pattern = new RegExp(escapeRegex(q), 'i');
       filter.$or = [{ name: pattern }, { email: pattern }];
@@ -57,8 +58,8 @@ export function createUsersRouter({ jwtSecret, jwtExpiresIn } = {}) {
     const [users, total, roleRows, deactivated] = await Promise.all([
       User.find(filter).sort({ createdAt: -1, _id: 1 }).skip(skip).limit(pageSize).lean(),
       User.countDocuments(filter),
-      User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]),
-      User.countDocuments({ deactivatedAt: { $ne: null } }),
+      User.aggregate([{ $match: { organisationId } }, { $group: { _id: '$role', count: { $sum: 1 } } }]),
+      User.countDocuments({ organisationId, deactivatedAt: { $ne: null } }),
     ]);
     const counts = await projectCounts(users.map((user) => String(user._id)));
     const roleCounts = Object.fromEntries(ROLES.map((name) => [name, roleRows.find((row) => row._id === name)?.count ?? 0]));
@@ -79,22 +80,22 @@ export function createUsersRouter({ jwtSecret, jwtExpiresIn } = {}) {
     requireAdmin(request);
     const userId = readId(request.params.userId, 'User');
     const role = readEnum(requireObject(request.body), 'role', ROLES, { label: 'Role' });
-    const target = await User.findById(userId);
+    const target = await User.findOne({ _id: userId, organisationId: request.user.organisationId });
     if (!target) throw new HttpError(404, 'NOT_FOUND', 'User not found.');
     const previous = target.role;
     if (previous === role) return response.json(userDto(target));
 
     const updated = await User.findOneAndUpdate(
-      { _id: userId, role: previous },
+      { _id: userId, organisationId: request.user.organisationId, role: previous },
       { $set: { role } },
       { returnDocument: 'after', runValidators: true },
     );
     if (!updated) throw new HttpError(409, 'CONFLICT', 'This user changed while you were editing. Reload and try again.');
     // Checked after the write so two admins demoting each other at once cannot both succeed.
     // Deactivated admins can't sign in, so only active ones count.
-    if (previous === 'Admin' && await User.countDocuments(ACTIVE_ADMIN) === 0) {
+    if (previous === 'Admin' && await User.countDocuments(activeAdmins(request.user.organisationId)) === 0) {
       await User.updateOne({ _id: userId }, { $set: { role: 'Admin' } });
-      throw new HttpError(409, 'LAST_ADMIN', 'The workspace needs at least one admin. Promote someone else first.');
+      throw new HttpError(409, 'LAST_ADMIN', 'The organisation needs at least one admin. Promote someone else first.');
     }
     // Added to the request logger's audit record for this Admin write (no secrets, only the roles).
     response.locals.auditChange = { field: 'role', from: previous, to: role };
@@ -113,14 +114,14 @@ export function createUsersRouter({ jwtSecret, jwtExpiresIn } = {}) {
     if (userId === request.user.id && !body.active) {
       throw new HttpError(400, 'VALIDATION_ERROR', 'You cannot deactivate your own account.');
     }
-    const target = await User.findById(userId);
+    const target = await User.findOne({ _id: userId, organisationId: request.user.organisationId });
     if (!target) throw new HttpError(404, 'NOT_FOUND', 'User not found.');
     const wasActive = !target.deactivatedAt;
     if (wasActive === body.active) return response.json(userDto(target));
     const update = body.active
       ? { $set: { deactivatedAt: null } }
       : { $set: { deactivatedAt: new Date() }, $inc: { tokenVersion: 1 } };
-    const updated = await User.findOneAndUpdate({ _id: userId }, update, { returnDocument: 'after' });
+    const updated = await User.findOneAndUpdate({ _id: userId, organisationId: request.user.organisationId }, update, { returnDocument: 'after' });
     if (!updated) throw new HttpError(404, 'NOT_FOUND', 'User not found.');
     // The acting admin is active and can't deactivate themselves, so an active admin always remains.
     response.locals.auditChange = { field: 'status', from: wasActive ? 'active' : 'deactivated', to: body.active ? 'active' : 'deactivated' };

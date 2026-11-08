@@ -160,15 +160,16 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       const project = await getProjectForUser(request.user, filters.projectId);
       projectIds = [project.id];
       delete filters.projectId;
-    } else if (isAdmin(request.user)) {
-      projectIds = null;
     } else {
-      const projects = await Project.find({ memberIds: request.user.id }).select('_id').lean();
+      // Admins see every project in their organisation, everyone else the ones they are in.
+      const filter = isAdmin(request.user)
+        ? { organisationId: request.user.organisationId }
+        : { organisationId: request.user.organisationId, memberIds: request.user.id };
+      const projects = await Project.find(filter).select('_id').lean();
       projectIds = projects.map((project) => String(project._id));
     }
-    if (projectIds && projectIds.length === 0) return response.json([]);
-    const query = projectIds ? combineFilters({ projectId: { $in: projectIds } }, filters) : combineFilters({}, filters);
-    const tasks = await Task.find(query)
+    if (projectIds.length === 0) return response.json([]);
+    const tasks = await Task.find(combineFilters({ projectId: { $in: projectIds } }, filters))
       .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
