@@ -19,6 +19,9 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerId: string, memberIds: string[], managerIds?: string[], viewerIds?: string[], members: Member[], createdAt: string, updatedAt: string }} Project
  * @typedef {{ id: string, name: string, description: string, ownerName: string | null, memberCount: number }} DirectoryProject
  * @typedef {{ projectCreation: 'everyone' | 'leads' }} WorkspaceSettings
+ * @typedef {{ id: string, name: string, projectCreation: 'everyone' | 'leads', createdAt: string, memberCount: number, projectCount?: number, joinCode?: string }} Organisation  (projectCount and joinCode: Admins only)
+ * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerName: string | null, memberCount: number, yourRole: string | null, updatedAt: string, total: number, counts: Record<string, number>, overdue: number }} OrganisationProject
+ * @typedef {{ projects: OrganisationProject[], totals: { people: number, projects: number, tasks: number, done: number, overdue: number } }} OrganisationOverview
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, assigneeIds: string[], createdAt: string, updatedAt: string }} Task
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
@@ -108,7 +111,7 @@ async function request(method, path, { body, query, accept, auth = true, invalid
 const enc = encodeURIComponent;
 export const api = {
   auth: {
-    /** @returns {Promise<{ userId: string, email: string }>} TM-F-001 */
+    /** Body adds exactly one of `joinCode` (join as a Member) or `organisationName` (start one, as its Admin). @returns {Promise<{ userId: string, email: string, role: string, organisation: { id: string, name: string } }>} TM-F-001 */
     register: (input) => request('POST', '/auth/register', { body: input, auth: false }),
     /** @returns {Promise<{ token: string, expiresIn: number }>} TM-F-002 */
     login: (input) => request('POST', '/auth/login', { body: input, auth: false }),
@@ -126,6 +129,16 @@ export const api = {
     /** Admin only. Deactivating signs the user out everywhere and blocks sign-in. @returns {Promise<User>} */
     setActive: (userId, active) => request('PATCH', `/users/${enc(userId)}/status`, { body: { active } }),
   },
+  organisation: {
+    /** The caller's organisation. The invite code is only sent to Admins. @returns {Promise<Organisation>} */
+    get: () => request('GET', '/organisation'),
+    /** Admin only. @returns {Promise<Organisation>} */
+    update: (name) => request('PATCH', '/organisation', { invalidates: ['organisation:'], body: { name } }),
+    /** Admin only. The old invite code stops working at once. @returns {Promise<Organisation>} */
+    rotateJoinCode: () => request('POST', '/organisation/join-code', { invalidates: ['organisation:'] }),
+    /** Projects you are in plus open ones (Admins: all), with task counts. @returns {Promise<OrganisationOverview>} */
+    overview: (today = localToday()) => request('GET', '/organisation/overview', { query: { today } }),
+  },
   settings: {
     /** Everyone signed in. @returns {Promise<WorkspaceSettings>} */
     get: () => request('GET', '/settings'),
@@ -138,13 +151,13 @@ export const api = {
     /** Open projects the caller can join. @returns {Promise<DirectoryProject[]>} */
     directory: (q) => request('GET', '/projects/directory', { query: { q: q || undefined } }),
     /** Join an open project as a Member (201; 200 if already in it). @returns {Promise<Project>} */
-    join: (projectId) => request('POST', `/projects/${enc(projectId)}/join`, { invalidates: ['dashboard:', 'directory:', `project:${projectId}`, `tasks:${projectId}`] }),
+    join: (projectId) => request('POST', `/projects/${enc(projectId)}/join`, { invalidates: ['dashboard:', 'organisation:', 'directory:', `project:${projectId}`, `tasks:${projectId}`] }),
     /** @returns {Promise<Project>} TM-F-020 */
-    create: (input) => request('POST', '/projects', { invalidates: ['dashboard:'], body: input }),
+    create: (input) => request('POST', '/projects', { invalidates: ['dashboard:', 'organisation:'], body: input }),
     /** @returns {Promise<Project>} DECISION: response embeds `members` (safe user fields). */
     get: (projectId) => request('GET', `/projects/${enc(projectId)}`),
-    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'directory:'], body: input }),
-    remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:'] }),
+    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'organisation:', 'directory:'], body: input }),
+    remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
     /** @returns {Promise<ProjectSummary>} TM-F-041 */
     summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`, { query: { today: localToday() } }),
     /** @returns {Promise<string>} CSV text, TM-F-042 */
@@ -159,25 +172,25 @@ export const api = {
     /** @returns {Promise<Member[]>} */
     list: (projectId) => request('GET', `/projects/${enc(projectId)}/members`),
     /** Body is `{ email, role? }` of a registered user; role is Manager, Member (default) or Viewer. TM-F-021 */
-    add: (projectId, email, role) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:'], body: role ? { email, role } : { email } }),
+    add: (projectId, email, role) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:', 'organisation:'], body: role ? { email, role } : { email } }),
     /** Changes a project role; 'Owner' transfers ownership. @returns {Promise<Member[]>} */
     setRole: (projectId, userId, role) => request('PATCH', `/projects/${enc(projectId)}/members/${enc(userId)}`, { body: { role } }),
-    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:'] }),
+    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
   },
   tasks: {
     /** @returns {Promise<Task[]>} */
     listByProject: (projectId, filters) => request('GET', `/projects/${enc(projectId)}/tasks`, { query: filters }),
     /** @returns {Promise<Task>} TM-F-010 / TM-F-022 */
-    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/tasks`, { invalidates: ['dashboard:'], body: input }),
+    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/tasks`, { invalidates: ['dashboard:', 'organisation:'], body: input }),
     /** @returns {Promise<Task[]>} TM-F-040 */
     search: (filters) => request('GET', '/tasks', { query: filters }),
     /** @returns {Promise<Task>} */
     get: (taskId) => request('GET', `/tasks/${enc(taskId)}`),
     /** @returns {Promise<Task>} TM-F-011 */
-    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'], body: input }),
-    remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:'] }),
+    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'], body: input }),
+    remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
-    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:'], body: { status } }),
+    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:'], body: { status } }),
   },
   checklist: {
     /** @returns {Promise<{ taskId: string, checklist: ChecklistItem[], updatedAt: string }>} */

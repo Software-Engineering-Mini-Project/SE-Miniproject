@@ -57,9 +57,15 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
         await settle(page);
         await expectAccessible(page, path);
       }
+      // The other way into registration: starting an organisation.
+      await page.getByRole('radio', { name: /Create an organisation/ }).check();
+      await expect(page.getByLabel('Organisation name')).toBeVisible();
+      await expectAccessible(page, '/register (create an organisation)');
     });
 
     test('core app pages and the task form', async ({ page }) => {
+      // Many pages, a dialog, the agenda and a scan of each: close to the default budget when two workers share the server.
+      test.slow();
       await signIn(page);
       for (const path of APP_PAGES) {
         await page.goto(path);
@@ -110,6 +116,23 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       const dialog = page.getByRole('dialog', { name: 'New project' });
       await dialog.getByRole('radio', { name: /Open/ }).check();
       await expectAccessible(page, 'New project dialog');
+    });
+
+    test('organisation page as an admin (invite code and rename)', async ({ page }) => {
+      await signIn(page, 'admin@example.test');
+      await page.goto('/organisation');
+      await settle(page);
+      await expect(page.getByLabel('Invite code', { exact: true })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Projects' }).getByRole('link', { name: 'Alpha Project' })).toBeVisible();
+      await expectAccessible(page, '/organisation (admin)');
+    });
+
+    test('organisation page as a member', async ({ page }) => {
+      await signIn(page);
+      await page.goto('/organisation');
+      await settle(page);
+      await expect(page.getByRole('region', { name: 'Projects' }).getByRole('link', { name: 'Alpha Project' })).toBeVisible();
+      await expectAccessible(page, '/organisation (member)');
     });
 
     test('admin users page', async ({ page }) => {

@@ -65,6 +65,7 @@ test('an Admin deactivates an account, which then cannot sign in until reactivat
   const email = `deactivate-${Date.now()}@example.test`;
   const name = `Deactivation Check ${Date.now()}`;
   await page.goto('/register');
+  await page.getByLabel('Invite code', { exact: true }).fill('ACMELABS');
   await page.getByLabel('Full name').fill(name);
   await page.getByLabel('Email').fill(email);
   await page.getByRole('textbox', { name: 'Password' }).fill(PASSWORD);

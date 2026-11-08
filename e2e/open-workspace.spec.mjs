@@ -38,6 +38,7 @@ test('a new account creates an open project from the getting-started screen, and
   const stamp = Date.now();
   const projectName = `Open check ${stamp}`;
   await page.goto('/register');
+  await page.getByLabel('Invite code', { exact: true }).fill('ACMELABS');
   await page.getByLabel('Full name').fill(`Newcomer ${stamp}`);
   await page.getByLabel('Email').fill(`newcomer-${stamp}@example.test`);
   await page.getByRole('textbox', { name: 'Password' }).fill(PASSWORD);

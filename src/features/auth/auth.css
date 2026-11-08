@@ -249,3 +249,64 @@
     display: none;
   }
 }
+
+/* ---------- Register: join or create an organisation ---------- */
+.auth-choice {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.auth-choice legend {
+  margin-bottom: 6px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.auth-choice-option {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) ease,
+    background-color var(--dur-fast) ease;
+}
+
+.auth-choice-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.auth-choice-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.auth-choice-option input {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.auth-choice-option svg {
+  margin-top: 2px;
+  color: var(--ink-2);
+}
+
+.auth-choice-option strong {
+  display: block;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.auth-choice-option span {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}

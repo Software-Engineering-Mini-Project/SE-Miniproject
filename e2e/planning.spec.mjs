@@ -26,7 +26,7 @@ async function saved(page, taskTitle, itemText, done, change) {
   }
   await change();
   await expect
-    .poll(() => page.evaluate(([t, i]) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}')
+    .poll(() => page.evaluate(([t, i]) => JSON.parse(localStorage.getItem('taskline.mockdb.v3') || '{"tasks":[]}')
       .tasks.find((task) => task.title === t)?.checklist?.find((item) => item.text === i)?.done, [taskTitle, itemText]))
     .toBe(done);
 }
@@ -41,7 +41,7 @@ async function removed(page, taskTitle, itemText, change) {
   }
   await change();
   await expect
-    .poll(() => page.evaluate(([t, i]) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}')
+    .poll(() => page.evaluate(([t, i]) => JSON.parse(localStorage.getItem('taskline.mockdb.v3') || '{"tasks":[]}')
       .tasks.find((task) => task.title === t)?.checklist?.some((item) => item.text === i), [taskTitle, itemText]))
     .toBe(false);
 }

@@ -37,7 +37,7 @@ async function savedStatus(page, title, status, change) {
 
   await change();
   await expect
-    .poll(() => page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title))
+    .poll(() => page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v3') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title))
     .toBe(status);
 }
 

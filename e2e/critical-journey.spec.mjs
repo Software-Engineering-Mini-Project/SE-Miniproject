@@ -45,7 +45,7 @@ async function savedStatus(page, title, status, drop) {
   await drop();
   await expect
     .poll(() =>
-      page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title),
+      page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v3') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title),
     )
     .toBe(status);
 }
@@ -53,6 +53,7 @@ async function savedStatus(page, title, status, drop) {
 test('TC-E2E-01 critical journey: register, project, member, assign, move, reload, notification', async ({ page }) => {
   await test.step('TM-F-001 register a new account', async () => {
     await page.goto('/register');
+    await page.getByLabel('Invite code', { exact: true }).fill('ACMELABS');
     await page.getByLabel('Full name').fill(NEW_USER.name);
     await page.getByLabel('Email').fill(NEW_USER.email);
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
