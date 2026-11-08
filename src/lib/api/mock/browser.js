@@ -1,6 +1,7 @@
 // Browser wiring for the mock API: seeds from fixtures and persists to localStorage
 // so a refresh keeps demo changes. Loaded lazily, only in mock mode.
 
+import organisations from '@fixtures/organisations.json';
 import users from '@fixtures/users.json';
 import projects from '@fixtures/projects.json';
 import tasks from '@fixtures/tasks.json';
@@ -25,7 +26,7 @@ function safeStorage() {
 export function getBrowserMockServer() {
   if (!server) {
     server = createMockServer({
-      seed: { users, projects, tasks, comments, notifications },
+      seed: { organisations, users, projects, tasks, comments, notifications },
       storage: typeof window === 'undefined' ? null : safeStorage(),
     });
   }

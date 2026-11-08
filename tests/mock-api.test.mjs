@@ -2,6 +2,7 @@
 // so the same cases can be replayed against the real Express API with Supertest.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import organisations from '../fixtures/organisations.json' with { type: 'json' };
 import users from '../fixtures/users.json' with { type: 'json' };
 import projects from '../fixtures/projects.json' with { type: 'json' };
 import tasks from '../fixtures/tasks.json' with { type: 'json' };
@@ -11,7 +12,7 @@ import negatives from '../fixtures/negative-inputs.json' with { type: 'json' };
 import { createMockServer, MOCK_PASSWORD } from '../src/lib/api/mock/server.js';
 import { csvCell } from '../src/lib/api/mock/csv.js';
 
-const seed = { users, projects, tasks, comments, notifications };
+const seed = { organisations, users, projects, tasks, comments, notifications };
 const NOW = new Date('2026-10-16T10:00:00.000Z');
 
 function setup(now = () => NOW) {
@@ -31,14 +32,14 @@ const assertEnvelope = (res, status, errorCode) => {
 
 test('TC-AUTH-01 registration accepts valid fields and never returns a password', () => {
   const { call } = setup();
-  const res = call('POST', '/auth/register', { body: { name: 'New User', email: 'New@Example.test', password: 'abc12345' } });
+  const res = call('POST', '/auth/register', { body: { name: 'New User', email: 'New@Example.test', password: 'abc12345', joinCode: 'acme-labs' } });
   assert.equal(res.status, 201);
-  assert.deepEqual(Object.keys(res.data).sort(), ['email', 'userId']);
+  assert.deepEqual(Object.keys(res.data).sort(), ['email', 'organisation', 'role', 'userId']);
 });
 
 test('TC-AUTH-01-N duplicate email (case-insensitive) is 409 and invalid payloads are 400', () => {
   const { call } = setup();
-  assertEnvelope(call('POST', '/auth/register', { body: { name: 'Dup', email: negatives.duplicateEmail.toUpperCase(), password: 'abc12345' } }), 409, 'DUPLICATE_EMAIL');
+  assertEnvelope(call('POST', '/auth/register', { body: { name: 'Dup', email: negatives.duplicateEmail.toUpperCase(), password: 'abc12345', joinCode: 'ACMELABS' } }), 409, 'DUPLICATE_EMAIL');
   assertEnvelope(call('POST', '/auth/register', { body: { name: 'X', email: 'not-an-email', password: 'abc12345' } }), 400, 'VALIDATION_ERROR');
   assertEnvelope(call('POST', '/auth/register', { body: { name: 'X', email: 'x@example.test', password: 'short' } }), 400, 'VALIDATION_ERROR');
   assertEnvelope(call('POST', '/auth/register', { body: { name: negatives.noSqlInjectionLike, email: 'y@example.test', password: 'abc12345' } }), 400, 'VALIDATION_ERROR');
@@ -46,7 +47,7 @@ test('TC-AUTH-01-N duplicate email (case-insensitive) is 409 and invalid payload
 
 test('registration never self-assigns an elevated role (SRS 2.2)', () => {
   const { call } = setup();
-  call('POST', '/auth/register', { body: { name: 'Sneaky', email: 'sneaky@example.test', password: 'abc12345', role: 'Admin' } });
+  call('POST', '/auth/register', { body: { name: 'Sneaky', email: 'sneaky@example.test', password: 'abc12345', joinCode: 'ACMELABS', role: 'Admin' } });
   const { token } = call('POST', '/auth/login', { body: { email: 'sneaky@example.test', password: 'abc12345' } }).data;
   const me = call('GET', '/auth/me', { token });
   assert.equal(me.data.role, 'Member');
@@ -338,7 +339,7 @@ test('Admin user management mirrors the API: list, filter, role change and last-
   const admin = login('admin@example.test');
   assertEnvelope(call('GET', '/users', { token: login('lead@example.test') }), 403, 'FORBIDDEN');
   const all = call('GET', '/users', { token: admin });
-  assert.equal(all.data.total, users.length);
+  assert.equal(all.data.total, users.filter((user) => user.organisationId === 'org-acme').length);
   assert.deepEqual(all.data.roleCounts, { Admin: 1, Lead: 1, Member: 4 });
   assert.equal(all.data.items.find((u) => u.id === 'user-lead-001').projectCount, 2);
   assert.ok(all.data.items.every((u) => !('password' in u)));
@@ -457,4 +458,83 @@ test('checklists mirror the API: owners and members edit, viewers cannot, 50-ite
   assert.deepEqual(fresh.checklist, []);
   for (let i = 0; i < 50; i += 1) call('POST', `/tasks/${fresh.id}/checklist`, { token: lead, body: { text: `Step ${i}` } });
   assertEnvelope(call('POST', `/tasks/${fresh.id}/checklist`, { token: lead, body: { text: 'One too many' } }), 400, 'VALIDATION_ERROR');
+});
+
+// ---------- organisations (mirrors server/tests/organisations.test.mjs) ----------
+
+test('registering starts an organisation (as its Admin) or joins one by invite code (as a Member)', () => {
+  const { call, login } = setup();
+  const base = { name: 'Founder', email: 'founder@example.test', password: 'abc12345' };
+  const created = call('POST', '/auth/register', { body: { ...base, organisationName: '  Globex ' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.role, 'Admin');
+  assert.equal(created.data.organisation.name, 'Globex');
+  const token = call('POST', '/auth/login', { body: { email: 'founder@example.test', password: 'abc12345' } }).data.token;
+  assert.deepEqual(call('GET', '/auth/me', { token }).data.organisation, created.data.organisation);
+  assert.deepEqual(call('GET', '/projects', { token }).data, [], 'a new organisation sees none of the others');
+  assert.equal(call('GET', '/organisation', { token }).data.joinCode.length, 11);
+
+  const joined = call('POST', '/auth/register', { body: { name: 'Joiner', email: 'joiner@example.test', password: 'abc12345', joinCode: 'acme labs', role: 'Admin' } });
+  assert.equal(joined.data.role, 'Member');
+  assert.deepEqual(joined.data.organisation, { id: 'org-acme', name: 'Acme Labs' });
+
+  const other = { name: 'Someone', email: 'someone@example.test', password: 'abc12345' };
+  assertEnvelope(call('POST', '/auth/register', { body: other }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/auth/register', { body: { ...other, joinCode: 'ACMELABS', organisationName: 'Both' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/auth/register', { body: { ...other, joinCode: 'NOSUCHCODE' } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('POST', '/auth/login', { body: { email: 'someone@example.test', password: 'abc12345' } }).status, 401);
+});
+
+test('nothing crosses organisations in the mock either', () => {
+  const { call, login } = setup();
+  const northwind = login('northwind-admin@example.test');
+  const admin = login('admin@example.test');
+  const outsider = login('outsider@example.test');
+  assert.deepEqual(call('GET', '/projects', { token: northwind }).data.map((project) => project.id), ['project-northwind']);
+  assert.equal(call('GET', '/projects/project-alpha', { token: northwind }).status, 404);
+  assert.equal(call('GET', '/projects/project-alpha/tasks', { token: northwind }).status, 404);
+  assert.equal(call('POST', '/projects/project-alpha/join', { token: northwind }).status, 404);
+  assert.deepEqual(call('GET', '/tasks', { token: northwind }).data, []);
+  assert.deepEqual(call('GET', '/projects/directory', { token: outsider }).data, []);
+  assert.equal(call('GET', '/projects/project-northwind', { token: outsider }).status, 404);
+  const add = call('POST', '/projects/project-alpha/members', { token: admin, body: { email: 'northwind-admin@example.test' } });
+  assert.equal(add.status, 404);
+  assert.equal(add.data.fields.email, 'Email is not registered in your organisation.');
+  assert.deepEqual(call('GET', '/users', { token: northwind }).data.items.map((user) => user.id), ['user-northwind-001']);
+  assert.equal(call('PATCH', '/users/user-member-001/role', { token: northwind, body: { role: 'Admin' } }).status, 404);
+  assert.equal(call('PATCH', '/users/user-northwind-001/role', { token: northwind, body: { role: 'Member' } }).data.errorCode, 'LAST_ADMIN');
+
+  call('PATCH', '/settings', { token: northwind, body: { projectCreation: 'leads' } });
+  assert.equal(call('GET', '/settings', { token: login('member@example.test') }).data.projectCreation, 'everyone');
+  assert.equal(call('POST', '/projects', { token: northwind, body: { name: 'Launch' } }).data.organisationId, 'org-northwind');
+});
+
+test('the organisation page data: invite code for Admins only, rename, rotate, and the overview', () => {
+  const { call, login } = setup();
+  const admin = login('admin@example.test');
+  const member = login('member@example.test');
+  assert.equal(call('GET', '/organisation', { token: admin }).data.joinCode, 'ACMEL-ABS');
+  const asMember = call('GET', '/organisation', { token: member }).data;
+  assert.equal(asMember.joinCode, undefined);
+  assert.equal(asMember.memberCount, 6);
+  assert.equal(call('PATCH', '/organisation', { token: member, body: { name: 'Mine' } }).status, 403);
+  assert.equal(call('PATCH', '/organisation', { token: admin, body: { name: '  ' } }).status, 400);
+  assert.equal(call('PATCH', '/organisation', { token: admin, body: { name: 'Acme International' } }).data.name, 'Acme International');
+  assert.equal(call('GET', '/auth/me', { token: member }).data.organisation.name, 'Acme International');
+
+  assert.equal(call('POST', '/organisation/join-code', { token: member }).status, 403);
+  const rotated = call('POST', '/organisation/join-code', { token: admin }).data.joinCode;
+  assert.match(rotated, /^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/);
+  const body = { name: 'Late', email: 'late@example.test', password: 'abc12345' };
+  assert.equal(call('POST', '/auth/register', { body: { ...body, joinCode: 'ACMELABS' } }).status, 400);
+  assert.equal(call('POST', '/auth/register', { body: { ...body, joinCode: rotated } }).status, 201);
+
+  call('POST', '/projects', { token: login('lead@example.test'), body: { name: 'Design system', visibility: 'open' } });
+  const query = { today: '2026-10-16' };
+  const all = call('GET', '/organisation/overview', { token: admin, query }).data;
+  assert.deepEqual(all.projects.map((project) => project.name), ['Alpha Project', 'Beta Project', 'Design system']);
+  const mine = call('GET', '/organisation/overview', { token: member, query }).data;
+  assert.deepEqual(mine.projects.map((project) => [project.name, project.yourRole]), [['Alpha Project', 'Member'], ['Design system', null]]);
+  assert.equal(mine.totals.tasks, mine.projects.reduce((sum, project) => sum + project.total, 0));
+  assert.deepEqual(call('GET', '/organisation/overview', { token: login('outsider@example.test'), query }).data.projects.map((project) => project.name), ['Design system']);
 });

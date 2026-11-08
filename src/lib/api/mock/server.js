@@ -30,6 +30,13 @@ import {
   withMemberRole,
   withoutMember,
 } from '../../permissions.js';
+import {
+  ORGANISATION_NAME_MAX,
+  formatJoinCode,
+  generateJoinCode,
+  isJoinCodeShape,
+  normalizeJoinCode,
+} from '../../organisation.js';
 import { toCsv } from './csv.js';
 
 export const MOCK_PASSWORD = 'Password123!';
@@ -91,13 +98,13 @@ function decodeToken(token) {
 /** Builds the initial database from fixture JSON. */
 export function seedDatabase(seed) {
   return {
+    organisations: clone(seed.organisations ?? []),
     users: seed.users.map((u) => ({
       ...clone(u),
       emailNormalized: normalizeEmail(u.email),
       password: MOCK_PASSWORD,
     })),
     projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], visibility: 'private', ...p })),
-    settings: { ...DEFAULT_WORKSPACE_SETTINGS },
     tasks: clone(seed.tasks),
     comments: clone(seed.comments),
     notifications: clone(seed.notifications),
@@ -112,7 +119,7 @@ export function seedDatabase(seed) {
  * @param {() => Date} [options.now]
  * @param {string} [options.storageKey]
  */
-export function createMockServer({ seed, storage = null, now = () => new Date(), storageKey = 'taskline.mockdb.v2' }) {
+export function createMockServer({ seed, storage = null, now = () => new Date(), storageKey = 'taskline.mockdb.v3' }) {
   let db = load();
   const loginAttempts = new Map();
 
@@ -149,11 +156,42 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   }
 
   const nextId = (prefix) => `${prefix}-${++db.counter}`;
-  const settings = () => ({ ...DEFAULT_WORKSPACE_SETTINGS, ...(db.settings ?? {}) });
+  const orgOf = (user) => db.organisations.find((organisation) => organisation.id === user.organisationId);
+  const settings = (user) => ({ projectCreation: orgOf(user)?.projectCreation ?? DEFAULT_WORKSPACE_SETTINGS.projectCreation });
+  /** Nothing crosses organisations. */
+  const sameOrg = (user, record) => Boolean(user.organisationId) && record.organisationId === user.organisationId;
+  const memberCount = (user) => db.users.filter((u) => sameOrg(user, u) && !u.deactivatedAt).length;
+  const organisationDto = (user) => {
+    const organisation = orgOf(user);
+    if (!organisation) notFound('Organisation');
+    const admin = isAdmin(user);
+    return {
+      id: organisation.id,
+      name: organisation.name,
+      projectCreation: organisation.projectCreation ?? DEFAULT_WORKSPACE_SETTINGS.projectCreation,
+      createdAt: organisation.createdAt,
+      memberCount: memberCount(user),
+      ...(admin ? { projectCount: db.projects.filter((p) => sameOrg(user, p)).length, joinCode: formatJoinCode(organisation.joinCode) } : {}),
+    };
+  };
+  const freshJoinCode = () => {
+    let code = generateJoinCode();
+    while (db.organisations.some((o) => o.joinCode === code)) code = generateJoinCode();
+    return code;
+  };
   const stamp = () => now().toISOString();
 
   // ---------- DTO mapping (never expose password / passwordHash) ----------
-  const userDto = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, active: !u.deactivatedAt, createdAt: u.createdAt, updatedAt: u.updatedAt });
+  const userDto = (u, { withOrganisation = false } = {}) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    active: !u.deactivatedAt,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
+    ...(withOrganisation && orgOf(u) ? { organisation: { id: orgOf(u).id, name: orgOf(u).name } } : {}),
+  });
   const memberDto = (u, project) => {
     const dto = { id: u.id, name: u.name, email: u.email, role: u.role, active: !u.deactivatedAt };
     if (project) dto.projectRole = projectRoleOf(project, u.id);
@@ -240,7 +278,8 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   function projectFor(user, projectId, { action = 'project.view' } = {}) {
     idParam(projectId, 'project');
     const project = db.projects.find((p) => p.id === projectId);
-    if (!project) notFound('Project');
+    // Another organisation's project looks exactly like one that doesn't exist, admins included.
+    if (!project || !sameOrg(user, project)) notFound('Project');
     if (!isMember(user, project)) {
       // An open project can be joined, so say so; a private one stays opaque.
       if (project.visibility === 'open') fail(403, 'JOIN_REQUIRED', 'This project is open to everyone in the workspace. Join it to see its work.');
@@ -383,15 +422,35 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const emailRaw = str(body, 'email', { max: 254, label: 'Email' });
       if (!EMAIL_RE.test(emailRaw)) badRequest('Enter a valid email address.', { email: 'Enter a valid email address.' });
       const password = passwordRule(body?.password);
+      // Join with an invite code (Member) or start an organisation (its first Admin): exactly one.
+      const hasCode = body?.joinCode !== undefined && body.joinCode !== null && body.joinCode !== '';
+      const hasName = body?.organisationName !== undefined && body.organisationName !== null && body.organisationName !== '';
+      if (hasCode && hasName) badRequest('Join an organisation or create one, not both.', { joinCode: 'Use an invite code or an organisation name, not both.' });
+      if (!hasCode && !hasName) badRequest('Join an organisation with an invite code, or create one.', { joinCode: "Enter your organisation's invite code, or create a new organisation." });
+      let organisation;
+      if (hasCode) {
+        if (typeof body.joinCode !== 'string') badRequest('Invite code must be text.', { joinCode: 'Invite code must be text.' });
+        const code = normalizeJoinCode(body.joinCode);
+        organisation = isJoinCodeShape(code) ? db.organisations.find((o) => o.joinCode === code) : undefined;
+        if (!organisation) badRequest('That invite code is not recognised.', { joinCode: 'That invite code is not recognised. Check it with your admin.' });
+      }
+      const organisationName = hasName ? str(body, 'organisationName', { max: ORGANISATION_NAME_MAX, label: 'Organisation name' }) : undefined;
       const emailNormalized = normalizeEmail(emailRaw);
       if (db.users.some((u) => u.emailNormalized === emailNormalized)) {
         fail(409, 'DUPLICATE_EMAIL', 'An account with this email already exists.', { email: 'This email is already registered.' });
       }
       const at = stamp();
-      // Public registration never self-assigns elevated roles (SRS §2.2).
-      const user = { id: nextId('user'), name, email: emailRaw, emailNormalized, role: 'Member', password, createdAt: at, updatedAt: at };
+      const startsOrganisation = !organisation;
+      if (startsOrganisation) {
+        organisation = { id: nextId('org'), name: organisationName, joinCode: freshJoinCode(), projectCreation: 'everyone', createdById: null, createdAt: at, updatedAt: at };
+        db.organisations.push(organisation);
+      }
+      // Joining makes a Member; only starting an organisation makes an Admin (SRS §2.2).
+      const role = startsOrganisation ? 'Admin' : 'Member';
+      const user = { id: nextId('user'), organisationId: organisation.id, name, email: emailRaw, emailNormalized, role, password, createdAt: at, updatedAt: at };
       db.users.push(user);
-      return [201, { userId: user.id, email: user.email }];
+      if (startsOrganisation) organisation.createdById = user.id;
+      return [201, { userId: user.id, email: user.email, role, organisation: { id: organisation.id, name: organisation.name } }];
     }],
 
     ['POST', '/auth/login', ({ body }) => {
@@ -406,10 +465,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       }
       loginAttempts.delete(email);
       if (user.deactivatedAt) fail(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
-      return [200, { ...issueToken(user), user: userDto(user) }];
+      return [200, { ...issueToken(user), user: userDto(user, { withOrganisation: true }) }];
     }],
 
-    ['GET', '/auth/me', ({ user }) => [200, userDto(user)]],
+    ['GET', '/auth/me', ({ user }) => [200, userDto(user, { withOrganisation: true })]],
 
     ['PATCH', '/users/me', ({ user, body }) => {
       const name = str(body, 'name', { required: false, max: LIMITS.nameMax, label: 'Name' });
@@ -423,7 +482,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       }
       if (name) user.name = name;
       user.updatedAt = stamp();
-      return [200, body?.newPassword !== undefined ? { ...userDto(user), ...issueToken(user) } : userDto(user)];
+      return [200, body?.newPassword !== undefined ? { ...userDto(user, { withOrganisation: true }), ...issueToken(user) } : userDto(user, { withOrganisation: true })];
     }],
 
     // Admin user management (SRS §2.2).
@@ -434,7 +493,8 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const role = query.role ? oneOf(query, 'role', ROLES, { label: 'Role' }) : undefined;
       const status = query.status ? oneOf(query, 'status', ['active', 'deactivated'], { label: 'Status' }) : undefined;
       const needle = typeof query.q === 'string' ? query.q.trim().toLowerCase() : '';
-      const matches = db.users
+      const people = db.users.filter((u) => sameOrg(user, u));
+      const matches = people
         .filter((u) => !status || (status === 'active') === !u.deactivatedAt)
         .filter((u) => (!role || u.role === role) && (!needle || u.name.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle)))
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || a.id.localeCompare(b.id));
@@ -442,8 +502,8 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         ...userDto(u),
         projectCount: db.projects.filter((p) => p.memberIds.includes(u.id)).length,
       }));
-      const roleCounts = Object.fromEntries(ROLES.map((r) => [r, db.users.filter((u) => u.role === r).length]));
-      const deactivatedCount = db.users.filter((u) => u.deactivatedAt).length;
+      const roleCounts = Object.fromEntries(ROLES.map((r) => [r, people.filter((u) => u.role === r).length]));
+      const deactivatedCount = people.filter((u) => u.deactivatedAt).length;
       return [200, { items, page, pageSize, total: matches.length, roleCounts, deactivatedCount }];
     }],
 
@@ -452,9 +512,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       idParam(params.userId, 'user');
       const role = oneOf(body, 'role', ROLES, { label: 'Role' });
       const target = findUser(params.userId);
-      if (!target) notFound('User');
-      if (target.role === 'Admin' && role !== 'Admin' && db.users.filter((u) => u.role === 'Admin' && !u.deactivatedAt && u.id !== target.id).length === 0) {
-        fail(409, 'LAST_ADMIN', 'The workspace needs at least one admin. Promote someone else first.');
+      if (!target || !sameOrg(user, target)) notFound('User');
+      if (target.role === 'Admin' && role !== 'Admin' && db.users.filter((u) => sameOrg(user, u) && u.role === 'Admin' && !u.deactivatedAt && u.id !== target.id).length === 0) {
+        fail(409, 'LAST_ADMIN', 'The organisation needs at least one admin. Promote someone else first.');
       }
       if (target.role !== role) {
         target.role = role;
@@ -469,7 +529,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       if (typeof body?.active !== 'boolean') badRequest('Send active as true or false.', { active: 'Must be true or false.' });
       if (params.userId === user.id && !body.active) badRequest('You cannot deactivate your own account.');
       const target = findUser(params.userId);
-      if (!target) notFound('User');
+      if (!target || !sameOrg(user, target)) notFound('User');
       if (!target.deactivatedAt !== body.active) {
         target.deactivatedAt = body.active ? null : stamp();
         if (!body.active) target.tokenVersion = (target.tokenVersion ?? 0) + 1;
@@ -479,14 +539,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['GET', '/projects', ({ user }) => {
-      const list = db.projects.filter((p) => isMember(user, p)).map(projectDto);
+      const list = db.projects.filter((p) => sameOrg(user, p) && isMember(user, p)).map(projectDto);
       return [200, list];
     }],
 
     ['GET', '/dashboard', ({ user, query }) => {
       const today = resolveToday(query.today, now());
       const weekEnd = new Date(Date.parse(today + 'T00:00:00.000Z') + 7 * 86400000).toISOString().slice(0, 10);
-      const projects = db.projects.filter((project) => isMember(user, project));
+      const projects = db.projects.filter((project) => sameOrg(user, project) && isMember(user, project));
       const projectIds = new Set(projects.map((project) => project.id));
       const visibleTasks = db.tasks.filter((task) => projectIds.has(task.projectId));
       const summaries = projects.map((project) => {
@@ -502,20 +562,77 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     // Workspace settings: everyone reads them; only Admins change them.
-    ['GET', '/settings', () => [200, settings()]],
+    ['GET', '/settings', ({ user }) => [200, settings(user)]],
 
     ['PATCH', '/settings', ({ user, body }) => {
       if (!isAdmin(user)) forbidden('Only an admin can change workspace settings.');
       const projectCreation = oneOf(body, 'projectCreation', PROJECT_CREATION, { label: 'Project creation' });
-      db.settings = { ...settings(), projectCreation };
-      return [200, settings()];
+      orgOf(user).projectCreation = projectCreation;
+      return [200, settings(user)];
+    }],
+
+    // The organisation page: who it is and how its projects are doing. The invite code is for Admins only.
+    ['GET', '/organisation', ({ user }) => [200, organisationDto(user)]],
+
+    ['PATCH', '/organisation', ({ user, body }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can edit the organisation.');
+      const name = str(body, 'name', { max: ORGANISATION_NAME_MAX, label: 'Organisation name' });
+      const organisation = orgOf(user);
+      organisation.name = name;
+      organisation.updatedAt = stamp();
+      return [200, organisationDto(user)];
+    }],
+
+    // Rotating ends the old code at once; people already in are unaffected.
+    ['POST', '/organisation/join-code', ({ user }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can change the invite code.');
+      const organisation = orgOf(user);
+      organisation.joinCode = freshJoinCode();
+      organisation.updatedAt = stamp();
+      return [200, organisationDto(user)];
+    }],
+
+    ['GET', '/organisation/overview', ({ user, query }) => {
+      const today = resolveToday(query.today, now());
+      const admin = isAdmin(user);
+      const rows = db.projects
+        .filter((p) => sameOrg(user, p) && (admin || p.memberIds.includes(user.id) || p.visibility === 'open'))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+        .slice(0, 200)
+        .map((p) => {
+          const tasks = db.tasks.filter((t) => t.projectId === p.id);
+          return {
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            visibility: p.visibility ?? 'private',
+            ownerName: findUser(p.ownerId)?.name ?? null,
+            memberCount: p.memberIds.length,
+            yourRole: projectRoleOf(p, user.id),
+            updatedAt: p.updatedAt,
+            total: tasks.length,
+            counts: Object.fromEntries(TASK_STATUSES.map((s) => [s, tasks.filter((t) => t.status === s).length])),
+            overdue: tasks.filter((t) => isOverdue(t, today)).length,
+          };
+        });
+      const sum = (pick) => rows.reduce((total, row) => total + pick(row), 0);
+      return [200, {
+        projects: rows,
+        totals: {
+          people: memberCount(user),
+          projects: rows.length,
+          tasks: sum((row) => row.total),
+          done: sum((row) => row.counts.Done),
+          overdue: sum((row) => row.overdue),
+        },
+      }];
     }],
 
     // Open projects the caller is not in yet. Private projects never appear.
     ['GET', '/projects/directory', ({ user, query }) => {
       const needle = typeof query.q === 'string' ? query.q.trim().slice(0, 80).toLowerCase() : '';
       const list = db.projects
-        .filter((p) => p.visibility === 'open' && !p.memberIds.includes(user.id))
+        .filter((p) => sameOrg(user, p) && p.visibility === 'open' && !p.memberIds.includes(user.id))
         .filter((p) => !needle || p.name.toLowerCase().includes(needle))
         .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
         .slice(0, 50)
@@ -524,12 +641,12 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['POST', '/projects', ({ user, body }) => {
-      if (!canCreateProject(user, settings())) forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
+      if (!canCreateProject(user, settings(user))) forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
       const name = str(body, 'name', { max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, max: LIMITS.descriptionMax, label: 'Description' }) || '';
       const visibility = oneOf(body, 'visibility', PROJECT_VISIBILITIES, { required: false, label: 'Visibility' }) ?? 'private';
       const at = stamp();
-      const project = { id: nextId('project'), name, description, visibility, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
+      const project = { id: nextId('project'), organisationId: user.organisationId, name, description, visibility, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
       db.projects.push(project);
       return [201, projectDto(project)];
     }],
@@ -538,7 +655,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     ['POST', '/projects/:projectId/join', ({ user, params }) => {
       idParam(params.projectId, 'project');
       const project = db.projects.find((p) => p.id === params.projectId);
-      if (!project) notFound('Project');
+      if (!project || !sameOrg(user, project)) notFound('Project');
       const alreadyMember = project.memberIds.includes(user.id);
       if (!alreadyMember && project.visibility !== 'open') forbidden('This project is private. Ask its owner or a manager to add you.');
       if (!alreadyMember) {
@@ -576,8 +693,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const email = str(body, 'email', { max: 254, label: 'Email' });
       const role = body?.role === undefined ? 'Member' : oneOf(body, 'role', GRANTABLE_PROJECT_ROLES, { label: 'Project role' });
       if (!rolesForNewMember(user, project).includes(role)) forbidden('Only the project owner or an admin can add a manager.');
-      const member = db.users.find((u) => u.emailNormalized === normalizeEmail(email));
-      if (!member) fail(404, 'NOT_FOUND', 'No registered user has this email.', { email: 'No registered user has this email.' });
+      // Only people in this organisation; an email registered elsewhere looks unregistered.
+      const member = db.users.find((u) => u.emailNormalized === normalizeEmail(email) && sameOrg(user, u));
+      if (!member) fail(404, 'NOT_FOUND', 'Nobody in your organisation has that email.', { email: 'Email is not registered in your organisation.' });
       if (member.deactivatedAt) badRequest('That account is deactivated.', { email: 'This account is deactivated.' });
       if (!project.memberIds.includes(member.id)) {
         Object.assign(project, withMemberRole(project, member.id, role));
@@ -654,7 +772,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const filters = readFilters(query);
       const visible = db.tasks.filter((t) => {
         const project = db.projects.find((p) => p.id === t.projectId);
-        if (!project || !isMember(user, project)) return false;
+        if (!project || !sameOrg(user, project) || !isMember(user, project)) return false;
         if (filters.projectId && t.projectId !== filters.projectId) return false;
         return matchesFilters(t, filters);
       });
