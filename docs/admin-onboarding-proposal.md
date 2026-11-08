@@ -4,7 +4,7 @@ Status: **in-app role management confirmed by the team (2026-11-06); production 
 
 ## Current behavior and decision requested
 
-Registration creates a Member regardless of a submitted role. Admin access is broader than project membership, and Admin writes are audit-marked.
+Registration never takes a role from the request. Joining an organisation with its invite code creates a Member; starting a new organisation creates its first Admin (the founder). Admin access is broader than project membership but limited to the Admin's own organisation, and Admin writes are audit-marked.
 
 **Update (SRS §2.2 gap closed in code; confirmed by the team on 2026-11-06):** SRS §2.2 requires the Admin to manage user accounts and roles, and without it no registered user could ever become a Lead. The app now has:
 
@@ -15,6 +15,7 @@ Registration creates a Member regardless of a submitted role. Admin access is br
 - `npm run user:role -- <email> <role>`, a non-destructive operator command for the first Admin of a new deployment.
 - A guard that makes `npm run seed` refuse non-local or production databases unless `--allow-remote-database` is passed.
 - **Account deactivation** (`PATCH /api/users/:userId/status`, Admin only): ends every session at once and blocks sign-in until reactivated; the account's work is kept. An Admin can't deactivate themselves, and deactivated Admins don't count toward the last-Admin guard.
+- **Organisations** (added 2026-11-08, at the team's request that admin and member sign in on the same page while organisations stay separate): accounts and projects belong to one organisation; Admin powers, the Users page, the last-Admin guard and `npm run user:role` all act inside it. The first Admin of a new deployment is simply the first person to *create an organisation*, so `user:role` is only needed for repair. The organisation's invite code is credential-like: Admins see it, rotating it is audited without the value, and registration is throttled per IP. Data created before organisations is moved into one default organisation by a startup migration. See [organisations.md](organisations.md).
 - **Per-project roles** (Owner, Manager, Member, Viewer) on top of the workspace roles, defined in `src/lib/permissions.js` and enforced by the API; see the authorization matrix in `docs/backend-api-contract.md` §7.5.
 
 Still missing: lost-password recovery and forced sign-out on demotion (a demoted user keeps signing in, but with the lower role, which applies on their next request). Product and security owners should review these controls before production. The existing seed script deletes all application collections and inserts synthetic users with a shared demo password. It is strictly for disposable local/test databases; it is not a safe production bootstrap or recovery mechanism.

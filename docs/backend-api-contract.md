@@ -132,14 +132,23 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 ### 5.1 Response shapes the frontend reads
 
 ```js
-// User (GET /auth/me, PATCH /users/me). Never include passwordHash.
-{ id, name, email, role, createdAt, updatedAt }
+// User (GET /auth/me, PATCH /users/me, login). Never include passwordHash.
+// `organisation` is only on the signed-in user's own session objects, not in lists of accounts.
+{ id, name, email, role, createdAt, updatedAt, organisation: { id, name } }
+
+// Organisation (GET /organisation). `joinCode` and `projectCount` are Admin only.
+{ id, name, projectCreation /* "everyone" | "leads" */, createdAt, memberCount, projectCount?, joinCode? /* "ABCDE-FGHJK" */ }
+
+// Organisation overview (GET /organisation/overview)
+{ projects: [{ id, name, description, visibility, ownerName, memberCount, yourRole /* project role or null */, updatedAt,
+               total, counts: { "To Do", "In Progress", Done }, overdue }],
+  totals: { people, projects, tasks, done, overdue } }
 
 // Member (inside a project, comment author, members endpoints)
 { id, name, email, role }
 
-// Project (visibility defaults to "private")
-{ id, name, description, visibility /* "private" | "open" */, ownerId, memberIds: [id], managerIds: [id], viewerIds: [id],
+// Project (visibility defaults to "private"). organisationId is set by the server from the creator.
+{ id, organisationId, name, description, visibility /* "private" | "open" */, ownerId, memberIds: [id], managerIds: [id], viewerIds: [id],
   members: [Member], createdAt, updatedAt }
 
 // Directory entry (GET /projects/directory)
@@ -205,20 +214,22 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 ### 6.1 Auth and profile (TM-F-001..003)
 
 #### `POST /auth/register` (public)
-- Body: `{ name, email, password }`
-- **Always creates role `Member`.** Ignore any `role` sent in the body (SRS §2.2).
-- `201 { userId, email }`
-- `400 VALIDATION_ERROR` (with `fields`), or `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive.
+- Body: `{ name, email, password }` plus **exactly one** of:
+  - `joinCode`: an organisation's invite code (case, spaces and dashes are ignored). The account joins that organisation as a **Member**.
+  - `organisationName` (1 to 80 characters): starts a new organisation and makes this account its **Admin**.
+- **Any `role` sent in the body is ignored** (SRS §2.2). Registration never makes an Admin inside an organisation that already exists.
+- `201 { userId, email, role, organisation: { id, name } }`
+- `400 VALIDATION_ERROR` (with `fields`): `fields.joinCode` when neither or both are sent, or the code is malformed or not recognised ("That invite code is not recognised."); `fields.organisationName` when too long or empty. `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive. A failed registration leaves no organisation behind.
 - Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing. Only requests that pass validation count, so typos do not use up the allowance.
 
 #### `POST /auth/login` (public)
 - Body: `{ email, password }`
-- `200 { token, expiresIn, user }`. `expiresIn` is in **seconds**; `user` is the safe user object also returned by `/auth/me`.
+- `200 { token, expiresIn, user }`. `expiresIn` is in **seconds**; `user` is the safe user object also returned by `/auth/me`, including `organisation`. Sign-in is the same for every account whatever its organisation.
 - `401 INVALID_CREDENTIALS`. Use the same message for an unknown email and a wrong password.
 - `429 RATE_LIMITED` after **5 failed attempts per email within 60 seconds**. The mock counts per email; per IP as well is fine.
 
 #### `GET /auth/me`
-- Returns `200 User`.
+- Returns `200 User` (with `organisation`).
 
 #### `PATCH /users/me`
 - Body: any of `{ name }`, or `{ currentPassword, newPassword }`.
@@ -230,8 +241,8 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 | Method and path | Who | Body or query | Success | Errors |
 |---|---|---|---|---|
-| `GET /users` | Admin | `q` (name or email, case-insensitive), `role`, `page`, `pageSize` (max 100) | `200 { items, page, pageSize, total, roleCounts }`. Each item is a `User` plus `projectCount`; newest first. | `403` non-Admin, `400` bad role or paging |
-| `PATCH /users/:userId/role` | Admin | `{ role: "Admin" \| "Lead" \| "Member" }` | `200 User`. Takes effect on the user's next request (roles are read from the database). Audit-logged with `change: { field, from, to }`. | `409 LAST_ADMIN` when it would leave no Admin, `404`, `400`, `403` |
+| `GET /users` | Admin | `q` (name or email, case-insensitive), `role`, `page`, `pageSize` (max 100) | `200 { items, page, pageSize, total, roleCounts }`: **the Admin's own organisation only**. Each item is a `User` plus `projectCount`; newest first. | `403` non-Admin, `400` bad role or paging |
+| `PATCH /users/:userId/role` | Admin | `{ role: "Admin" \| "Lead" \| "Member" }` | `200 User`. Takes effect on the user's next request (roles are read from the database). Audit-logged with `change: { field, from, to }`. | `409 LAST_ADMIN` when it would leave the **organisation** with no Admin, `404` (also for an account in another organisation), `400`, `403` |
 
 ### 6.2 Projects and members (TM-F-020, TM-F-021)
 
@@ -239,28 +250,28 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
-| `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects where the user is in `memberIds` (Admin: all) | |
+| `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects of the caller's organisation where the user is in `memberIds` (Admin: all of the organisation's) | |
 | `POST /projects` | anyone signed in; only Lead and Admin when the workspace setting is `leads` | `{ name, description?, visibility? }` (`private` default, or `open`) | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` |
-| `GET /projects/directory` | any signed-in user | optional `q` (name contains, case-insensitive, literal text, max 80) | `200 DirectoryEntry[]`: **open** projects the caller is not in, by name, at most 50. Private projects never appear. | |
-| `POST /projects/:projectId/join` | any signed-in user | | `201 Project` when newly joined as a Member (audited `change: { field: 'projectRole', from: null, to: 'Member' }`); `200 Project` if already in it | `403` private project ("Ask its owner or a manager to add you."), `404`, `400` bad id |
-| `GET /projects/:projectId` | any project role | | `200 Project` | `403 JOIN_REQUIRED` for a non-member of an **open** project (the UI offers *Join project*); `403 FORBIDDEN` for a private one; `404` |
+| `GET /projects/directory` | any signed-in user | optional `q` (name contains, case-insensitive, literal text, max 80) | `200 DirectoryEntry[]`: **open** projects of the caller's organisation that the caller is not in, by name, at most 50. Private projects never appear, and neither does anything from another organisation. | |
+| `POST /projects/:projectId/join` | any signed-in user | | `201 Project` when newly joined as a Member (audited `change: { field: 'projectRole', from: null, to: 'Member' }`); `200 Project` if already in it | `403` private project ("Ask its owner or a manager to add you."), `404` (also for another organisation's project), `400` bad id |
+| `GET /projects/:projectId` | any project role | | `200 Project` | `403 JOIN_REQUIRED` for a non-member of an **open** project (the UI offers *Join project*); `403 FORBIDDEN` for a private one; `404` (also for a project in **another organisation**, so its existence is not revealed) |
 | `PATCH /projects/:projectId` | Owner, Manager, Admin | `{ name?, description?, visibility? }`. Making a project private keeps its members. | `200 Project` | `403`, `404`, `400` |
 | `DELETE /projects/:projectId` | Owner, Admin | | `204`, cascades per D11 | `403`, `404` |
 | `GET /projects/:projectId/members` | any project role | | `200 Member[]`, each with `projectRole` | `403`, `404` |
-| `POST /projects/:projectId/members` | Owner, Manager, Admin | `{ email, role? }`; `role` is `Manager`, `Member` (default) or `Viewer`. Only an Owner or Admin may add a Manager. | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if not registered, `400` with `fields.email` if the account is deactivated, `400` bad role, `403` |
+| `POST /projects/:projectId/members` | Owner, Manager, Admin | `{ email, role? }`; `role` is `Manager`, `Member` (default) or `Viewer`. Only an Owner or Admin may add a Manager. | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if nobody **in this organisation** has that email (an account in another organisation looks unregistered), `400` with `fields.email` if the account is deactivated, `400` bad role, `403` |
 | `PATCH /projects/:projectId/members/:userId` | Owner, Manager, Admin | `{ role }`: `Owner` (transfer), `Manager`, `Member` or `Viewer` | `200 Member[]`. Transfer: the previous owner becomes a Manager. Changing someone to Viewer unassigns them from the project's tasks. Audited (`change: { field: 'projectRole', from, to }`). | `400` bad role, changing the Owner's role, or transferring to a deactivated account; `403` (only an Owner or Admin grants, revokes or removes Manager, and transfers); `404` not a member |
 | `DELETE /projects/:projectId/members/:userId` | Owner, Manager, Admin; **any member for themselves** (leave) | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the Owner, `404` if not a member, `403` |
 
 **Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects when an Admin limits it to leads, and who manages accounts and settings (Admin); a workspace Lead has no extra rights inside a project they aren't a member of. Every route under a project (tasks, members, summary, export) answers `403 JOIN_REQUIRED` to a non-member of an open project.
 
-#### Workspace settings
+#### Workspace settings (per organisation)
 
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
-| `GET /settings` | any signed-in user | | `200 { projectCreation }` (defaults when never set) | |
+| `GET /settings` | any signed-in user | | `200 { projectCreation }` for the caller's organisation | |
 | `PATCH /settings` | Admin | `{ projectCreation: "everyone" \| "leads" }` | `200 { projectCreation }`. Audited with `change: { field: 'projectCreation', from, to }` when it changes. | `403` non-Admin, `400` missing or unknown value |
 
-Stored as one `settings` document (`_id: 'workspace'`); the seed resets it.
+Stored on the organisation document (`projectCreation`); the seed resets it. Changing it in one organisation never affects another.
 
 **Migration.** Before project roles, any workspace Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
 
@@ -336,6 +347,20 @@ Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip
 - **Quoting:** if a cell contains `"`, `,`, CR or LF, or has leading or trailing spaces, wrap it in quotes and double the inner quotes.
 - Reference implementation (18 lines): [`src/lib/api/mock/csv.js`](../src/lib/api/mock/csv.js). Fixture `task-007` has a formula-like title. Its expected cell is `"'=HYPERLINK(""https://example.test"",""Export check"")"`.
 
+
+### 6.8 Organisation
+
+Every account and project belongs to one organisation ([docs/organisations.md](organisations.md)); every route below acts on the **caller's** organisation.
+
+| Method and path | Who | Body | Success | Errors |
+|---|---|---|---|---|
+| `GET /organisation` | any signed-in user | | `200 Organisation`. `joinCode` and `projectCount` only for an Admin. `memberCount` counts active accounts. | `401`, `404` |
+| `PATCH /organisation` | Admin | `{ name }` (1 to 80 characters) | `200 Organisation`. Audited with `change: { field: 'organisationName', from, to }`. | `403`, `400` |
+| `POST /organisation/join-code` | Admin | | `200 Organisation` with a new `joinCode`; the old code stops working at once, people already in are unaffected. Audited as `change: { field: 'joinCode', from: 'previous', to: 'rotated' }`: **the codes themselves are never logged.** | `403` |
+| `GET /organisation/overview` | any signed-in user | optional `today=YYYY-MM-DD` (as for the dashboard) | `200 OrganisationOverview`: Admins get every project of the organisation; everyone else the projects they are in plus the **open** ones, by name, at most 200. Each row has task counts and `overdue`; `yourRole` is `null` for a project the caller is not in. | |
+
+Invite codes are 10 characters from an alphabet without look-alikes (`0 O 1 I L`), generated from a cryptographic random source, stored upper-case, and displayed as `ABCDE-FGHJK`. They behave like a shared password for joining: registration is limited to 5 attempts per client IP per 10 minutes, so guessing is not practical, and an Admin can replace the code at any time.
+
 ---
 
 ## 7. Business rules
@@ -360,10 +385,15 @@ For each assignee of a task that is **not Done** and whose due date falls in the
 - The project owner can't be removed.
 - No list or report query may return dangling references.
 
+### 7.3b Organisation isolation
+- Every account (`organisationId`) and project (`organisationId`) belongs to exactly one organisation. Tasks, comments and notifications inherit it through their project.
+- Nothing crosses: project routes answer `404` (not `403`) for another organisation's project, even to an Admin; lists, the directory, "all my tasks", the dashboard, the Users admin routes, adding a member by email and the last-Admin guard are all scoped by the caller's organisation (`request.user.organisationId`, read from the database on every request).
+- An account has exactly one organisation; there is no moving between them.
+
 ### 7.4 Authorization is server-side (PRJ-SR-003)
 The frontend hides buttons by role, but **that is not security**. Check role and membership on every read, write and export.
 - Derive the caller from the verified token. Never from a `userId` or `role` in the body.
-- The outsider fixture user must get 403 on every Alpha or Beta URL.
+- The outsider fixture user must get 403 on every Alpha or Beta URL, and the Northwind admin (another organisation) must get **404** on all of them.
 
 ### 7.5 Authorization matrix
 
@@ -469,7 +499,7 @@ Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtok
 2. Configure `.env.local` from `.env.example` (`NEXT_PUBLIC_API_MODE=http`, `NEXT_PUBLIC_API_BASE_URL=/api`).
 3. Seed a local/test database with `npm run seed`, then start the app with `npm run dev`. In HTTP mode, sign in using a seeded account or register a new user. Seeded fixture users share password `Password123!`.
 4. Smoke test in this order:
-   - register → sign in → dashboard
+   - register (with the invite code `ACMELABS`, or by creating an organisation) → sign in → dashboard
    - as lead@: open Alpha → create a task with an assignee → drag it across columns → reload (it must stay) → comment → export CSV
    - as member@: the notification badge shows the assignment
    - as outsider@: opening `/projects/project-alpha` shows "You are not a member of this project"
@@ -488,7 +518,8 @@ The only file in the web app that knows about URLs is [`src/lib/api/client.js`](
 | Frontend API client: every endpoint the UI calls | `src/lib/api/client.js` |
 | Enums and limits | `src/lib/constants.js` |
 | Contract tests (STP IDs) | `tests/mock-api.test.mjs` |
-| Synthetic seed data | `fixtures/*.json` |
+| Synthetic seed data (two organisations: Acme Labs and Northwind Studio) | `fixtures/*.json` |
+| Organisations: model, routes, migration | `server/models/organisation.js`, `server/routes/organisation.js`, `server/utils/migrations.js`, `src/lib/organisation.js` |
 | Requirements and design | `Templates/SRS_*.pdf`, `Templates/SAD_*.pdf`, `Templates/STP_*.pdf` (on the `Templates` branch) |
 
 Questions or disagreements: message me. If a requirement is genuinely ambiguous, open a GitHub issue and label it `decision` so the whole team can see it.
