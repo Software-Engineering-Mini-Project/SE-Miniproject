@@ -24,6 +24,8 @@ One *Create account* page, two choices:
 1. **Join** with an invite code: the account becomes a **Member** of that organisation. Any `role` in the request is ignored.
 2. **Create** an organisation: the account becomes its **Admin**, and the founder lands on the Organisation page where the invite code is shown.
 
+Or a **personal invitation link** (issue #78): an Admin makes a link for one email address on the Organisation page. Opening it shows *Join &lt;organisation&gt;* with the address filled in and fixed, and the account joins as a **Member**. The link works once, for that address, for 7 days, unless the Admin revokes it. Details: [§7.12 of the contract](backend-api-contract.md).
+
 Sign-in does not ask for an organisation: the email identifies the account, and the account knows its organisation. That is what keeps admin and member on the same page.
 
 The founder is the organisation's first Admin; from then on Admins promote others on the **Users** page. `npm run user:role` still exists for repairing a deployment that has no Admin, and is now scoped to the user's organisation.
@@ -31,7 +33,7 @@ The founder is the organisation's first Admin; from then on Admins promote other
 ## What the Organisation page shows
 
 - Everyone: the organisation's name, active people, projects they can see, open and overdue tasks, and a row per project with progress, owner, member count and their own role. Open projects they are not in show a **Join** button.
-- Admins also: every project (private ones included), the **invite code** with *Copy* and *Create a new code*, **rename**, and *Manage people* (the Users page).
+- Admins also: every project (private ones included), the **invite code** with *Copy* and *Create a new code*, **Invite by link** (make, copy and revoke personal links, and see which were used), **rename**, and *Manage people* (the Users page).
 
 ## What is isolated
 
@@ -65,7 +67,7 @@ It does nothing once nothing is orphaned, so it is safe on every start. After up
 
 ## Not built (decisions for the team)
 
-- **Email invitations** (a link sent to a specific person). Today an Admin shares the code by hand.
+- **Sending invitations by email.** Personal invitation links exist (above), but the Admin copies and shares them by hand; sending them needs a decision on a mail provider.
 - **One person in several organisations**, and moving between them.
 - **Deleting an organisation**, or exporting its data.
 - **Per-organisation audit log screen.** Audit records exist in the server log (`audit: true`, with `change`), but there is no page for them.

@@ -139,6 +139,12 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Organisation (GET /organisation). `joinCode` and `projectCount` are Admin only.
 { id, name, projectCreation /* "everyone" | "leads" */, createdAt, memberCount, projectCount?, joinCode? /* "ABCDE-FGHJK" */ }
 
+// Invitation (GET /organisation/invitations, Admin only). Never carries the link's secret.
+{ id, email, state /* "pending" | "accepted" | "revoked" | "expired" */, createdAt, expiresAt, acceptedAt, revokedAt, createdBy: { id, name } | null }
+// POST /organisation/invitations adds, once: token /* 32 URL-safe characters */, path /* "/register?invite=<token>" */
+// InvitationPreview (GET /auth/invitations/:token, public)
+{ email, expiresAt, organisation: { id, name } }
+
 // Organisation overview (GET /organisation/overview)
 { projects: [{ id, name, description, visibility, ownerName, memberCount, yourRole /* project role or null */, updatedAt,
                total, counts: { "To Do", "In Progress", Done }, overdue }],
@@ -208,6 +214,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 | Project | `name`, `description`, `key`, `previousKeys[]`, `taskCounter`, `ownerId` → User, `memberIds[]` → User, timestamps | index `memberIds`; **unique** `{organisationId, key}`; index `{organisationId, previousKeys}`. Owner is always in `memberIds`. |
 | Sprint | `projectId` → Project, `number`, `name`, `goal`, `startDate`, `endDate`, `state` enum, `startedAt`, `completedAt`, `committed`, `report`, timestamps | **unique** `{projectId, number}`; **unique partial** `{projectId, state}` where `state: "active"` (one active sprint per project) |
 | Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `sprintId` → Sprint, `rank`, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`, `{projectId, sprintId, rank}`. Every assignee must be in the project's `memberIds`. |
+| Invitation | `organisationId` → Organisation, `email`, `emailNormalized`, `tokenHash` (SHA-256 of the link's secret, never selected by default), `createdById` → User, `expiresAt`, `acceptedAt`, `acceptedById` → User, `revokedAt`, timestamps | **unique** `tokenHash`; index `{organisationId, createdAt}`, `{organisationId, emailNormalized}` |
 | Comment | `taskId` → Task, `authorId` → User, `text`, `createdAt` | index `{taskId, createdAt}` |
 | Notification | `userId`, `taskId`, `type` enum, `message`, `read`, `createdAt`, plus `dedupeKey` for reminders | index `{userId, read, createdAt}`. **Unique** `{userId, type, dedupeKey}` for due reminders. |
 
@@ -237,11 +244,17 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 #### `POST /auth/register` (public)
 - Body: `{ name, email, password }` plus **exactly one** of:
+  - `inviteToken`: the secret from a personal invitation link (§7.12). The account joins the invitation's organisation as a **Member**; `email` must be the invited address (case-insensitive).
   - `joinCode`: an organisation's invite code (case, spaces and dashes are ignored). The account joins that organisation as a **Member**.
   - `organisationName` (1 to 80 characters): starts a new organisation and makes this account its **Admin**.
 - **Any `role` sent in the body is ignored** (SRS §2.2). Registration never makes an Admin inside an organisation that already exists.
 - `201 { userId, email, role, organisation: { id, name } }`
 - `400 VALIDATION_ERROR` (with `fields`): `fields.joinCode` when neither or both are sent, or the code is malformed or not recognised ("That invite code is not recognised."); `fields.organisationName` when too long or empty. `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive. A failed registration leaves no organisation behind.
+- With `inviteToken`: `400` with `fields.inviteToken` if a `joinCode` or `organisationName` is sent too; `400` with `fields.email` naming the invited address if `email` is a different one; `404 INVITATION_NOT_FOUND`; `410 INVITATION_USED`, `410 INVITATION_REVOKED` or `410 INVITATION_EXPIRED`. If the account can't be created after the link was claimed, the link is given back.
+
+#### `GET /auth/invitations/:token` (public)
+- `200 InvitationPreview`: who the link is for, when it expires and which organisation it joins, for the register page.
+- `404 INVITATION_NOT_FOUND` (unknown or malformed), `410 INVITATION_USED` / `INVITATION_REVOKED` / `INVITATION_EXPIRED`, each with a message that says what to do next.
 - Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing. Only requests that pass validation count, so typos do not use up the allowance.
 
 #### `POST /auth/login` (public)
@@ -391,6 +404,9 @@ Every account and project belongs to one organisation ([docs/organisations.md](o
 | `GET /organisation` | any signed-in user | | `200 Organisation`. `joinCode` and `projectCount` only for an Admin. `memberCount` counts active accounts. | `401`, `404` |
 | `PATCH /organisation` | Admin | `{ name }` (1 to 80 characters) | `200 Organisation`. Audited with `change: { field: 'organisationName', from, to }`. | `403`, `400` |
 | `POST /organisation/join-code` | Admin | | `200 Organisation` with a new `joinCode`; the old code stops working at once, people already in are unaffected. Audited as `change: { field: 'joinCode', from: 'previous', to: 'rotated' }`: **the codes themselves are never logged.** | `403` |
+| `GET /organisation/invitations` | Admin | | `200 Invitation[]`, newest first, at most 200 | `401`, `403` |
+| `POST /organisation/invitations` | Admin | `{ email }` | `201 Invitation` plus `token` and `path`: **the only time the link is returned**. Any pending link for the same address in this organisation is revoked first. Audited as `change: { field: 'invitation', from: null, to: 'created' }` (no email, no link). | `400` (invalid email), `403`, `409 DUPLICATE_EMAIL` (an account with that email exists) |
+| `DELETE /organisation/invitations/:invitationId` | Admin | | `200 Invitation`, `state "revoked"`; revoking again (or an expired link) is harmless and keeps the first `revokedAt` | `403`, `404` (another organisation's), `409 INVITATION_USED` |
 | `GET /organisation/overview` | any signed-in user | optional `today=YYYY-MM-DD` (as for the dashboard) | `200 OrganisationOverview`: Admins get every project of the organisation; everyone else the projects they are in plus the **open** ones, by name, at most 200. Each row has task counts and `overdue`; `yourRole` is `null` for a project the caller is not in. | |
 
 Invite codes are 10 characters from an alphabet without look-alikes (`0 O 1 I L`), generated from a cryptographic random source, stored upper-case, and displayed as `ABCDE-FGHJK`. They behave like a shared password for joining: registration is limited to 5 attempts per client IP per 10 minutes, so guessing is not practical, and an Admin can replace the code at any time.
@@ -532,6 +548,18 @@ Built by [`src/lib/sprint-report.js`](../src/lib/sprint-report.js), shared by th
 - **Velocity** is the completed points of each completed sprint (the last six are shown) against what it committed; the **average** is over the last three. The Insights forecast divides the open story points by that average to say "about N sprints". Unestimated open work is named, not guessed.
 - In the web app the burndown is one focusable chart: the left and right arrows (and Home and End) read each day aloud, and a table shows the same numbers. Velocity has a table too.
 
+### 7.12 Personal invitation links
+
+Rules live in [`src/lib/invitations.js`](../src/lib/invitations.js); the API, the mock API and the web app share them. Issue #78.
+
+- An **Admin** makes a link for **one email address**. Only Admins can create, list or revoke links, and only in their own organisation; checks are on the server.
+- A link is `<origin>/register?invite=<token>`. The token is 32 characters from a cryptographic random source (192 bits), so it can't be guessed. The database keeps only its **SHA-256 hash**; the link is returned once, when it is created, and is never logged. If it's lost, make a new one.
+- It works **once**, only for **its address**, for **7 days**, and not after it is **revoked**. Using it claims it in one conditional write (`acceptedAt` set only while it is still pending), so two registrations racing on the same link can't both join.
+- A new link for the same address revokes the earlier pending one: one live link per person.
+- Whoever registers with a link is a **Member**, whatever role the request asks for. Admins can promote them afterwards on the Users page.
+- No email is sent: the Admin copies the link and shares it. Sending it by email waits for a team decision on a mail provider.
+- The organisation's invite code (§6.8) keeps working alongside; links are for when the code shouldn't be shared.
+
 ---
 
 ## 8. Security checklist (SRS §5, PRJ-SR-001..006)
@@ -620,6 +648,7 @@ The only file in the web app that knows about URLs is [`src/lib/api/client.js`](
 | Contract tests (STP IDs) | `tests/mock-api.test.mjs` |
 | Synthetic seed data (two organisations: Acme Labs and Northwind Studio) | `fixtures/*.json` |
 | Organisations: model, routes, migration | `server/models/organisation.js`, `server/routes/organisation.js`, `server/utils/migrations.js`, `src/lib/organisation.js` |
+| Invitation links | `server/models/invitation.js`, `server/services/invitations.js`, `src/lib/invitations.js`, `src/features/organisation/InvitationsPanel.jsx` |
 | Requirements and design | `Templates/SRS_*.pdf`, `Templates/SAD_*.pdf`, `Templates/STP_*.pdf` (on the `Templates` branch) |
 
 Questions or disagreements: message me. If a requirement is genuinely ambiguous, open a GitHub issue and label it `decision` so the whole team can see it.

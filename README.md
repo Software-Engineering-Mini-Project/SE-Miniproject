@@ -44,6 +44,7 @@ Everyone signs in on the same page. What differs is the **organisation** an acco
 
 - **Start one:** on *Create account*, choose *Create an organisation*. You become its Admin and land on its page, which shows the invite code.
 - **Join one:** choose *Join an organisation* and enter the invite code an Admin gave you. You join as a Member.
+- **Join from a personal link:** an Admin can instead make a link for your email address (*Invite by link* on the Organisation page). It opens *Create account* with your address filled in, works once, and expires after 7 days.
 - **The Organisation page** (sidebar) shows the organisation's people, projects, open and overdue work, and each project's progress. Admins see every project, plus the invite code (copy it, or replace it: the old code stops working at once) and can rename the organisation and open *Manage people*. Members see the projects they are in and the open ones, with a *Join* button.
 
 Details, the migration of existing data and the security notes are in [docs/organisations.md](docs/organisations.md).
