@@ -25,6 +25,7 @@ export function TaskActivity({ task, members = [] }) {
     taskKey: task.key,
     nameOf: (id) => membersById.get(id)?.name ?? 'a former member',
     taskTitleOf: (id) => workItems.byId.get(id)?.title ?? null,
+    sprintNameOf: (id) => workItems.sprintsById?.get(id)?.name ?? null,
     formatDay,
   };
   const page = activity.data;

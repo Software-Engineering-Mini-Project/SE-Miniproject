@@ -542,6 +542,20 @@
   max-width: 68ch;
 }
 
+.forecast-velocity {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  max-width: 80ch;
+}
+
+.forecast-velocity strong {
+  color: var(--ink);
+}
+
 .forecast-note[data-tone='danger'] {
   color: var(--danger);
 }

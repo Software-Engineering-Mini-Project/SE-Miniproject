@@ -53,6 +53,18 @@ import {
   withWorkItemDefaults,
 } from '../../work-items.js';
 import { commentExcerpt, seedActivities, taskChangeActivities, taskSnapshot } from '../../activity.js';
+import {
+  commitmentOf,
+  completionPlan,
+  leavesCompletedSprint,
+  nextRank,
+  rankBetween,
+  readSprintFields,
+  renumberRanks,
+  sprintName,
+  sprintTargetError,
+} from '../../sprints.js';
+import { buildSprintReport } from '../../sprint-report.js';
 import { toCsv } from './csv.js';
 
 export const MOCK_PASSWORD = 'Password123!';
@@ -72,6 +84,7 @@ const FORBIDDEN = {
   'task.edit': 'Viewers cannot edit tasks.',
   'task.delete': 'Only the project owner, a manager or an admin can delete tasks.',
   'task.status': 'Viewers cannot change task status.',
+  'sprint.manage': 'Only the project owner, a manager or an admin can create, start and complete sprints.',
   'comment.create': 'You cannot comment in this project.',
 };
 
@@ -124,13 +137,18 @@ export function seedDatabase(seed) {
     ...(() => {
       const { tasks, counters } = numberTasks(clone(seed.tasks));
       return {
-        projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], visibility: 'private', previousKeys: [], ...p, taskCounter: counters[p.id] ?? 0 })),
+        projects: clone(seed.projects).map((p) => ({
+          managerIds: [], viewerIds: [], visibility: 'private', previousKeys: [], ...p,
+          taskCounter: counters[p.id] ?? 0,
+          sprintCounter: (seed.sprints ?? []).filter((sprint) => sprint.projectId === p.id).reduce((max, sprint) => Math.max(max, sprint.number), 0),
+        })),
         tasks: tasks.map(withWorkItemDefaults),
       };
     })(),
     comments: clone(seed.comments),
     notifications: clone(seed.notifications),
-    activities: seedActivities({ tasks: clone(seed.tasks), comments: clone(seed.comments), projects: clone(seed.projects) }),
+    sprints: clone(seed.sprints ?? []),
+    activities: seedActivities({ tasks: clone(seed.tasks), comments: clone(seed.comments), projects: clone(seed.projects), sprints: clone(seed.sprints ?? []) }),
     counter: 1000,
   };
 }
@@ -263,6 +281,45 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       db.activities.push({ id: nextId('activity'), taskId: task.id, projectId: task.projectId, actorId: user.id, action: entry.action, details: entry.details ?? {}, createdAt: at });
     }
   }
+  // ---------- backlog and sprints (mirrors server/routes/sprints.js, issue #76) ----------
+  const sprintList = () => (db.sprints ??= []);
+  const sprintDto = (sprint) => clone({ goal: '', startedAt: null, completedAt: null, committed: null, report: null, ...sprint });
+  function sprintFor(user, sprintId, { action = 'project.view' } = {}) {
+    idParam(sprintId, 'sprint');
+    const sprint = sprintList().find((item) => item.id === sprintId);
+    if (!sprint) notFound('Sprint');
+    return { sprint, project: projectFor(user, sprint.projectId, { action }) };
+  }
+  function readSprint(body, options) {
+    const { values, errors } = readSprintFields(body ?? {}, options);
+    const [field] = Object.keys(errors);
+    if (field) badRequest(errors[field], errors);
+    return values;
+  }
+  /** Gives every task in the project a rank when any lacks one, keeping the current order. */
+  function ensureRanks(projectId, { force = false } = {}) {
+    const tasks = db.tasks.filter((t) => t.projectId === projectId);
+    if (!force && tasks.every((t) => typeof t.rank === 'number')) return;
+    const ranks = new Map(renumberRanks(tasks).map(({ id, rank }) => [id, rank]));
+    tasks.forEach((t) => {
+      t.rank = ranks.get(t.id);
+    });
+  }
+  function moveToSprint(tasks, to, user) {
+    tasks.forEach((t) => {
+      const from = t.sprintId ?? null;
+      t.sprintId = to;
+      t.updatedAt = stamp();
+      record(t, user, [{ action: 'sprint', details: { from, to } }]);
+    });
+  }
+  /** Reopening work finished in a completed sprint sends it back to the backlog. */
+  function releaseFromCompletedSprint(task, fromStatus, user) {
+    const sprint = task.sprintId ? sprintList().find((item) => item.id === task.sprintId) : null;
+    if (!leavesCompletedSprint(sprint, fromStatus, task.status)) return;
+    moveToSprint([task], null, user);
+  }
+
   /** Mirrors the API's readTaskInput for the work-item fields: 400 with the field's message. */
   function readWorkItem(body, { create = false } = {}) {
     const { values, errors } = readWorkItemFields(body ?? {}, { create });
@@ -803,6 +860,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     ['DELETE', '/projects/:projectId', ({ user, params }) => {
       const project = projectFor(user, params.projectId, { action: 'project.delete' });
       db.tasks.filter((t) => t.projectId === project.id).forEach((t) => removeTaskCascade(t.id));
+      db.sprints = sprintList().filter((sprint) => sprint.projectId !== project.id);
       db.projects = db.projects.filter((p) => p.id !== project.id);
       return [204, null];
     }],
@@ -891,7 +949,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const workItem = readWorkItem(body, { create: true });
       checkEpicRules({ next: { ...workItem, projectId: project.id } });
       const at = stamp();
-      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, number: nextTaskNumber(project), ...workItem, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
+      ensureRanks(project.id);
+      const rank = nextRank(db.tasks.filter((t) => t.projectId === project.id));
+      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, number: nextTaskNumber(project), ...workItem, sprintId: null, rank, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
       db.tasks.push(task);
       record(task, user, [{ action: 'created', details: { title: task.title, type: task.type } }]);
       notifyAssignment(task, assigneeIds, user);
@@ -969,6 +1029,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         notifyAssignment(task, added, user);
       }
       record(task, user, taskChangeActivities(before, taskSnapshot(task)));
+      releaseFromCompletedSprint(task, before.status, user);
       task.updatedAt = stamp();
       return [200, taskDto(task)];
     }],
@@ -986,8 +1047,128 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const from = task.status;
       applyStatus(task, oneOf(body, 'status', TASK_STATUSES, { label: 'Status' }));
       if (task.status !== from) record(task, user, [{ action: 'status', details: { from, to: task.status } }]);
+      releaseFromCompletedSprint(task, from, user);
       task.updatedAt = stamp();
-      return [200, { taskId: task.id, status: task.status, completedAt: task.completedAt ?? null, updatedAt: task.updatedAt }];
+      return [200, { taskId: task.id, status: task.status, completedAt: task.completedAt ?? null, sprintId: task.sprintId ?? null, updatedAt: task.updatedAt }];
+    }],
+
+    // ---------- backlog and sprints (issue #76) ----------
+    ['GET', '/projects/:projectId/sprints', ({ user, params }) => {
+      const project = projectFor(user, params.projectId);
+      return [200, sprintList().filter((sprint) => sprint.projectId === project.id).sort((a, b) => a.number - b.number).map(sprintDto)];
+    }],
+
+    ['GET', '/sprints/:sprintId/report', ({ user, params }) => {
+      const { sprint, project } = sprintFor(user, params.sprintId);
+      return [200, buildSprintReport({
+        sprint: sprintDto(sprint),
+        tasks: db.tasks.filter((t) => t.projectId === project.id),
+        activities: (db.activities ?? []).filter((entry) => entry.projectId === project.id),
+        today: stamp().slice(0, 10),
+      })];
+    }],
+
+    ['POST', '/projects/:projectId/sprints', ({ user, params, body }) => {
+      const project = projectFor(user, params.projectId, { action: 'sprint.manage' });
+      const values = readSprint(body, { create: true });
+      const existing = sprintList().filter((sprint) => sprint.projectId === project.id);
+      project.sprintCounter = Math.max((project.sprintCounter ?? 0) + 1, ...existing.map((sprint) => sprint.number + 1));
+      const number = project.sprintCounter;
+      const at = stamp();
+      const sprint = {
+        id: nextId('sprint'), projectId: project.id, number, name: values.name ?? sprintName({ projectKey: project.key, projectName: project.name, number }),
+        goal: values.goal ?? '', startDate: values.startDate, endDate: values.endDate, state: 'planned',
+        startedAt: null, completedAt: null, committed: null, report: null, createdAt: at, updatedAt: at,
+      };
+      sprintList().push(sprint);
+      return [201, sprintDto(sprint)];
+    }],
+
+    ['PATCH', '/sprints/:sprintId', ({ user, params, body }) => {
+      const { sprint } = sprintFor(user, params.sprintId, { action: 'sprint.manage' });
+      if (sprint.state === 'completed') fail(409, 'SPRINT_COMPLETED', 'A completed sprint is a record and cannot be changed.');
+      const values = readSprint(body, { current: sprint });
+      if (Object.keys(values).length === 0) badRequest('Provide a name, goal, start date or end date to update.');
+      Object.assign(sprint, values, { updatedAt: stamp() });
+      return [200, sprintDto(sprint)];
+    }],
+
+    ['DELETE', '/sprints/:sprintId', ({ user, params }) => {
+      const { sprint } = sprintFor(user, params.sprintId, { action: 'sprint.manage' });
+      if (sprint.state !== 'planned') fail(409, 'SPRINT_NOT_PLANNED', 'Only a planned sprint can be deleted. Complete an active sprint instead.');
+      moveToSprint(db.tasks.filter((t) => t.sprintId === sprint.id), null, user);
+      db.sprints = sprintList().filter((item) => item.id !== sprint.id);
+      return [204, null];
+    }],
+
+    ['POST', '/sprints/:sprintId/start', ({ user, params }) => {
+      const { sprint, project } = sprintFor(user, params.sprintId, { action: 'sprint.manage' });
+      if (sprint.state !== 'planned') fail(409, 'SPRINT_NOT_PLANNED', sprint.state === 'active' ? 'This sprint has already started.' : 'This sprint is complete.');
+      const active = sprintList().find((item) => item.projectId === project.id && item.state === 'active');
+      if (active) fail(409, 'ACTIVE_SPRINT_EXISTS', `Complete "${active.name}" before starting another sprint. A project runs one sprint at a time.`);
+      Object.assign(sprint, { state: 'active', startedAt: stamp(), committed: commitmentOf(db.tasks.filter((t) => t.sprintId === sprint.id)), updatedAt: stamp() });
+      return [200, sprintDto(sprint)];
+    }],
+
+    ['POST', '/sprints/:sprintId/complete', ({ user, params, body }) => {
+      const { sprint, project } = sprintFor(user, params.sprintId, { action: 'sprint.manage' });
+      if (sprint.state !== 'active') fail(409, 'SPRINT_NOT_ACTIVE', sprint.state === 'planned' ? 'Start this sprint before completing it.' : 'This sprint is already complete.');
+      let moveTo = null;
+      if (body?.moveTo != null && body.moveTo !== 'backlog') {
+        idParam(body.moveTo, 'sprint');
+        const target = sprintList().find((item) => item.id === body.moveTo);
+        const problem = target?.state === 'active' ? 'Choose a planned sprint or the backlog.' : sprintTargetError(target, project.id);
+        if (problem) badRequest(problem, { moveTo: problem });
+        moveTo = target.id;
+      }
+      const tasks = db.tasks.filter((t) => t.sprintId === sprint.id);
+      const plan = completionPlan(tasks, moveTo);
+      moveToSprint(tasks.filter((t) => plan.moveIds.includes(t.id)), moveTo, user);
+      Object.assign(sprint, { state: 'completed', completedAt: stamp(), report: plan.report, updatedAt: stamp() });
+      return [200, sprintDto(sprint)];
+    }],
+
+    ['POST', '/tasks/:taskId/move', ({ user, params, body }) => {
+      const { task, project } = taskFor(user, params.taskId, { action: 'task.edit' });
+      if (!body || typeof body !== 'object' || Array.isArray(body)) badRequest('Request body must be an object.');
+      const from = task.sprintId ?? null;
+      let to = from;
+      if (body.sprintId !== undefined) {
+        to = body.sprintId === null ? null : idParam(body.sprintId, 'sprint');
+        if (to) {
+          const problem = sprintTargetError(sprintList().find((item) => item.id === to), project.id);
+          if (problem) badRequest(problem, { sprintId: problem });
+        }
+      }
+      if (from !== to && from && task.status === 'Done' && sprintList().find((item) => item.id === from)?.state === 'completed') {
+        badRequest('Finished work stays with the completed sprint it was done in.', { sprintId: 'Finished in a completed sprint.' });
+      }
+      const neighbourIds = {};
+      for (const key of ['previousId', 'nextId']) {
+        if (body[key] == null) continue;
+        neighbourIds[key] = idParam(body[key], 'task');
+        if (neighbourIds[key] === task.id) badRequest('Place the task next to another task.', { [key]: 'Choose another task.' });
+      }
+      if (Object.keys(neighbourIds).length > 0) {
+        ensureRanks(project.id);
+        const place = () => {
+          const rankOf = (id) => {
+            if (!id) return null;
+            const found = db.tasks.find((t) => t.id === id && t.projectId === project.id);
+            if (!found) badRequest('Place the task next to tasks from this project.');
+            return found.rank;
+          };
+          return rankBetween(rankOf(neighbourIds.previousId), rankOf(neighbourIds.nextId));
+        };
+        let placed = place();
+        if (placed.crowded) {
+          ensureRanks(project.id, { force: true });
+          placed = place();
+        }
+        task.rank = placed.rank;
+      }
+      if (from !== to) moveToSprint([task], to, user);
+      return [200, taskDto(task)];
     }],
 
     // Checklist items: ticking is progress (task.status); adding, renaming, removing is editing.

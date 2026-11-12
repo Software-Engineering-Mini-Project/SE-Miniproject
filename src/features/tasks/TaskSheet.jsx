@@ -225,6 +225,12 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
                     </dd>
                   </div>
                 ) : null}
+                {task.sprintId && workItems.sprintsById?.get(task.sprintId) ? (
+                  <div>
+                    <dt>Sprint</dt>
+                    <dd>{workItems.sprintsById.get(task.sprintId).name}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Due</dt>
                   <dd>{task.dueDate ? <DueTag task={task} /> : <span className="muted">{formatDue(null)}</span>}</dd>

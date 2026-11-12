@@ -54,7 +54,7 @@
 
 .btn[data-variant='danger'] {
   --btn-bg: var(--danger-soft);
-  --btn-bg-hover: #f6d3cf;
+  --btn-bg-hover: var(--danger-soft-hover);
   --btn-ink: var(--danger);
 }
 

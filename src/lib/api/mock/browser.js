@@ -6,6 +6,7 @@ import users from '@fixtures/users.json';
 import projects from '@fixtures/projects.json';
 import tasks from '@fixtures/tasks.json';
 import comments from '@fixtures/comments.json';
+import sprints from '@fixtures/sprints.json';
 import notifications from '@fixtures/notifications.json';
 import { createMockServer } from './server.js';
 
@@ -26,7 +27,7 @@ function safeStorage() {
 export function getBrowserMockServer() {
   if (!server) {
     server = createMockServer({
-      seed: { organisations, users, projects, tasks, comments, notifications },
+      seed: { organisations, users, projects, tasks, comments, notifications, sprints },
       storage: typeof window === 'undefined' ? null : safeStorage(),
     });
   }

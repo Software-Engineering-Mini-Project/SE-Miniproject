@@ -16,6 +16,9 @@ export default defineConfig({
     // UI tests stub fetch, so they always exercise the HTTP client, even when CI exports
     // NEXT_PUBLIC_API_MODE=mock for the build and the mock E2E run.
     env: { NEXT_PUBLIC_API_MODE: 'http' },
+    // Typing-heavy form tests take 1-2s alone but can pass 5s when every file runs in parallel
+    // on a slower machine; 15s keeps them honest without flaking.
+    testTimeout: 15000,
     clearMocks: true,
     restoreMocks: true,
     coverage: {

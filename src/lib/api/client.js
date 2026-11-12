@@ -24,6 +24,9 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ projects: OrganisationProject[], totals: { people: number, projects: number, tasks: number, done: number, overdue: number } }} OrganisationOverview
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, number?: number | null, key?: string | null, assigneeIds: string[], createdAt: string, updatedAt: string }} Task  (key: work-item key such as ALPHA-12)
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
+ * @typedef {{ taskIds: string[], count: number, points: number }} SprintPart
+ * @typedef {{ sprintId: string, unit: 'points' | 'items', days: { date: string, remaining: number | null, ideal: number }[], committed: SprintPart, added: SprintPart, removed: SprintPart, completed: SprintPart, carriedOver: SprintPart & { movedTo: string | null } }} SprintReport  (src/lib/sprint-report.js)
+ * @typedef {{ id: string, projectId: string, number: number, name: string, goal: string, startDate: string, endDate: string, state: 'planned' | 'active' | 'completed', startedAt: string | null, completedAt: string | null, committed: { taskIds: string[], points: number } | null, report: { completed: SprintPart, unfinished: SprintPart, movedTo: string | null } | null }} Sprint  (src/lib/sprints.js)
  * @typedef {{ id: string, taskId: string, projectId: string, actorId: string | null, action: string, details: object, createdAt: string, actor: { id: string, name: string } | null }} Activity  (src/lib/activity.js)
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
  * @typedef {{ id: string, userId: string, taskId: string, projectId: string | null, type: 'assignment' | 'due-date', message: string, read: boolean, createdAt: string }} Notification
@@ -193,12 +196,34 @@ export const api = {
     /** Opens a task by its key (ALPHA-12); old keys of a renamed project still resolve. @returns {Promise<Task>} */
     getByKey: (key) => request('GET', `/tasks/by-key/${enc(key)}`),
     /** @returns {Promise<Task>} TM-F-011 */
-    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`], body: input }),
+    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`, 'sprints:report:'], body: input }),
     remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
-    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`], body: { status } }),
+    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`, 'sprints:report:'], body: { status } }),
     /** Who changed what on the task, newest first (issue #75). @returns {Promise<{ items: Activity[], page: number, pageSize: number, total: number }>} */
     activity: (taskId, { page = 1, pageSize = 50 } = {}) => request('GET', `/tasks/${enc(taskId)}/activity`, { query: { page, pageSize } }),
+    /**
+     * Plans a task (issue #76): into a sprint or the backlog (`sprintId`, null for the backlog)
+     * and/or between two tasks in the ranked order (`previousId` above it, `nextId` below it).
+     * @returns {Promise<Task>}
+     */
+    move: (taskId, { sprintId, previousId, nextId } = {}) => request('POST', `/tasks/${enc(taskId)}/move`, { invalidates: [`activity:${taskId}`, 'sprints:report:'], body: { sprintId, previousId, nextId } }),
+  },
+  // Sprints change which tasks are where, so they refresh task lists and histories too.
+  sprints: {
+    /** @returns {Promise<Sprint[]>} */
+    list: (projectId) => request('GET', `/projects/${enc(projectId)}/sprints`),
+    /** Burndown and report, from the activity history (issue #77). @returns {Promise<SprintReport>} */
+    report: (sprintId) => request('GET', `/sprints/${enc(sprintId)}/report`),
+    /** Owners and Managers. @returns {Promise<Sprint>} */
+    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/sprints`, { invalidates: [`sprints:${projectId}`], body: input }),
+    update: (sprintId, input) => request('PATCH', `/sprints/${enc(sprintId)}`, { invalidates: ['sprints:'], body: input }),
+    /** Planned sprints only; their tasks go back to the backlog. */
+    remove: (sprintId) => request('DELETE', `/sprints/${enc(sprintId)}`, { invalidates: ['sprints:', 'tasks:', 'activity:'] }),
+    /** 409 ACTIVE_SPRINT_EXISTS while another sprint in the project is active. */
+    start: (sprintId) => request('POST', `/sprints/${enc(sprintId)}/start`, { invalidates: ['sprints:'] }),
+    /** Unfinished tasks go to `moveTo`: 'backlog' or a planned sprint's id. */
+    complete: (sprintId, moveTo = 'backlog') => request('POST', `/sprints/${enc(sprintId)}/complete`, { invalidates: ['sprints:', 'tasks:', 'activity:', 'dashboard:'], body: { moveTo } }),
   },
   checklist: {
     /** @returns {Promise<{ taskId: string, checklist: ChecklistItem[], updatedAt: string }>} */

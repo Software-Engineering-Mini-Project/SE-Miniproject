@@ -1,12 +1,13 @@
 /*
- * Design tokens and base styles for Task Manager v1.0.
- * Light theme only: dark mode is out of v1.0 scope (SRS §11).
+ * Design tokens and base styles for Task Manager.
+ * Light by default; a dark set of the same tokens follows the system setting (issue #77: charts
+ * must work in dark mode). Components use tokens only, so they switch with it.
  * Motion follows the design-engineering rules: strong ease-out curves,
  * UI transitions under 300ms, transform/opacity only, reduced-motion fallbacks.
  */
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
   /* Surfaces: separated by tone steps, not lines or resting shadows */
   --bg: #f3f3f0;
@@ -42,6 +43,10 @@
   --chart-todo: #8a6fd6;
   --chart-progress: #c0670a;
   --chart-done: #1b6fa8;
+  /* One-series chart marks (burndown, velocity) and reference marks (the ideal line, committed
+     outlines: a deliberate neutral, dashed or outlined and labelled). Both >= 3:1 on the surface. */
+  --chart-series: #2350e6;
+  --chart-reference: #6f737c;
 
   /* Priority */
   --priority-high: #b3261e;
@@ -57,6 +62,7 @@
 
   --danger: #b3261e;
   --danger-soft: #fbe5e3;
+  --danger-soft-hover: #f6d3cf;
   --success: #16723a;
 
   /* Type */
@@ -89,6 +95,64 @@
   --dur-press: 140ms;
   --dur-fast: 160ms;
   --dur-base: 220ms;
+}
+
+/*
+ * Dark theme: the same tokens, stepped for a dark surface. Text pairs keep 4.5:1 (ink-3 on every
+ * surface, status text on its tint, button text on the accent); chart marks keep 3:1 and were
+ * checked as a set with the dataviz palette validator (dark, surface #1a1b1f): lightness band,
+ * chroma, colour-blind separation and contrast all pass.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --surface: #1a1b1f;
+    --surface-2: #232429;
+    --surface-3: #2c2e34;
+    --line: #3a3d44;
+    --line-strong: #555963;
+
+    --ink: #ececef;
+    --ink-2: #bfc2ca;
+    --ink-3: #a3a7b1;
+    --ink-inverse: #15161a;
+
+    --accent: #7b97ff;
+    --accent-hover: #9db2ff;
+    --accent-soft: #1e2a52;
+    --accent-ink: #0b1230;
+
+    --status-todo: #b9a8ff;
+    --status-todo-soft: #2a2347;
+    --status-progress: #f0a560;
+    --status-progress-soft: #3a2614;
+    --status-done: #84c4f7;
+    --status-done-soft: #132b40;
+
+    --chart-todo: #8f76de;
+    --chart-progress: #c9751f;
+    --chart-done: #3d93d1;
+    --chart-series: #5f80f2;
+    --chart-reference: #8b8f99;
+
+    --priority-high: #ff8f85;
+    --priority-medium: #f0a560;
+    --priority-low: #a3a7b1;
+
+    --type-task: #8aa3ff;
+    --type-bug: #ff8f85;
+    --type-story: #62d394;
+    --type-epic: #bb9cff;
+    --type-epic-soft: #2b2147;
+
+    --danger: #ff8f85;
+    --danger-soft: #3d1d1b;
+    --danger-soft-hover: #4d2421;
+    --success: #62d394;
+
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.5);
+    --shadow-drag: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 32px rgb(0 0 0 / 0.6);
+  }
 }
 
 *,

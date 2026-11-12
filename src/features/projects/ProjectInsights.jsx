@@ -6,13 +6,15 @@ import { TASK_STATUSES } from '@/lib/constants';
 import { localToday } from '@/lib/dates';
 import { completionPercent, dueBuckets, priorityCounts, workloadByMember } from '@/lib/insights';
 import { plural } from '@/lib/format';
+import { velocity, velocityForecast } from '@/lib/sprint-report';
+import { SprintReport } from '@/features/sprints/SprintReport';
 import { ForecastPanel } from './ForecastPanel';
 
 /**
  * Project "Insights" view: when the work will be done (forecast over every task), then who
  * carries the (filtered) work, how urgent it is, and when it is due.
  */
-export function ProjectInsights({ tasks, allTasks = tasks, forecast, members, onOpenTask }) {
+export function ProjectInsights({ tasks, allTasks = tasks, forecast, members, sprints = [], onOpenTask }) {
   const [workloadView, setWorkloadView] = useState('chart');
   const today = localToday();
   const workload = useMemo(() => workloadByMember(tasks, members, today), [tasks, members, today]);
@@ -20,10 +22,20 @@ export function ProjectInsights({ tasks, allTasks = tasks, forecast, members, on
   const priorities = useMemo(() => priorityCounts(tasks), [tasks]);
   const openCount = tasks.filter((task) => task.status !== 'Done').length;
   const percent = completionPercent(tasks);
+  // The forecast by velocity (issue #77): open points over the points a sprint usually finishes.
+  const byVelocity = useMemo(() => {
+    const open = allTasks.filter((task) => task.status !== 'Done' && task.type !== 'Epic');
+    return velocityForecast({
+      average: velocity(sprints).average,
+      remainingPoints: open.reduce((sum, task) => sum + (task.storyPoints ?? 0), 0),
+      unestimated: open.filter((task) => !task.storyPoints).length,
+    });
+  }, [allTasks, sprints]);
 
   return (
     <div className="insights">
-      <ForecastPanel forecast={forecast} tasks={allTasks} onOpenTask={onOpenTask} />
+      <ForecastPanel forecast={forecast} tasks={allTasks} byVelocity={byVelocity} onOpenTask={onOpenTask} />
+      <SprintReport sprints={sprints} tasks={allTasks} onOpenTask={onOpenTask} />
       <section className="panel insights-panel insights-wide" aria-labelledby="workload-title">
         <div className="insights-head">
           <div>
