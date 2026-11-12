@@ -5,7 +5,7 @@ import { createSchema } from './schema.js';
 
 /**
  * An organisation owns accounts and projects; nothing crosses between organisations. Its settings
- * live here (there is no global workspace document any more).
+ * live here (the old global "workspace" settings document is no longer read).
  */
 const organisationSchema = createSchema({
   name: { type: String, required: true, trim: true, minlength: 1, maxlength: ORGANISATION_NAME_MAX },

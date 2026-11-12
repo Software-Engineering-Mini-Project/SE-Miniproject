@@ -443,7 +443,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (payload.exp * 1000 <= now().getTime()) fail(401, 'TOKEN_EXPIRED', 'Your session has expired. Sign in again.');
     const user = findUser(payload.sub);
     if (!user) fail(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.');
-    if (user.deactivatedAt) fail(401, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
+    if (user.deactivatedAt) fail(401, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact an organisation admin.');
     if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) fail(401, 'TOKEN_REVOKED', 'Your password was changed. Sign in again.');
     return user;
   }
@@ -457,7 +457,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (!project || !sameOrg(user, project)) notFound('Project');
     if (!isMember(user, project)) {
       // An open project can be joined, so say so; a private one stays opaque.
-      if (project.visibility === 'open') fail(403, 'JOIN_REQUIRED', 'This project is open to everyone in the workspace. Join it to see its work.');
+      if (project.visibility === 'open') fail(403, 'JOIN_REQUIRED', 'This project is open to everyone in the organisation. Join it to see its work.');
       forbidden('You are not a member of this project.');
     }
     if (action !== 'project.view' && !can(user, action, project)) forbidden(FORBIDDEN[action]);
@@ -665,7 +665,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         fail(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
       }
       loginAttempts.delete(email);
-      if (user.deactivatedAt) fail(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
+      if (user.deactivatedAt) fail(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact an organisation admin.');
       return [200, { ...issueToken(user), user: userDto(user, { withOrganisation: true }) }];
     }],
 
@@ -762,11 +762,11 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, { projects: summaries, myTasks: myTasks.map(taskDto), stats }];
     }],
 
-    // Workspace settings: everyone reads them; only Admins change them.
+    // Organisation settings: everyone reads them; only Admins change them.
     ['GET', '/settings', ({ user }) => [200, settings(user)]],
 
     ['PATCH', '/settings', ({ user, body }) => {
-      if (!isAdmin(user)) forbidden('Only an admin can change workspace settings.');
+      if (!isAdmin(user)) forbidden('Only an admin can change organisation settings.');
       const projectCreation = oneOf(body, 'projectCreation', PROJECT_CREATION, { label: 'Project creation' });
       orgOf(user).projectCreation = projectCreation;
       return [200, settings(user)];
@@ -888,7 +888,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
 
     ['POST', '/projects', ({ user, body }) => {
-      if (!canCreateProject(user, settings(user))) forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
+      if (!canCreateProject(user, settings(user))) forbidden('In this organisation only leads and admins can create projects. Ask an admin, or join an open project.');
       const name = str(body, 'name', { max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, max: LIMITS.descriptionMax, label: 'Description' }) || '';
       const visibility = oneOf(body, 'visibility', PROJECT_VISIBILITIES, { required: false, label: 'Visibility' }) ?? 'private';

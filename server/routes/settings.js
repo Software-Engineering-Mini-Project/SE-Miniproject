@@ -17,7 +17,7 @@ export function createSettingsRouter({ jwtSecret } = {}) {
   });
 
   router.patch('/', requireAuth, async (request, response) => {
-    if (!isAdmin(request.user)) throw new HttpError(403, 'FORBIDDEN', 'Only an admin can change workspace settings.');
+    if (!isAdmin(request.user)) throw new HttpError(403, 'FORBIDDEN', 'Only an admin can change organisation settings.');
     const body = requireObject(request.body);
     const projectCreation = readEnum(body, 'projectCreation', PROJECT_CREATION, { label: 'Project creation' });
     const { organisationId } = request.user;

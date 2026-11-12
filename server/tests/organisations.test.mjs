@@ -1,6 +1,6 @@
 // Organisations: every account and project belongs to exactly one, nothing crosses between them,
 // people join with an invite code or start their own, and the organisation page's routes.
-// Fixtures: "Acme Labs" (org-acme, the demo workspace) and "Northwind Studio" (org-northwind,
+// Fixtures: "Acme Labs" (org-acme, the demo organisation) and "Northwind Studio" (org-northwind,
 // one admin and one open project) exist only to prove isolation.
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';

@@ -87,7 +87,7 @@ export function LoginForm() {
         {reason === 'deactivated' && !formError ? (
           <p className="form-alert" role="alert">
             <AlertCircle size={16} aria-hidden="true" />
-            This account was deactivated. Contact a workspace admin.
+            This account was deactivated. Contact an organisation admin.
           </p>
         ) : null}
         {formError ? (

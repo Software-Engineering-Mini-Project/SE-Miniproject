@@ -85,7 +85,7 @@ test('an Admin deactivates an account, which then cannot sign in until reactivat
   await page.getByLabel('Email').fill(email);
   await page.getByRole('textbox', { name: 'Password' }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByText('This account has been deactivated. Contact a workspace admin.')).toBeVisible();
+  await expect(page.getByText('This account has been deactivated. Contact an organisation admin.')).toBeVisible();
 
   await signIn(page, 'admin@example.test');
   await page.goto('/admin/users');

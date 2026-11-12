@@ -853,7 +853,7 @@ describe('member removal, admin users, and insights', () => {
     expect(state.workspace.setSettings).toHaveBeenLastCalledWith({ projectCreation: 'leads' });
     expect(state.toast.success).toHaveBeenCalledWith('Only leads and admins can create projects now.');
 
-    state.api.settings.update.mockRejectedValueOnce(new ApiError(403, { message: 'Only an admin can change workspace settings.' }));
+    state.api.settings.update.mockRejectedValueOnce(new ApiError(403, { message: 'Only an admin can change organisation settings.' }));
     await user.selectOptions(select, 'leads');
     await waitFor(() => expect(state.toast.error).toHaveBeenCalled());
     expect(state.workspace.setSettings).toHaveBeenLastCalledWith({ projectCreation: 'everyone' });

@@ -220,7 +220,7 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     }
     // Only after the password matched, so this doesn't reveal which emails have accounts.
     if (user.deactivatedAt) {
-      throw new HttpError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.');
+      throw new HttpError(403, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact an organisation admin.');
     }
 
     if (bcrypt.getRounds(user.passwordHash) > BCRYPT_COST) {

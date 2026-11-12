@@ -18,7 +18,7 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ id: string, name: string, email: string, role: string, active?: boolean, projectRole?: 'Owner' | 'Manager' | 'Member' | 'Viewer' }} Member
  * @typedef {{ id: string, name: string, description: string, key: string | null, previousKeys?: string[], visibility: 'private' | 'open', ownerId: string, memberIds: string[], managerIds?: string[], viewerIds?: string[], members: Member[], createdAt: string, updatedAt: string }} Project
  * @typedef {{ id: string, name: string, key?: string | null, description: string, ownerName: string | null, memberCount: number }} DirectoryProject
- * @typedef {{ projectCreation: 'everyone' | 'leads' }} WorkspaceSettings
+ * @typedef {{ projectCreation: 'everyone' | 'leads' }} OrganisationSettings
  * @typedef {{ id: string, name: string, projectCreation: 'everyone' | 'leads', createdAt: string, memberCount: number, projectCount?: number, joinCode?: string }} Organisation  (projectCount and joinCode: Admins only)
  * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerName: string | null, memberCount: number, yourRole: string | null, updatedAt: string, total: number, counts: Record<string, number>, overdue: number }} OrganisationProject
  * @typedef {{ id: string, email: string, state: 'pending' | 'accepted' | 'revoked' | 'expired', createdAt: string, expiresAt: string, acceptedAt: string | null, revokedAt: string | null, createdBy: { id: string, name: string | null } | null }} Invitation
@@ -157,9 +157,9 @@ export const api = {
     overview: (today = localToday()) => request('GET', '/organisation/overview', { query: { today } }),
   },
   settings: {
-    /** Everyone signed in. @returns {Promise<WorkspaceSettings>} */
+    /** Everyone signed in. @returns {Promise<OrganisationSettings>} */
     get: () => request('GET', '/settings'),
-    /** Admin only. @returns {Promise<WorkspaceSettings>} */
+    /** Admin only. @returns {Promise<OrganisationSettings>} */
     update: (input) => request('PATCH', '/settings', { body: input }),
   },
   projects: {

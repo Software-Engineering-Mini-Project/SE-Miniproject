@@ -187,7 +187,7 @@ export function AppShell({ children }) {
 
   if (status !== 'authenticated') {
     return (
-      <div className="shell-loading" role="status" aria-label="Loading your workspace">
+      <div className="shell-loading" role="status" aria-label="Loading your organisation">
         <Wordmark />
         <span className="shell-loading-bar" />
       </div>

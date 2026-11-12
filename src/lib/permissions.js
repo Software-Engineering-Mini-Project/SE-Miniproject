@@ -4,12 +4,12 @@
  * server would accept the request.
  *
  * Two layers (the model Plane and OpenProject use):
- * - Workspace role on the account (`user.role`): Admin manages accounts and settings and sees
- *   every project. Who may create projects is a workspace setting (`projectCreation`):
+ * - Organisation role on the account (`user.role`): Admin manages accounts and settings and sees
+ *   every project. Who may create projects is an organisation setting (`projectCreation`):
  *   'everyone' (the default, like Jira team-managed projects) or 'leads' (Leads and Admins).
  *   Anyone may join an Open project; Private projects are invite-only.
  * - Project role per membership: Owner, Manager, Member or Viewer. It decides what someone
- *   can do inside one project and is independent of the workspace role.
+ *   can do inside one project and is independent of the organisation role.
  *
  * Pure functions only, no imports: it runs in Node and in the browser.
  */
@@ -20,7 +20,7 @@ export const PROJECT_ROLES = ['Owner', 'Manager', 'Member', 'Viewer'];
 export const GRANTABLE_PROJECT_ROLES = ['Manager', 'Member', 'Viewer'];
 
 export const WORKSPACE_ROLE_SUMMARY = {
-  Admin: 'Manages accounts, roles and workspace settings; can open and manage every project.',
+  Admin: 'Manages accounts, roles and organisation settings; can open and manage every project.',
   Lead: 'Creates projects and becomes their owner, even when project creation is limited to leads.',
   Member: 'Creates projects (unless an admin limits that to leads), joins open projects and works in projects they belong to.',
 };
@@ -32,16 +32,16 @@ export const PROJECT_ROLE_SUMMARY = {
   Viewer: 'Read-only: can view the project and comment, but not change tasks.',
 };
 
-/** Workspace setting: who may create projects. */
+/** Organisation setting: who may create projects. */
 export const PROJECT_CREATION = ['everyone', 'leads'];
 export const PROJECT_CREATION_LABELS = { everyone: 'Everyone', leads: 'Leads and admins only' };
 export const DEFAULT_WORKSPACE_SETTINGS = Object.freeze({ projectCreation: 'everyone' });
 
-/** Project visibility: Private projects are invite-only; anyone in the workspace can find and join an Open one. */
+/** Project visibility: Private projects are invite-only; anyone in the organisation can find and join an Open one. */
 export const PROJECT_VISIBILITIES = ['private', 'open'];
 export const PROJECT_VISIBILITY_SUMMARY = {
   private: 'Only people who are added can see it.',
-  open: 'Anyone in the workspace can find it and join as a member.',
+  open: 'Anyone in the organisation can find it and join as a member.',
 };
 
 const MATRIX = {
@@ -89,7 +89,7 @@ export const PROJECT_ACTION_LABELS = {
 const ids = (list) => (list ?? []).map(String);
 
 export const isAdmin = (user) => user?.role === 'Admin';
-/** Whether `user` may create a project under the workspace `settings`. */
+/** Whether `user` may create a project under the organisation's `settings`. */
 export function canCreateProject(user, settings = DEFAULT_WORKSPACE_SETTINGS) {
   if (!user || user.active === false || user.deactivatedAt) return false;
   if (user.role === 'Admin' || user.role === 'Lead') return true;
@@ -114,13 +114,13 @@ export function projectRoleOf(project, userId) {
   return 'Member';
 }
 
-/** Whether a project role is allowed an action (ignores the workspace Admin override). */
+/** Whether a project role is allowed an action (ignores the organisation Admin override). */
 export function roleAllows(role, action) {
   return Boolean(role && MATRIX[action]?.includes(role));
 }
 
 /**
- * Whether `user` may perform `action` in `project`. Workspace Admins may do everything,
+ * Whether `user` may perform `action` in `project`. Organisation Admins may do everything,
  * except be assigned tasks in a project they are not a member of.
  */
 export function can(user, action, project) {

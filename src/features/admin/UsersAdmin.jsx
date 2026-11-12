@@ -25,8 +25,8 @@ const roleHint = (role, settings = DEFAULT_WORKSPACE_SETTINGS) => ({
   Member: settings.projectCreation === 'everyone' ? 'Creates and joins projects' : 'Joins open projects',
 })[role];
 
-/** Workspace-wide rules an admin controls (like Jira's global permissions). */
-function WorkspaceSettings() {
+/** Organisation-wide rules an admin controls (like Jira's global permissions). */
+function OrganisationSettings() {
   const loaded = useWorkspace((s) => s.settings);
   const setSettings = useWorkspace((s) => s.setSettings);
   const loadSettings = useWorkspace((s) => s.loadSettings);
@@ -55,7 +55,7 @@ function WorkspaceSettings() {
   return (
     <section className="workspace-settings" aria-labelledby="workspace-settings-title">
       <div>
-        <h2 id="workspace-settings-title" className="workspace-settings-title">Workspace settings</h2>
+        <h2 id="workspace-settings-title" className="workspace-settings-title">Organisation settings</h2>
         <p className="workspace-settings-hint">Applies to everyone at once. Existing projects keep their owners.</p>
       </div>
       <div className="workspace-setting">
@@ -70,7 +70,7 @@ function WorkspaceSettings() {
   );
 }
 
-/** Admin user management (SRS §2.2): find accounts, change workspace roles, deactivate accounts. */
+/** Admin user management (SRS §2.2): find accounts, change organisation roles, deactivate accounts. */
 export function UsersAdmin() {
   const me = useSession((s) => s.user);
   const settings = useWorkspace((s) => s.settings);
@@ -93,7 +93,7 @@ export function UsersAdmin() {
   if (!isAdmin) {
     return (
       <EmptyState icon={ShieldCheck} title="Admins only">
-        Ask a workspace admin if you need a different role.
+        Ask an organisation admin if you need a different role.
       </EmptyState>
     );
   }
@@ -185,7 +185,7 @@ export function UsersAdmin() {
         </dl>
       ) : null}
 
-      <WorkspaceSettings />
+      <OrganisationSettings />
 
       <div className="filters admin-filters" role="search" aria-label="Find users">
         <div className="input-with-icon">

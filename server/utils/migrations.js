@@ -7,7 +7,7 @@ import { suggestProjectKey } from '../../src/lib/work-items.js';
 export const DEFAULT_ORGANISATION_ID = 'org-default';
 
 /**
- * Per-project roles (managerIds/viewerIds) replaced the old rule that any workspace Lead in a
+ * Per-project roles (managerIds/viewerIds) replaced the old rule that any organisation Lead in a
  * project could manage it. Projects created before that have no managerIds field; give each
  * one the role arrays and make its non-owner Lead members Managers, so nobody loses access.
  *

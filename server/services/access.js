@@ -44,7 +44,7 @@ export async function getProjectForUser(user, rawProjectId, { action = 'project.
   if (lean) project.id = String(project._id);
   if (!can(user, 'project.view', project)) {
     // An open project can be joined, so say so (the UI offers a Join button); a private one stays opaque.
-    if (project.visibility === 'open') throw new HttpError(403, 'JOIN_REQUIRED', 'This project is open to everyone in the workspace. Join it to see its work.');
+    if (project.visibility === 'open') throw new HttpError(403, 'JOIN_REQUIRED', 'This project is open to everyone in the organisation. Join it to see its work.');
     throw forbidden('You are not a member of this project.');
   }
   if (action !== 'project.view' && !can(user, action, project)) {
@@ -67,6 +67,6 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
 
 export async function requireProjectCreator(user) {
   if (!canCreateProject(user, await getWorkspaceSettings(user.organisationId))) {
-    throw forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
+    throw forbidden('In this organisation only leads and admins can create projects. Ask an admin, or join an open project.');
   }
 }

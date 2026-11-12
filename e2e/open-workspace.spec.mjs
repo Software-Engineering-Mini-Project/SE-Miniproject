@@ -1,7 +1,7 @@
 // Open workspace, end to end: a brand-new account creates an open project from the
 // getting-started screen, a teammate finds and joins it, and an admin limits who may create
 // projects. Leaves the shared fixtures as it found them: the project is deleted and the
-// workspace setting is restored (also after a failure, in HTTP mode).
+// organisation setting is restored (also after a failure, in HTTP mode).
 import { expect, test } from '@playwright/test';
 
 const PASSWORD = 'Password123!';
