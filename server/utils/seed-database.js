@@ -5,7 +5,8 @@ import fixtureNotifications from '../../fixtures/notifications.json' with { type
 import fixtureProjects from '../../fixtures/projects.json' with { type: 'json' };
 import fixtureTasks from '../../fixtures/tasks.json' with { type: 'json' };
 import fixtureUsers from '../../fixtures/users.json' with { type: 'json' };
-import { Comment, models, Notification, Organisation, Project, Task, User } from '../models/index.js';
+import { Activity, Comment, models, Notification, Organisation, Project, Task, User } from '../models/index.js';
+import { seedActivities } from '../../src/lib/activity.js';
 import { BCRYPT_COST } from './password.js';
 import { numberTasks } from '../../src/lib/work-items.js';
 
@@ -106,6 +107,8 @@ export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
   await Project.insertMany(projects.map(({ id, ...project }) => ({ ...project, _id: id })));
   await Task.insertMany(tasks.map(({ id, ...task }) => ({ ...task, _id: id })));
   await Comment.insertMany(comments.map(({ id, ...comment }) => ({ ...comment, _id: id })));
+  // A little history, so the Activity tab is not empty on a fresh database.
+  await Activity.insertMany(seedActivities({ tasks, comments, projects }).map(({ id, ...entry }) => ({ ...entry, _id: id, updatedAt: entry.createdAt })));
 
   const taskProjects = new Map(tasks.map((task) => [task.id, task.projectId]));
   await Notification.insertMany(notifications.map(({ id, ...notification }) => {
