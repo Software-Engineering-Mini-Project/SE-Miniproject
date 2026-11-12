@@ -46,6 +46,7 @@ Admins search accounts of their organisation, change roles, **deactivate** an ac
 - **Board** (drag between To Do, In Progress and Done, with a keyboard alternative) and **list** views, filters, search, and CSV export of a project's tasks.
 - **Task sheet**: title, description, status, priority, due date, assignees (project members who are not Viewers), comments, checklist.
 - **Quick add**: type a task on one line, for example `Draft the release notes fri !high @mina`. `!high`/`!medium`/`!low` (or `!1` to `!3`) set the priority; `@name` assigns a member (`@me` is you); `today`, `tomorrow`, `fri`, `next week`, `in 3 days`, `nov 20` or `2026-11-20` set the due date. A preview shows what was understood before anything is created, and ✕ on a piece keeps that word as plain text. Parser: [`src/lib/quick-add.js`](../src/lib/quick-add.js).
+- **Work-item keys**: every task has a short name such as `ALPHA-12`, shown on cards, list rows, the task sheet and the dashboard. A project's key is suggested from its name when it is created (or typed, 2 to 10 letters); only the Owner or an Admin can change it later, and old keys keep working. Search for a key (`alpha-12`) to find that task, open `/browse/ALPHA-12` to jump to it, or copy the link from the task sheet. Notifications and the CSV export include the key. Numbers are never reused, even after a task is deleted. Rules: [`src/lib/work-items.js`](../src/lib/work-items.js); API: [§7.7 of the contract](backend-api-contract.md).
 - **Checklists**: break a task into steps. Members tick steps off; owners and managers add and remove them. Cards show progress (`2/5`). Each change is one atomic update, so two people on the same list don't overwrite each other.
 
 ## 5. Seeing what is coming
@@ -68,4 +69,4 @@ In-app: an assignment notification when someone adds you to a task, and a due-da
 
 ## 8. Not built yet
 
-Email invitations, one person in several organisations, deleting an organisation, work-item keys and types (for example `ALPHA-12`, bugs and stories), sprints with a backlog and burndown, and a redesign of the interface are planned or open; see [organisations.md](organisations.md#not-built-decisions-for-the-team) and the team's backlog.
+Email invitations, one person in several organisations, deleting an organisation, work-item types (bugs and stories), sprints with a backlog and burndown, and a redesign of the interface are planned or open; see [organisations.md](organisations.md#not-built-decisions-for-the-team) and the team's backlog.
