@@ -1,5 +1,6 @@
 export { Activity } from './activity.js';
 export { Comment } from './comment.js';
+export { Invitation } from './invitation.js';
 export { LoginAttempt } from './login-attempt.js';
 export { Notification } from './notification.js';
 export { Organisation } from './organisation.js';
@@ -10,6 +11,7 @@ export { User } from './user.js';
 
 import { Activity } from './activity.js';
 import { Comment } from './comment.js';
+import { Invitation } from './invitation.js';
 import { LoginAttempt } from './login-attempt.js';
 import { Notification } from './notification.js';
 import { Organisation } from './organisation.js';
@@ -18,4 +20,4 @@ import { Sprint } from './sprint.js';
 import { Task } from './task.js';
 import { User } from './user.js';
 
-export const models = [User, Project, Task, Comment, Notification, LoginAttempt, Organisation, Activity, Sprint];
+export const models = [User, Project, Task, Comment, Notification, LoginAttempt, Organisation, Activity, Sprint, Invitation];

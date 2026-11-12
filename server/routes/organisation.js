@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Organisation, Project, User } from '../models/index.js';
+import { Invitation, Organisation, Project, User } from '../models/index.js';
 import { ORGANISATION_NAME_MAX, formatJoinCode } from '../../src/lib/organisation.js';
+import { INVITATION_LIST_LIMIT, generateInvitationToken, invitationExpiry, invitationPath, invitationState } from '../../src/lib/invitations.js';
 import { projectRoleOf } from '../../src/lib/permissions.js';
 import { isAdmin } from '../services/access.js';
 import { uniqueJoinCode } from '../services/organisation.js';
+import { accountExists, hashInvitationToken, invitationDto } from '../services/invitations.js';
 import { getProjectSummaries } from '../services/task-aggregates.js';
 import { HttpError } from '../utils/http-error.js';
-import { readString, requireObject } from '../utils/validation.js';
+import { normalizeEmail, readEmail, readString, requireObject } from '../utils/validation.js';
 
 const OVERVIEW_LIMIT = 200;
 
@@ -65,6 +67,78 @@ export function createOrganisationRouter({ jwtSecret, now = () => new Date() } =
     // The codes themselves are credentials, so the audit record only says that it rotated.
     response.locals.auditChange = { field: 'joinCode', from: 'previous', to: 'rotated' };
     response.json(await organisationDto(request.user));
+  });
+
+  // ---------- Personal invitation links (issue #78): Admins only ----------
+  const requireAdmin = (user, action) => {
+    if (!isAdmin(user)) throw new HttpError(403, 'FORBIDDEN', `Only an admin can ${action} invitation links.`);
+  };
+  async function creatorNames(invitations) {
+    const ids = [...new Set(invitations.map((invitation) => invitation.createdById).filter(Boolean))];
+    const users = ids.length ? await User.find({ _id: { $in: ids } }).select('_id name').lean() : [];
+    return new Map(users.map((user) => [String(user._id), user.name]));
+  }
+
+  router.get('/invitations', requireAuth, async (request, response) => {
+    requireAdmin(request.user, 'see');
+    const invitations = await Invitation.find({ organisationId: request.user.organisationId })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(INVITATION_LIST_LIMIT)
+      .lean();
+    const timestamp = now();
+    const names = await creatorNames(invitations);
+    response.json(invitations.map((invitation) => invitationDto(invitation, timestamp, names)));
+  });
+
+  // The response is the only time the link's secret leaves the server.
+  router.post('/invitations', requireAuth, async (request, response) => {
+    requireAdmin(request.user, 'create');
+    const email = readEmail(requireObject(request.body));
+    const emailNormalized = normalizeEmail(email);
+    if (await accountExists(email)) {
+      throw new HttpError(409, 'DUPLICATE_EMAIL', 'There is already an account with this email.', {
+        email: 'There is already an account with this email. Add them to projects from the project members page.',
+      });
+    }
+    const timestamp = now();
+    // One live link per address: a new link replaces the old one, which stops working.
+    await Invitation.updateMany(
+      { organisationId: request.user.organisationId, emailNormalized, acceptedAt: null, revokedAt: null, expiresAt: { $gt: timestamp } },
+      { $set: { revokedAt: timestamp } },
+    );
+    const token = generateInvitationToken();
+    const invitation = await Invitation.create({
+      organisationId: request.user.organisationId,
+      email,
+      emailNormalized,
+      tokenHash: hashInvitationToken(token),
+      createdById: request.user.id,
+      expiresAt: invitationExpiry(timestamp),
+    });
+    response.locals.auditChange = { field: 'invitation', from: null, to: 'created' };
+    response.status(201).json({
+      ...invitationDto(invitation.toObject(), timestamp, new Map([[request.user.id, request.authUser.name]])),
+      token,
+      path: invitationPath(token),
+    });
+  });
+
+  router.delete('/invitations/:invitationId', requireAuth, async (request, response) => {
+    requireAdmin(request.user, 'revoke');
+    const filter = { _id: request.params.invitationId, organisationId: request.user.organisationId };
+    const invitation = await Invitation.findOne(filter).lean();
+    if (!invitation) throw new HttpError(404, 'NOT_FOUND', 'Invitation not found.');
+    const timestamp = now();
+    if (invitationState(invitation, timestamp) === 'accepted') {
+      throw new HttpError(409, 'INVITATION_USED', 'This invitation has already been used, so there is nothing to revoke.');
+    }
+    // Revoking twice (or revoking an expired link) is harmless and keeps the first time.
+    const revoked = invitation.revokedAt
+      ? invitation
+      : await Invitation.findOneAndUpdate({ ...filter, acceptedAt: null }, { $set: { revokedAt: timestamp } }, { returnDocument: 'after' }).lean();
+    if (!revoked) throw new HttpError(409, 'INVITATION_USED', 'This invitation has already been used, so there is nothing to revoke.');
+    if (!invitation.revokedAt) response.locals.auditChange = { field: 'invitation', from: 'pending', to: 'revoked' };
+    response.json(invitationDto(revoked, timestamp, await creatorNames([revoked])));
   });
 
   router.get('/overview', requireAuth, async (request, response) => {

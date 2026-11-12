@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { LoginAttempt, Organisation, User } from '../models/index.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { findOrganisationByJoinCode, getOrganisationSummary, uniqueJoinCode } from '../services/organisation.js';
+import { claimInvitation, completeInvitation, describeInvitation, releaseInvitation } from '../services/invitations.js';
 import { ORGANISATION_NAME_MAX, isJoinCodeShape, normalizeJoinCode } from '../../src/lib/organisation.js';
 import { userDto } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
@@ -129,11 +130,15 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
     // keeps duplicates out if a deployment has not yet run `npm run db:indexes`.
     if (await User.exists({ emailNormalized: normalizeEmail(email) })) throw duplicateEmail();
 
-    // Joining needs a valid invite code and makes a Member. Starting an organisation makes its first
-    // Admin: public registration still never hands out the Admin role in an organisation that exists.
+    // Joining needs a valid invite code or a personal invitation link, and makes a Member. Starting
+    // an organisation makes its first Admin: public registration still never hands out the Admin
+    // role in an organisation that exists.
     let organisation;
     let createdOrganisation = false;
-    if (entry.joinCode) {
+    let invitation = null;
+    if (entry.inviteToken) {
+      ({ invitation, organisation } = await claimInvitation(entry.inviteToken, email, now()));
+    } else if (entry.joinCode) {
       organisation = await findOrganisationByJoinCode(entry.joinCode);
       if (!organisation) {
         throw new HttpError(400, 'VALIDATION_ERROR', 'That invite code is not recognised.', { joinCode: 'That invite code is not recognised. Check it with your admin.' });
@@ -154,17 +159,26 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
         role: createdOrganisation ? 'Admin' : 'Member',
       });
     } catch (error) {
-      // Don't leave an empty organisation behind when the account could not be created (e.g. a racing duplicate email).
+      // Don't leave an empty organisation behind when the account could not be created (e.g. a racing
+      // duplicate email), and give a claimed invitation back so the link still works.
       if (createdOrganisation) await Organisation.deleteOne({ _id: organisation.id });
+      if (invitation) await releaseInvitation(invitation._id);
       throw error;
     }
     if (createdOrganisation) await Organisation.updateOne({ _id: organisation.id }, { $set: { createdById: user.id } });
+    if (invitation) await completeInvitation(invitation._id, user.id);
     response.status(201).json({
       userId: user.id,
       email: user.email,
       role: user.role,
       organisation: { id: String(organisation._id ?? organisation.id), name: organisation.name },
     });
+  });
+
+  // Public: the register page shows who a personal invitation is for and what it joins. The link's
+  // secret is 192 random bits, so it can't be guessed; an unusable link says why.
+  router.get('/invitations/:token', async (request, response) => {
+    response.json(await describeInvitation(request.params.token, now()));
   });
 
   router.post('/login', (request, response, next) => {
@@ -231,12 +245,21 @@ export function createAuthRouter({ jwtSecret, jwtExpiresIn = TOKEN_TTL_SECONDS, 
 }
 
 /**
- * Registration says which organisation the account goes into: an invite code (join as a Member)
- * or a name (start a new one and become its Admin). Exactly one of the two.
+ * Registration says which organisation the account goes into: a personal invitation link or an
+ * invite code (join as a Member), or a name (start a new one and become its Admin). Exactly one.
  */
 function readOrganisationEntry(body) {
-  const hasCode = body.joinCode !== undefined && body.joinCode !== null && body.joinCode !== '';
-  const hasName = body.organisationName !== undefined && body.organisationName !== null && body.organisationName !== '';
+  const present = (value) => value !== undefined && value !== null && value !== '';
+  const hasInvite = present(body.inviteToken);
+  const hasCode = present(body.joinCode);
+  const hasName = present(body.organisationName);
+  if (hasInvite) {
+    if (hasCode || hasName) {
+      throw new HttpError(400, 'VALIDATION_ERROR', 'Join with the invitation link only.', { inviteToken: 'An invitation link already says which organisation you join.' });
+    }
+    if (typeof body.inviteToken !== 'string') throw new HttpError(400, 'VALIDATION_ERROR', 'Invitation must be text.', { inviteToken: 'Invitation must be text.' });
+    return { inviteToken: body.inviteToken };
+  }
   if (hasCode && hasName) {
     throw new HttpError(400, 'VALIDATION_ERROR', 'Join an organisation or create one, not both.', {
       joinCode: 'Use an invite code or an organisation name, not both.',
