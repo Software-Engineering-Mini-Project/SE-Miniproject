@@ -21,6 +21,8 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ projectCreation: 'everyone' | 'leads' }} WorkspaceSettings
  * @typedef {{ id: string, name: string, projectCreation: 'everyone' | 'leads', createdAt: string, memberCount: number, projectCount?: number, joinCode?: string }} Organisation  (projectCount and joinCode: Admins only)
  * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerName: string | null, memberCount: number, yourRole: string | null, updatedAt: string, total: number, counts: Record<string, number>, overdue: number }} OrganisationProject
+ * @typedef {{ id: string, email: string, state: 'pending' | 'accepted' | 'revoked' | 'expired', createdAt: string, expiresAt: string, acceptedAt: string | null, revokedAt: string | null, createdBy: { id: string, name: string | null } | null }} Invitation
+ * @typedef {{ email: string, expiresAt: string, organisation: { id: string, name: string } }} InvitationPreview
  * @typedef {{ projects: OrganisationProject[], totals: { people: number, projects: number, tasks: number, done: number, overdue: number } }} OrganisationOverview
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, number?: number | null, key?: string | null, assigneeIds: string[], createdAt: string, updatedAt: string }} Task  (key: work-item key such as ALPHA-12)
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
@@ -115,7 +117,9 @@ async function request(method, path, { body, query, accept, auth = true, invalid
 const enc = encodeURIComponent;
 export const api = {
   auth: {
-    /** Body adds exactly one of `joinCode` (join as a Member) or `organisationName` (start one, as its Admin). @returns {Promise<{ userId: string, email: string, role: string, organisation: { id: string, name: string } }>} TM-F-001 */
+    /** Who a personal invitation link is for and which organisation it joins. Public. @returns {Promise<InvitationPreview>} Issue #78 */
+    invitation: (token) => request('GET', `/auth/invitations/${enc(token)}`, { auth: false }),
+    /** Body adds exactly one of `inviteToken` (a personal link), `joinCode` (both join as a Member) or `organisationName` (start one, as its Admin). @returns {Promise<{ userId: string, email: string, role: string, organisation: { id: string, name: string } }>} TM-F-001 */
     register: (input) => request('POST', '/auth/register', { body: input, auth: false }),
     /** @returns {Promise<{ token: string, expiresIn: number }>} TM-F-002 */
     login: (input) => request('POST', '/auth/login', { body: input, auth: false }),
@@ -140,6 +144,15 @@ export const api = {
     update: (name) => request('PATCH', '/organisation', { invalidates: ['organisation:'], body: { name } }),
     /** Admin only. The old invite code stops working at once. @returns {Promise<Organisation>} */
     rotateJoinCode: () => request('POST', '/organisation/join-code', { invalidates: ['organisation:'] }),
+    /** Personal invitation links, Admins only (issue #78). */
+    invitations: {
+      /** Newest first. @returns {Promise<Invitation[]>} */
+      list: () => request('GET', '/organisation/invitations'),
+      /** The response carries `token` and `path`: the only time the link is available. @returns {Promise<Invitation & { token: string, path: string }>} */
+      create: (email) => request('POST', '/organisation/invitations', { invalidates: ['organisation:invitations:'], body: { email } }),
+      /** The link stops working at once. @returns {Promise<Invitation>} */
+      revoke: (invitationId) => request('DELETE', `/organisation/invitations/${enc(invitationId)}`, { invalidates: ['organisation:invitations:'] }),
+    },
     /** Projects you are in plus open ones (Admins: all), with task counts. @returns {Promise<OrganisationOverview>} */
     overview: (today = localToday()) => request('GET', '/organisation/overview', { query: { today } }),
   },

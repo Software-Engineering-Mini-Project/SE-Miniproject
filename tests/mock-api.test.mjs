@@ -711,3 +711,44 @@ test('the sprint report mirrors the API: committed, completed, carried over and 
   assert.deepEqual(running.days.slice(0, 4).map((day) => day.remaining), [10, 10, 11, null]);
   assertEnvelope(call('GET', '/sprints/sprint-alpha-2/report', { token: northwind }), 404, 'NOT_FOUND');
 });
+
+test('invitation links mirror the API: once, for one address, until revoked or expired, Admins only (issue #78)', () => {
+  let clock = NOW;
+  const { call, login } = setup(() => clock);
+  let admin = login('admin@example.test');
+  let member = login('member@example.test');
+  let northwind = login('northwind-admin@example.test');
+  const register = (email, inviteToken) => call('POST', '/auth/register', { body: { name: 'Invited', email, password: 'Password123!', inviteToken } });
+
+  const link = call('POST', '/organisation/invitations', { token: admin, body: { email: 'Invited@example.test' } });
+  assert.equal(link.status, 201);
+  assert.equal(link.data.path, `/register?invite=${link.data.token}`);
+  assert.equal(link.data.expiresAt, new Date(NOW.getTime() + 7 * 86_400_000).toISOString());
+  assert.deepEqual(call('GET', `/auth/invitations/${link.data.token}`).data.organisation, { id: 'org-acme', name: 'Acme Labs' });
+  assert.ok(!JSON.stringify(call('GET', '/organisation/invitations', { token: admin }).data).includes(link.data.token));
+
+  assertEnvelope(register('someone@example.test', link.data.token), 400, 'VALIDATION_ERROR');
+  const joined = register('invited@example.test', link.data.token);
+  assert.deepEqual([joined.status, joined.data.role, joined.data.organisation.id], [201, 'Member', 'org-acme']);
+  assertEnvelope(register('again@example.test', link.data.token), 410, 'INVITATION_USED');
+  assertEnvelope(call('DELETE', `/organisation/invitations/${link.data.id}`, { token: admin }), 409, 'INVITATION_USED');
+
+  const revoked = call('POST', '/organisation/invitations', { token: admin, body: { email: 'gone@example.test' } }).data;
+  assert.equal(call('DELETE', `/organisation/invitations/${revoked.id}`, { token: admin }).data.state, 'revoked');
+  assertEnvelope(call('GET', `/auth/invitations/${revoked.token}`), 410, 'INVITATION_REVOKED');
+  const replaced = call('POST', '/organisation/invitations', { token: admin, body: { email: 'twice@example.test' } }).data;
+  call('POST', '/organisation/invitations', { token: admin, body: { email: 'twice@example.test' } });
+  assertEnvelope(call('GET', `/auth/invitations/${replaced.token}`), 410, 'INVITATION_REVOKED');
+  const late = call('POST', '/organisation/invitations', { token: admin, body: { email: 'late@example.test' } }).data;
+  clock = new Date(NOW.getTime() + 8 * 86_400_000);
+  [admin, member, northwind] = ['admin', 'member', 'northwind-admin'].map((who) => login(`${who}@example.test`));
+  assertEnvelope(register('late@example.test', late.token), 410, 'INVITATION_EXPIRED');
+  assertEnvelope(call('GET', `/auth/invitations/${'A'.repeat(32)}`), 404, 'INVITATION_NOT_FOUND');
+  assert.deepEqual(call('GET', '/organisation/invitations', { token: admin }).data.map((item) => item.state).slice(0, 3), ['expired', 'expired', 'revoked']);
+
+  assertEnvelope(call('POST', '/organisation/invitations', { token: admin, body: { email: 'member@example.test' } }), 409, 'DUPLICATE_EMAIL');
+  assertEnvelope(call('POST', '/organisation/invitations', { token: member, body: { email: 'x@example.test' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('GET', '/organisation/invitations', { token: member }), 403, 'FORBIDDEN');
+  assert.deepEqual(call('GET', '/organisation/invitations', { token: northwind }).data, []);
+  assertEnvelope(call('DELETE', `/organisation/invitations/${late.id}`, { token: northwind }), 404, 'NOT_FOUND');
+});

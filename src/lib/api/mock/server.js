@@ -54,6 +54,16 @@ import {
 } from '../../work-items.js';
 import { commentExcerpt, seedActivities, taskChangeActivities, taskSnapshot } from '../../activity.js';
 import {
+  INVITATION_LIST_LIMIT,
+  generateInvitationToken,
+  invitationEmailMismatch,
+  invitationExpiry,
+  invitationPath,
+  invitationProblem,
+  invitationState,
+  isInvitationTokenShape,
+} from '../../invitations.js';
+import {
   commitmentOf,
   completionPlan,
   leavesCompletedSprint,
@@ -281,6 +291,30 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       db.activities.push({ id: nextId('activity'), taskId: task.id, projectId: task.projectId, actorId: user.id, action: entry.action, details: entry.details ?? {}, createdAt: at });
     }
   }
+  // ---------- personal invitation links (mirrors server/routes/organisation.js, issue #78) ----------
+  // The real API stores only a hash of each link's secret; this in-browser stand-in keeps the
+  // token itself, since the whole database already lives in the browser.
+  const invitationList = () => (db.invitations ??= []);
+  const invitationDto = (invitation) => ({
+    id: invitation.id,
+    email: invitation.email,
+    state: invitationState(invitation, now()),
+    createdAt: invitation.createdAt,
+    expiresAt: invitation.expiresAt,
+    acceptedAt: invitation.acceptedAt ?? null,
+    revokedAt: invitation.revokedAt ?? null,
+    createdBy: invitation.createdById ? { id: invitation.createdById, name: findUser(invitation.createdById)?.name ?? null } : null,
+  });
+  const invitationFail = (problem) => fail(problem.status, problem.errorCode, problem.message, problem.fields);
+  function usableInvitation(token) {
+    const invitation = isInvitationTokenShape(token) ? invitationList().find((item) => item.token === token) : undefined;
+    const problem = invitationProblem(invitation ?? null, now());
+    if (problem) invitationFail(problem);
+    const organisation = db.organisations.find((o) => o.id === invitation.organisationId);
+    if (!organisation) invitationFail(invitationProblem(null, now()));
+    return { invitation, organisation };
+  }
+
   // ---------- backlog and sprints (mirrors server/routes/sprints.js, issue #76) ----------
   const sprintList = () => (db.sprints ??= []);
   const sprintDto = (sprint) => clone({ goal: '', startedAt: null, completedAt: null, committed: null, report: null, ...sprint });
@@ -579,12 +613,17 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const emailRaw = str(body, 'email', { max: 254, label: 'Email' });
       if (!EMAIL_RE.test(emailRaw)) badRequest('Enter a valid email address.', { email: 'Enter a valid email address.' });
       const password = passwordRule(body?.password);
-      // Join with an invite code (Member) or start an organisation (its first Admin): exactly one.
+      // Join with an invitation link or an invite code (Member) or start an organisation (its first
+      // Admin): exactly one.
+      const hasInvite = body?.inviteToken !== undefined && body.inviteToken !== null && body.inviteToken !== '';
       const hasCode = body?.joinCode !== undefined && body.joinCode !== null && body.joinCode !== '';
       const hasName = body?.organisationName !== undefined && body.organisationName !== null && body.organisationName !== '';
+      if (hasInvite && (hasCode || hasName)) badRequest('Join with the invitation link only.', { inviteToken: 'An invitation link already says which organisation you join.' });
+      if (hasInvite && typeof body.inviteToken !== 'string') badRequest('Invitation must be text.', { inviteToken: 'Invitation must be text.' });
       if (hasCode && hasName) badRequest('Join an organisation or create one, not both.', { joinCode: 'Use an invite code or an organisation name, not both.' });
-      if (!hasCode && !hasName) badRequest('Join an organisation with an invite code, or create one.', { joinCode: "Enter your organisation's invite code, or create a new organisation." });
+      if (!hasInvite && !hasCode && !hasName) badRequest('Join an organisation with an invite code, or create one.', { joinCode: "Enter your organisation's invite code, or create a new organisation." });
       let organisation;
+      let invitation = null;
       if (hasCode) {
         if (typeof body.joinCode !== 'string') badRequest('Invite code must be text.', { joinCode: 'Invite code must be text.' });
         const code = normalizeJoinCode(body.joinCode);
@@ -595,6 +634,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const emailNormalized = normalizeEmail(emailRaw);
       if (db.users.some((u) => u.emailNormalized === emailNormalized)) {
         fail(409, 'DUPLICATE_EMAIL', 'An account with this email already exists.', { email: 'This email is already registered.' });
+      }
+      if (hasInvite) {
+        ({ invitation, organisation } = usableInvitation(body.inviteToken));
+        if (invitation.emailNormalized !== emailNormalized) invitationFail(invitationEmailMismatch(invitation.email));
       }
       const at = stamp();
       const startsOrganisation = !organisation;
@@ -607,6 +650,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const user = { id: nextId('user'), organisationId: organisation.id, name, email: emailRaw, emailNormalized, role, password, createdAt: at, updatedAt: at };
       db.users.push(user);
       if (startsOrganisation) organisation.createdById = user.id;
+      if (invitation) Object.assign(invitation, { acceptedAt: at, acceptedById: user.id });
       return [201, { userId: user.id, email: user.email, role, organisation: { id: organisation.id, name: organisation.name } }];
     }],
 
@@ -747,6 +791,46 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       organisation.joinCode = freshJoinCode();
       organisation.updatedAt = stamp();
       return [200, organisationDto(user)];
+    }],
+
+    ['GET', '/auth/invitations/:token', ({ params }) => {
+      const { invitation, organisation } = usableInvitation(params.token);
+      return [200, { email: invitation.email, expiresAt: invitation.expiresAt, organisation: { id: organisation.id, name: organisation.name } }];
+    }],
+
+    ['GET', '/organisation/invitations', ({ user }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can see invitation links.');
+      const rows = invitationList().filter((item) => sameOrg(user, item))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+        .slice(0, INVITATION_LIST_LIMIT);
+      return [200, rows.map(invitationDto)];
+    }],
+
+    ['POST', '/organisation/invitations', ({ user, body }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can create invitation links.');
+      const email = str(body, 'email', { max: 254, label: 'Email' });
+      if (!EMAIL_RE.test(email)) badRequest('Enter a valid email address.', { email: 'Enter a valid email address.' });
+      const emailNormalized = normalizeEmail(email);
+      if (db.users.some((u) => u.emailNormalized === emailNormalized)) {
+        fail(409, 'DUPLICATE_EMAIL', 'There is already an account with this email.', { email: 'There is already an account with this email. Add them to projects from the project members page.' });
+      }
+      const at = stamp();
+      for (const item of invitationList()) {
+        if (sameOrg(user, item) && item.emailNormalized === emailNormalized && invitationState(item, now()) === 'pending') item.revokedAt = at;
+      }
+      const token = generateInvitationToken();
+      const invitation = { id: nextId('invitation'), organisationId: user.organisationId, email, emailNormalized, token, createdById: user.id, expiresAt: invitationExpiry(now()).toISOString(), acceptedAt: null, acceptedById: null, revokedAt: null, createdAt: at, updatedAt: at };
+      invitationList().push(invitation);
+      return [201, { ...invitationDto(invitation), token, path: invitationPath(token) }];
+    }],
+
+    ['DELETE', '/organisation/invitations/:invitationId', ({ user, params }) => {
+      if (!isAdmin(user)) forbidden('Only an admin can revoke invitation links.');
+      const invitation = invitationList().find((item) => item.id === params.invitationId && sameOrg(user, item));
+      if (!invitation) notFound('Invitation');
+      if (invitation.acceptedAt) fail(409, 'INVITATION_USED', 'This invitation has already been used, so there is nothing to revoke.');
+      invitation.revokedAt ??= stamp();
+      return [200, invitationDto(invitation)];
     }],
 
     ['GET', '/organisation/overview', ({ user, query }) => {
@@ -1317,7 +1401,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     }],
   ];
 
-  const PUBLIC = new Set(['POST /auth/register', 'POST /auth/login']);
+  const PUBLIC = new Set(['POST /auth/register', 'POST /auth/login', 'GET /auth/invitations/:token']);
   const compiled = routes.map(([method, pattern, handler]) => {
     const keys = [];
     const regex = new RegExp(

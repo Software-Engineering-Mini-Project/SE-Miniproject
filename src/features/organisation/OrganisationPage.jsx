@@ -21,6 +21,7 @@ import { RefreshNotice } from '@/components/ui/RefreshNotice';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
 import { VisibilityBadge } from '@/components/ui/Tags';
 import { PageHeader } from '@/components/shell/PageHeader';
+import { InvitationsPanel } from './InvitationsPanel';
 import '@/features/dashboard/dashboard.css';
 import '@/features/projects/projects.css';
 import './organisation.css';
@@ -185,6 +186,8 @@ function AdminPanel({ organisation, onChanged }) {
           </Button>
         </form>
       </section>
+
+      <InvitationsPanel userId={user?.id} />
     </div>
   );
 }
