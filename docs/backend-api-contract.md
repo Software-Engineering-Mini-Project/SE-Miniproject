@@ -174,6 +174,13 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Comment
 { id, taskId, authorId, text, createdAt, author: Member | null }
 
+// Activity entry (GET /tasks/:taskId/activity): one change to a task by one person. `details`
+// depends on the action (§7.9). `actor` is null if the account no longer exists.
+{ id, taskId, projectId, actorId, action, details, createdAt, actor: { id, name } | null }
+
+// Activity page, newest first
+{ items: [Activity], page, pageSize, total }
+
 // Notification (projectId is added so the UI can link straight to the task)
 { id, userId, taskId, projectId, type /* "assignment" | "due-date" */, message, read, createdAt }
 
@@ -289,6 +296,7 @@ Stored on the organisation document (`projectCreation`); the seed resets it. Cha
 | `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds?, type?, storyPoints?, labels?, epicId? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`, `type "Task"`, `storyPoints null`, `labels []`, `epicId null`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer, and the work-item rules of §7.8), `403` |
 | `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, type, label, epicId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
+| `GET /tasks/:taskId/activity` | any project role, Viewers included | `page` (default 1), `pageSize` (default 50, max 100) | `200` Activity page, **newest first** (§7.9) | `401`, `403`, `404` (also another organisation's task), `400` bad paging |
 | `GET /tasks/by-key/:key` | member of the task's project | `key` such as `ALPHA-12`, any case; an old project key works too | `200 Task` (the `/browse/ALPHA-12` page uses it) | `404` "No task has that key." (also a malformed key, or another organisation's), `403` / `403 JOIN_REQUIRED` as for the project |
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
 | `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11). Deleting an epic keeps its items, with `epicId` cleared. | `403`, `404` |
@@ -459,6 +467,24 @@ Shared rules: [`src/lib/work-items.js`](../src/lib/work-items.js) (`readWorkItem
 - An Epic that still holds items can't change type (`fields.type`: "Move the 2 items out of this epic first."). Deleting an epic clears `epicId` on its items.
 - Who may change these fields is who may edit the task (`task.edit`, §7.5); Viewers get `403`.
 - Epic progress (done / total items, and story points) is computed by the web app from the project's tasks (`epicProgress`), so it needs no endpoint.
+
+### 7.9 Task activity history
+
+Every route that changes a task writes **one entry per change**, naming the caller as `actorId` (rules and wording: [`src/lib/activity.js`](../src/lib/activity.js)). A change that changes nothing writes nothing: moving a task to the column it is already in, or saving the same priority.
+
+| Route | Entries (`action`: `details`) |
+|---|---|
+| `POST /projects/:projectId/tasks` | `created`: `{ title, type }` |
+| `PATCH /tasks/:taskId` | one per changed field: `title`, `status`, `priority`, `dueDate`, `type`, `storyPoints`, `epicId` (each `{ from, to }`); `description` (`{}`); `assignees` and `labels` (`{ added, removed }`) |
+| `PATCH /tasks/:taskId/status` | `status`: `{ from, to }` |
+| Checklist routes | `checklist.add` `{ text }`, `checklist.check` `{ text, done }`, `checklist.rename` `{ from, to }`, `checklist.remove` `{ text }` |
+| `POST /tasks/:taskId/comments` | `comment.add`: `{ commentId, excerpt }` (the first 120 characters) |
+| `DELETE /tasks/:taskId/comments/:commentId` | `comment.delete`: `{ commentId }`; the matching `comment.add` loses its `excerpt`, so deleted text does not live on in the history |
+| Removing a member, or making them a Viewer | `assignees` `{ added: [], removed: [userId] }` on each task they were on |
+
+- Entries are deleted with their task and with their project. A fresh seed adds `created` entries (by the project owner) and `comment.add` entries for the fixture comments.
+- Reading the history needs the same access as reading the task: another organisation's task is `404`, a project you are not in is `403`.
+- The web app turns entries into sentences, e.g. "Mina Member moved ALPHA-12 from To Do to In Progress · 5 min ago".
 
 ---
 
