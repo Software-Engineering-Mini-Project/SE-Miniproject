@@ -1,5 +1,5 @@
 import { Project } from '../models/index.js';
-import { formatTaskKey, normalizeProjectKey, projectKeyError, suggestProjectKey } from '../../src/lib/work-items.js';
+import { formatTaskKey, normalizeProjectKey, projectKeyError, suggestProjectKey, withWorkItemDefaults } from '../../src/lib/work-items.js';
 import { HttpError } from '../utils/http-error.js';
 import { toApi } from '../utils/to-api.js';
 
@@ -72,9 +72,9 @@ export async function nextTaskNumber(projectId) {
   return updated.taskCounter;
 }
 
-/** A task in API shape with its `key` (null until it has a number). */
+/** A task in API shape with its `key` (null until it has a number) and work-item fields. */
 export function taskDto(task, projectKey) {
-  const dto = toApi(task);
+  const dto = withWorkItemDefaults(toApi(task));
   dto.number = Number.isInteger(dto.number) ? dto.number : null;
   dto.key = formatTaskKey(projectKey, dto.number);
   return dto;

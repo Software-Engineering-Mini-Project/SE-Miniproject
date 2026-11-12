@@ -38,13 +38,19 @@ import {
   normalizeJoinCode,
 } from '../../organisation.js';
 import {
+  TASK_TYPES,
+  epicRuleErrors,
   formatTaskKey,
+  labelError,
+  normalizeLabel,
   normalizeProjectKey,
   numberTasks,
   parseTaskKey,
   projectAnswersToKey,
   projectKeyError,
+  readWorkItemFields,
   suggestProjectKey,
+  withWorkItemDefaults,
 } from '../../work-items.js';
 import { toCsv } from './csv.js';
 
@@ -118,7 +124,7 @@ export function seedDatabase(seed) {
       const { tasks, counters } = numberTasks(clone(seed.tasks));
       return {
         projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], visibility: 'private', previousKeys: [], ...p, taskCounter: counters[p.id] ?? 0 })),
-        tasks,
+        tasks: tasks.map(withWorkItemDefaults),
       };
     })(),
     comments: clone(seed.comments),
@@ -228,7 +234,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   };
   const projectKeyOf = (projectId) => db.projects.find((p) => p.id === projectId)?.key ?? null;
   const taskDto = (t) => {
-    const dto = clone(t);
+    const dto = withWorkItemDefaults(clone(t));
     dto.number = Number.isInteger(t.number) ? t.number : null;
     dto.key = formatTaskKey(projectKeyOf(t.projectId), dto.number);
     return dto;
@@ -247,6 +253,23 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     return key;
   }
   const keyTaken = () => fail(409, 'KEY_TAKEN', 'Another project in your organisation uses that key.', { key: 'This key is taken. Choose another.' });
+  /** Mirrors the API's readTaskInput for the work-item fields: 400 with the field's message. */
+  function readWorkItem(body, { create = false } = {}) {
+    const { values, errors } = readWorkItemFields(body ?? {}, { create });
+    const [field] = Object.keys(errors);
+    if (field) badRequest(errors[field], errors);
+    return values;
+  }
+  /** Mirrors checkEpicRules in server/routes/tasks.js. */
+  function checkEpicRules({ current = null, next }) {
+    const epic = next.epicId ? db.tasks.find((t) => t.id === next.epicId && t.projectId === next.projectId) : null;
+    const childCount = current?.type === 'Epic' && next.type !== 'Epic'
+      ? db.tasks.filter((t) => t.projectId === next.projectId && t.epicId === current.id).length
+      : 0;
+    const errors = epicRuleErrors({ current, next, epic, childCount });
+    const [field] = Object.keys(errors);
+    if (field) badRequest(errors[field], errors);
+  }
   function nextTaskNumber(project) {
     project.taskCounter = (project.taskCounter ?? 0) + 1;
     return project.taskCounter;
@@ -434,6 +457,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   function removeTaskCascade(taskId) {
     // Deletion policy used by the mock (decision pending in SAD §3.5): cascade comments and notifications.
     db.tasks = db.tasks.filter((t) => t.id !== taskId);
+    // Deleting an epic keeps its items; they just no longer belong to an epic.
+    db.tasks.forEach((t) => {
+      if (t.epicId === taskId) t.epicId = null;
+    });
     db.comments = db.comments.filter((c) => c.taskId !== taskId);
     db.notifications = db.notifications.filter((n) => n.taskId !== taskId);
   }
@@ -446,6 +473,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (query.status && task.status !== query.status) return false;
     if (query.priority && task.priority !== query.priority) return false;
     if (query.assigneeId && !task.assigneeIds.includes(query.assigneeId)) return false;
+    if (query.type && (task.type ?? 'Task') !== query.type) return false;
+    if (query.label && !(task.labels ?? []).includes(query.label)) return false;
+    if (query.epicId && task.epicId !== query.epicId) return false;
     if (query.q) {
       const needle = query.q.toLowerCase();
       if (!task.title.toLowerCase().includes(needle) && !(task.description || '').toLowerCase().includes(needle)) return false;
@@ -463,6 +493,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (query.priority) filters.priority = oneOf(query, 'priority', TASK_PRIORITIES, { label: 'Priority' });
     if (query.assigneeId) filters.assigneeId = idParam(query.assigneeId, 'assignee');
     if (query.projectId) filters.projectId = idParam(query.projectId, 'project');
+    if (query.type) filters.type = oneOf(query, 'type', TASK_TYPES, { label: 'Type' });
+    if (query.label) {
+      const label = normalizeLabel(query.label);
+      const problem = labelError(label);
+      if (problem) badRequest(problem, { label: problem });
+      filters.label = label;
+    }
+    if (query.epicId) filters.epicId = idParam(query.epicId, 'epic');
     return filters;
   }
 
@@ -833,8 +871,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const priority = oneOf(body, 'priority', TASK_PRIORITIES, { required: false, label: 'Priority' }) || 'Medium';
       const dueDate = dateOnly(body, 'dueDate', { label: 'Due date' });
       const assigneeIds = validateAssignees(body, project) || [];
+      const workItem = readWorkItem(body, { create: true });
+      checkEpicRules({ next: { ...workItem, projectId: project.id } });
       const at = stamp();
-      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, number: nextTaskNumber(project), assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
+      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, number: nextTaskNumber(project), ...workItem, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
       db.tasks.push(task);
       notifyAssignment(task, assigneeIds, user);
       return [201, taskDto(task)];
@@ -873,6 +913,15 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const priority = oneOf(body, 'priority', TASK_PRIORITIES, { required: false, label: 'Priority' });
       const dueDate = body && 'dueDate' in body ? dateOnly(body, 'dueDate', { label: 'Due date' }) : undefined;
       const assigneeIds = validateAssignees(body, project);
+      const workItem = readWorkItem(body);
+      if (workItem.type !== undefined || workItem.epicId !== undefined) {
+        const current = { id: task.id, type: task.type ?? 'Task', epicId: task.epicId ?? null };
+        checkEpicRules({
+          current,
+          next: { id: task.id, projectId: project.id, type: workItem.type ?? current.type, epicId: workItem.epicId !== undefined ? workItem.epicId : current.epicId },
+        });
+      }
+      Object.assign(task, workItem);
       if (title) task.title = title;
       if (description !== undefined) task.description = description;
       if (status) applyStatus(task, status);
@@ -1019,15 +1068,19 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         .map((t) => ({
           id: t.id,
           key: taskKeyOf(t) ?? '',
+          type: t.type ?? 'Task',
           title: t.title,
           status: t.status,
           priority: t.priority,
+          storyPoints: t.storyPoints ?? '',
+          labels: (t.labels ?? []).join('; '),
+          epic: t.epicId ? taskKeyOf(db.tasks.find((e) => e.id === t.epicId) ?? {}) ?? '' : '',
           dueDate: t.dueDate || '',
           assignees: t.assigneeIds.map((id) => findUser(id)?.name || id).join('; '),
           createdAt: t.createdAt,
           updatedAt: t.updatedAt,
         }));
-      const headers = ['id', 'key', 'title', 'status', 'priority', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
+      const headers = ['id', 'key', 'type', 'title', 'status', 'priority', 'storyPoints', 'labels', 'epic', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
       return [200, toCsv(headers, rows), { 'content-type': 'text/csv; charset=utf-8' }];
     }],
   ];

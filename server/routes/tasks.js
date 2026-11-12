@@ -6,7 +6,7 @@ import { CHECKLIST_LIMIT, CHECKLIST_TEXT_MAX } from '../models/task.js';
 import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
 import { PROJECT_ACCESS_FIELDS, getProjectForUser, getTaskForUser, inOrganisation, isAdmin } from '../services/access.js';
 import { nextTaskNumber, taskDto, taskDtos } from '../services/work-items.js';
-import { parseTaskKey, projectAnswersToKey } from '../../src/lib/work-items.js';
+import { TASK_TYPES, epicRuleErrors, labelError, normalizeLabel, parseTaskKey, projectAnswersToKey, readWorkItemFields } from '../../src/lib/work-items.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
 import { readListOptions } from '../utils/pagination.js';
@@ -23,7 +23,7 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
-const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number assigneeIds createdAt updatedAt';
+const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId assigneeIds createdAt updatedAt';
 // The export leaves out descriptions and checklists (an inclusion projection can't also exclude a field).
 const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '').replace(' checklist', '');
 
@@ -42,6 +42,9 @@ function readTaskFilters(query, { includeProjectId = false } = {}) {
   const priority = readFilterString(query, 'priority', 16);
   const assigneeId = readFilterString(query, 'assigneeId', 64);
   const projectId = includeProjectId ? readFilterString(query, 'projectId', 64) : undefined;
+  const type = readFilterString(query, 'type', 16);
+  const label = readFilterString(query, 'label', 64);
+  const epicId = readFilterString(query, 'epicId', 64);
 
   if (q) filters.$or = [
     { title: { $regex: escapeRegex(q), $options: 'i' } },
@@ -51,6 +54,14 @@ function readTaskFilters(query, { includeProjectId = false } = {}) {
   if (priority) filters.priority = readEnum({ priority }, 'priority', PRIORITIES, { label: 'Priority' });
   if (assigneeId) filters.assigneeIds = readId(assigneeId, 'Assignee');
   if (projectId) filters.projectId = readId(projectId, 'Project');
+  if (type) filters.type = readEnum({ type }, 'type', TASK_TYPES, { label: 'Type' });
+  if (label) {
+    const normalized = normalizeLabel(label);
+    const problem = labelError(normalized);
+    if (problem) invalid(problem, { label: problem });
+    filters.labels = normalized;
+  }
+  if (epicId) filters.epicId = readId(epicId, 'Epic');
   if (q) Object.defineProperty(filters, 'q', { value: q, enumerable: false });
   return filters;
 }
@@ -85,7 +96,27 @@ function readTaskInput(body, { create = false } = {}) {
   }
   if (body.dueDate !== undefined || create) input.dueDate = readDateOnly(body);
   if (body.assigneeIds !== undefined || create) input.assigneeIds = readStringArray(body, 'assigneeIds') ?? [];
-  return input;
+  const workItem = readWorkItemFields(body, { create });
+  const [field] = Object.keys(workItem.errors);
+  if (field) invalid(workItem.errors[field], workItem.errors);
+  return { ...input, ...workItem.values };
+}
+
+/**
+ * Applies the epic rules (src/lib/work-items.js) to a task as it will be after a create or
+ * update: its epic must be an Epic in the same project, an epic is never inside another, and an
+ * epic keeps its type while it still holds items.
+ */
+async function checkEpicRules({ current = null, next }) {
+  const epic = next.epicId
+    ? await Task.findOne({ _id: next.epicId, projectId: next.projectId }).select('_id type projectId').lean()
+    : null;
+  const childCount = current?.type === 'Epic' && next.type !== 'Epic'
+    ? await Task.countDocuments({ projectId: next.projectId, epicId: current.id })
+    : 0;
+  const errors = epicRuleErrors({ current, next, epic, childCount });
+  const [field] = Object.keys(errors);
+  if (field) invalid(errors[field], errors);
 }
 
 async function validateAssignees(assigneeIds, project) {
@@ -140,7 +171,9 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const userIds = [...new Set(tasks.flatMap((task) => task.assigneeIds))];
     const users = await User.find({ _id: { $in: userIds } }).select('_id name').lean();
     const usersById = new Map(users.map((user) => [String(user._id), user]));
-    response.type('text/csv; charset=utf-8').send(tasksToCsv(tasks, usersById));
+    const epics = await Task.find({ projectId: project.id, type: 'Epic' }).select('_id number').lean();
+    const epicKeys = new Map(epics.map((epic) => [String(epic._id), taskDto(epic, project.key).key]));
+    response.type('text/csv; charset=utf-8').send(tasksToCsv(tasks, usersById, epicKeys));
   });
 
   router.get('/projects/:projectId/tasks', requireAuth, async (request, response) => {
@@ -161,6 +194,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const body = requireObject(request.body);
     const input = readTaskInput(body, { create: true });
     await validateAssignees(input.assigneeIds, project);
+    await checkEpicRules({ next: { ...input, projectId: project.id } });
     // The number is reserved before the insert; a failed insert leaves a gap, never a duplicate.
     const number = await nextTaskNumber(project.id);
     const task = await Task.create({ ...input, projectId: project.id, number, completedAt: input.status === 'Done' ? now() : null });
@@ -226,6 +260,13 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const input = readTaskInput(body);
     if (Object.keys(input).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a task field to update.');
     if (input.assigneeIds) await validateAssignees(input.assigneeIds, project);
+    if (input.type !== undefined || input.epicId !== undefined) {
+      const current = { id: task.id, type: task.type ?? 'Task', epicId: task.epicId ?? null };
+      await checkEpicRules({
+        current,
+        next: { id: task.id, projectId: project.id, type: input.type ?? current.type, epicId: input.epicId !== undefined ? input.epicId : current.epicId },
+      });
+    }
     const previousIds = task.assigneeIds.map(String);
     const { status, ...rest } = input;
     Object.assign(task, rest);
@@ -241,6 +282,8 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     await Promise.all([
       Comment.deleteMany({ taskId: task.id }),
       Notification.deleteMany({ taskId: task.id }),
+      // Deleting an epic keeps its items; they just no longer belong to an epic.
+      Task.updateMany({ projectId: task.projectId, epicId: task.id }, { $set: { epicId: null } }),
     ]);
     await task.deleteOne();
     response.status(204).end();

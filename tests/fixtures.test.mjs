@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import users from '../fixtures/users.json' with { type: 'json' };
 import projects from '../fixtures/projects.json' with { type: 'json' };
 import tasks from '../fixtures/tasks.json' with { type: 'json' };
+import { readWorkItemFields } from '../src/lib/work-items.js';
 import comments from '../fixtures/comments.json' with { type: 'json' };
 import notifications from '../fixtures/notifications.json' with { type: 'json' };
 import negatives from '../fixtures/negative-inputs.json' with { type: 'json' };
@@ -85,4 +86,14 @@ test('negative fixtures cover injection, XSS, CSV formula and JWT cases', () => 
   assert.ok(tasks.some((t) => t.title.startsWith('=')));
   assert.equal(negatives.jwtCases.length, 2);
   assert.ok(users.some((u) => u.email === negatives.duplicateEmail));
+});
+
+test('work-item fields are valid and every epic link points at an Epic in the same project', () => {
+  for (const t of tasks) {
+    assert.deepEqual(readWorkItemFields(t, { create: true }).errors, {}, t.id);
+    if (!t.epicId) continue;
+    const epic = tasks.find((other) => other.id === t.epicId);
+    assert.ok(epic && epic.type === 'Epic' && epic.projectId === t.projectId && t.type !== 'Epic', `${t.id} epic`);
+  }
+  assert.deepEqual(new Set(tasks.map((t) => t.type)), new Set(['Task', 'Bug', 'Story', 'Epic']));
 });

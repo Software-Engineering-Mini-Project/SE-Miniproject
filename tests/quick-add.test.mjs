@@ -108,3 +108,26 @@ test('the Upcoming agenda groups open tasks by when they are due', () => {
   assert.ok(!groups.flatMap((group) => group.tasks).some((t) => t.id === 'finished'));
   assert.deepEqual(groupUpcoming([task('done', TODAY, { status: 'Done' })], TODAY), []);
 });
+
+test('#type, #labels and story points (issue #74)', () => {
+  const result = parse('Fix the login redirect #bug #Frontend #auth 3pts !high');
+  assert.equal(result.title, 'Fix the login redirect');
+  assert.equal(result.type, 'Bug');
+  assert.deepEqual(result.labels, ['frontend', 'auth']);
+  assert.equal(result.storyPoints, 3);
+  assert.equal(result.priority, 'High');
+
+  // The first type wins; later type words and points stay in the title, as does 4pts (not allowed).
+  const twice = parse('Plan the launch #story #epic 4pts 8pt');
+  assert.equal(twice.type, 'Story');
+  assert.equal(twice.storyPoints, 8);
+  assert.equal(twice.title, 'Plan the launch #epic 4pts');
+
+  // A piece kept as text stays in the title; a word glued to text is not a tag.
+  const kept = parse('Ship #epic notes', { keep: ['#epic'] });
+  assert.equal(kept.type, null);
+  assert.equal(kept.title, 'Ship #epic notes');
+  assert.deepEqual(parse('Fix issue#12 and C#').labels, []);
+  assert.equal(parse('Release 3pts').storyPoints, 3);
+  assert.equal(parse('Nothing special').type, null, 'no #type means the API default (Task)');
+});

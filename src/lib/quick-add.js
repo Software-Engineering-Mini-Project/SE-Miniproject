@@ -11,11 +11,18 @@
  *   due date   today · tomorrow (tmr) · mon … sunday (the next one, never today) · next week
  *              (next Monday) · in 3 days · in 2 weeks · 20 nov · nov 20 · 2026-11-20,
  *              optionally led by "due", "by" or "on"
+ *   type       #task #bug #story #epic (the first one wins)
+ *   label      any other #word, e.g. #frontend (up to 10)
+ *   points     3pts or 3pt, using 1, 2, 3, 5, 8, 13 or 21
  *
  * Every recognised piece is reported with its source text, so the UI can preview it and let
  * the person keep a word as plain text (`keep`), e.g. "Review the Monday report".
  * Pure; dates are calendar dates (YYYY-MM-DD) relative to `today`.
  */
+
+import { LABELS_PER_TASK, STORY_POINTS, TASK_TYPES, labelError, normalizeLabel } from './work-items.js';
+
+const TYPES_BY_WORD = Object.fromEntries(TASK_TYPES.map((type) => [type.toLowerCase(), type]));
 
 const PRIORITIES = {
   high: 'High', h: 'High', 1: 'High',
@@ -104,7 +111,8 @@ export function matchMember(handle, members, currentUserId) {
  *   `members` are the people who can be assigned; `keep` lists source phrases to leave in the title.
  * @returns {{
  *   title: string, priority: string | null, dueDate: string | null, assigneeIds: string[],
- *   parts: Array<{ kind: 'priority' | 'due' | 'assignee', text: string, value: string, label?: string }>,
+ *   type: string | null, storyPoints: number | null, labels: string[],
+ *   parts: Array<{ kind: 'priority' | 'due' | 'assignee' | 'type' | 'label' | 'points', text: string, value: string | number, label?: string }>,
  *   unknownHandles: string[],
  * }}
  */
@@ -115,6 +123,9 @@ export function parseQuickAdd(text, { today, members = [], currentUserId, keep =
   const unknownHandles = [];
   let priority = null;
   let dueDate = null;
+  let type = null;
+  let storyPoints = null;
+  const labels = [];
   const assigneeIds = [];
 
   const claim = (found) => {
@@ -130,6 +141,36 @@ export function parseQuickAdd(text, { today, members = [], currentUserId, keep =
     if (!value || priority || !claim(found)) continue;
     priority = value;
     parts.push({ kind: 'priority', text: found.text, value });
+  }
+
+  // Type and labels: #bug, #story, #epic or #task set the type (the first wins); any other
+  // #word that makes a valid label is a label.
+  for (const match of text.matchAll(/(^|\s)(#([\p{L}\p{N}][\p{L}\p{N}._/+-]*))(?=\s|$)/gu)) {
+    const found = { start: match.index + match[1].length, end: match.index + match[1].length + match[2].length, text: match[2] };
+    if (kept.has(found.text.toLowerCase())) continue;
+    const word = match[3].toLowerCase();
+    if (TYPES_BY_WORD[word]) {
+      if (type || !claim(found)) continue;
+      type = TYPES_BY_WORD[word];
+      parts.push({ kind: 'type', text: found.text, value: type });
+      continue;
+    }
+    const label = normalizeLabel(word);
+    if (labelError(label) || labels.length >= LABELS_PER_TASK) continue;
+    claim(found);
+    if (!labels.includes(label)) {
+      labels.push(label);
+      parts.push({ kind: 'label', text: found.text, value: label });
+    }
+  }
+
+  // Story points: the first "3pts" with an allowed value.
+  for (const match of text.matchAll(/(^|\s)((\d{1,2})pts?)(?=\s|$)/giu)) {
+    const value = Number(match[3]);
+    const found = { start: match.index + match[1].length, end: match.index + match[1].length + match[2].length, text: match[2] };
+    if (storyPoints || !STORY_POINTS.includes(value) || !claim(found)) continue;
+    storyPoints = value;
+    parts.push({ kind: 'points', text: found.text, value });
   }
 
   // Assignees: every @handle that names exactly one assignable member.
@@ -170,5 +211,5 @@ export function parseQuickAdd(text, { today, members = [], currentUserId, keep =
   }
   title = `${title}${text.slice(cursor)}`.replace(/\s+/g, ' ').trim();
 
-  return { title, priority, dueDate, assigneeIds, parts, unknownHandles };
+  return { title, priority, dueDate, assigneeIds, type, storyPoints, labels, parts, unknownHandles };
 }

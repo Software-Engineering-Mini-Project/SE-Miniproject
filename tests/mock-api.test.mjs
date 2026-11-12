@@ -574,6 +574,41 @@ test('work-item keys mirror the API: numbering, key changes, old keys, search an
   assertEnvelope(call('GET', '/tasks/by-key/CORE-99', { token: lead }), 404, 'NOT_FOUND');
   assertEnvelope(call('GET', '/tasks/by-key/CORE-1', { token: northwind }), 404, 'NOT_FOUND');
   const csv = call('GET', '/projects/project-beta/tasks/export.csv', { token: admin }).data;
-  assert.match(csv.split('\r\n')[0], /^id,key,title,/);
+  assert.match(csv.split('\r\n')[0], /^id,key,type,title,/);
   assert.match(csv, /task-003,BETA-1,/);
+});
+
+test('work-item types, points, labels and epics mirror the API (issue #74)', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const viewer = login('viewer@example.test');
+  const ids = (res) => res.data.map((t) => t.id).sort();
+
+  const story = call('GET', '/tasks/task-005', { token: lead }).data;
+  assert.deepEqual([story.type, story.storyPoints, story.labels, story.epicId], ['Story', 3, ['frontend', 'accessibility'], 'task-002']);
+  const plain = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Plain' } });
+  assert.deepEqual([plain.data.type, plain.data.storyPoints, plain.data.labels, plain.data.epicId], ['Task', null, [], null]);
+  const bug = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Bug', type: 'Bug', storyPoints: 2, labels: ['#UI'], epicId: 'task-002' } });
+  assert.deepEqual([bug.status, bug.data.labels, bug.data.epicId], [201, ['ui'], 'task-002']);
+
+  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', storyPoints: 4 } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', type: 'Epic', epicId: 'task-002' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', epicId: 'task-001' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/projects/project-beta/tasks', { token: lead, body: { title: 'x', epicId: 'task-002' } }), 400, 'VALIDATION_ERROR');
+  const demote = call('PATCH', '/tasks/task-002', { token: lead, body: { type: 'Story' } });
+  assertEnvelope(demote, 400, 'VALIDATION_ERROR');
+  assert.match(demote.data.fields.type, /Move the 2 items out/);
+  assertEnvelope(call('PATCH', '/tasks/task-005', { token: viewer, body: { storyPoints: 5 } }), 403, 'FORBIDDEN');
+
+  assert.deepEqual(ids(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { type: 'Bug' } })), ['task-007', bug.data.id].sort());
+  assert.deepEqual(ids(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { label: 'FRONTEND' } })), ['task-002', 'task-004', 'task-005']);
+  assert.deepEqual(ids(call('GET', '/tasks', { token: lead, query: { label: 'accessibility' } })), ['task-005', 'task-009']);
+  assert.deepEqual(ids(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { epicId: 'task-002' } })), ['task-005', bug.data.id].sort());
+
+  const csv = call('GET', '/projects/project-alpha/tasks/export.csv', { token: lead }).data;
+  assert.equal(csv.split('\r\n')[0], 'id,key,type,title,status,priority,storyPoints,labels,epic,dueDate,assignees,createdAt,updatedAt');
+  assert.match(csv, /task-005,ALPHA-6,Story,Keyboard support for moving board cards,To Do,Medium,3,frontend; accessibility,ALPHA-4,/);
+
+  assert.equal(call('DELETE', '/tasks/task-002', { token: lead }).status, 204);
+  assert.equal(call('GET', '/tasks/task-005', { token: lead }).data.epicId, null);
 });

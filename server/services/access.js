@@ -56,7 +56,7 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
   const taskId = readId(rawTaskId, 'Task');
   const query = Task.findById(taskId);
   const task = lean
-    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number assigneeIds createdAt updatedAt').lean()
+    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId assigneeIds createdAt updatedAt').lean()
     : await query;
   if (!task) throw new HttpError(404, 'NOT_FOUND', 'Task not found.');
   if (lean) task.id = String(task._id);

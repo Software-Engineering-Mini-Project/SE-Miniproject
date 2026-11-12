@@ -66,7 +66,7 @@ test('tasks carry their key in every response: list, one, search, dashboard and 
   const dashboard = await api().get('/api/dashboard').set(auth(tokens.member));
   assert.ok(dashboard.body.myTasks.length > 0 && dashboard.body.myTasks.every((task) => /^ALPHA-\d+$/.test(task.key)));
   const csv = await api().get('/api/projects/project-beta/tasks/export.csv').set(auth(tokens.admin));
-  assert.match(csv.text.split('\r\n')[0], /^id,key,title,/);
+  assert.match(csv.text.split('\r\n')[0], /^id,key,type,title,/);
   assert.match(csv.text, /task-003,BETA-1,/);
   const project = await api().get('/api/projects/project-alpha').set(auth(tokens.lead));
   assert.equal(project.body.key, 'ALPHA');
