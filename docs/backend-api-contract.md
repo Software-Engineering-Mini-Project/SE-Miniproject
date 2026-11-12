@@ -166,7 +166,16 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
   checklist: [{ id, text, done }] /* up to 50 items; changed only through §6.3 checklist routes */,
   type /* "Task" (default) | "Bug" | "Story" | "Epic" */, storyPoints /* 1 | 2 | 3 | 5 | 8 | 13 | 21 | null */,
   labels: [string] /* lower-case, up to 10 */, epicId /* id of an Epic in the same project, or null */,
+  sprintId /* the sprint it is planned into, or null: the backlog (§7.10) */,
+  rank /* number; lower comes first in the backlog and in sprints; null until ranked */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
+
+// Sprint (§7.10). `committed` is set when it starts; `report` when it completes.
+{ id, projectId, number, name, goal, startDate, endDate /* "YYYY-MM-DD" */,
+  state /* "planned" | "active" | "completed" */, startedAt, completedAt /* ISO | null */,
+  committed: { taskIds: [id], points } | null,
+  report: { completed: { taskIds, count, points }, unfinished: { taskIds, count, points }, movedTo /* sprint id | null (backlog) */ } | null,
+  createdAt, updatedAt }
 
 // Checklist change (every checklist route answers with the whole, current list)
 { taskId, checklist: [{ id, text, done }], updatedAt }
@@ -197,7 +206,8 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 |---|---|---|
 | User | `name`, `email` (as typed), `emailNormalized` (trim + lowercase), `passwordHash`, `role` enum, timestamps | **unique** `emailNormalized`. Never serialize `passwordHash`. |
 | Project | `name`, `description`, `key`, `previousKeys[]`, `taskCounter`, `ownerId` → User, `memberIds[]` → User, timestamps | index `memberIds`; **unique** `{organisationId, key}`; index `{organisationId, previousKeys}`. Owner is always in `memberIds`. |
-| Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`. Every assignee must be in the project's `memberIds`. |
+| Sprint | `projectId` → Project, `number`, `name`, `goal`, `startDate`, `endDate`, `state` enum, `startedAt`, `completedAt`, `committed`, `report`, timestamps | **unique** `{projectId, number}`; **unique partial** `{projectId, state}` where `state: "active"` (one active sprint per project) |
+| Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `sprintId` → Sprint, `rank`, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`, `{projectId, sprintId, rank}`. Every assignee must be in the project's `memberIds`. |
 | Comment | `taskId` → Task, `authorId` → User, `text`, `createdAt` | index `{taskId, createdAt}` |
 | Notification | `userId`, `taskId`, `type` enum, `message`, `read`, `createdAt`, plus `dedupeKey` for reminders | index `{userId, read, createdAt}`. **Unique** `{userId, type, dedupeKey}` for due reminders. |
 
@@ -300,7 +310,7 @@ Stored on the organisation document (`projectCreation`); the seed resets it. Cha
 | `GET /tasks/by-key/:key` | member of the task's project | `key` such as `ALPHA-12`, any case; an old project key works too | `200 Task` (the `/browse/ALPHA-12` page uses it) | `404` "No task has that key." (also a malformed key, or another organisation's), `403` / `403 JOIN_REQUIRED` as for the project |
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
 | `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11). Deleting an epic keeps its items, with `epicId` cleared. | `403`, `404` |
-| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
+| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, sprintId, updatedAt }` (`sprintId` changes when reopening work from a completed sprint, §7.10) | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 | `POST /tasks/:taskId/checklist` | Owner, Manager, Admin | `{ text }` (1–200 chars, trimmed) | `201` checklist change | `400` empty, too long, not text, or the task already has 50 items; `403`, `404` |
 | `PATCH /tasks/:taskId/checklist/:itemId` | `done`: Owner, Manager, Member, Admin (**not Viewer**); `text`: Owner, Manager, Admin | `{ done?: boolean, text?: string }` | `200` checklist change | `400` neither field, `done` not boolean; `403`; `404` task or item |
 | `DELETE /tasks/:taskId/checklist/:itemId` | Owner, Manager, Admin | | `200` checklist change | `403`, `404` task or item |
@@ -323,6 +333,14 @@ For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /tasks/:taskId/comments` | member | | `200 Comment[]`, **oldest first**, each with `author` (D6) | `403`, `404` |
+| `GET /projects/:projectId/sprints` | any project role | | `200 Sprint[]`, by `number` | `403`, `404` |
+| `POST /projects/:projectId/sprints` | Owner, Manager, Admin (`sprint.manage`) | `{ name?, goal?, startDate, endDate }` | `201 Sprint`, `state "planned"`. Name defaults to "ALPHA Sprint 3". | `400` (missing or invalid dates, end before start, name over 80, goal over 500), `403` |
+| `GET /sprints/:sprintId/report` | any project role | | `200 SprintReport`: `unit` (`"points"`, or `"items"` when nothing committed is estimated), `days[]` of `{ date, remaining, ideal }` (`remaining` is `null` for days still ahead), and `committed`, `added`, `removed`, `completed`, `carriedOver` (each `{ taskIds, count, points }`; `carriedOver.movedTo`) | `403`, `404` (another organisation's sprint) |
+| `PATCH /sprints/:sprintId` | Owner, Manager, Admin | any of `{ name, goal, startDate, endDate }` | `200 Sprint` | `400`, `403`, `404`, `409 SPRINT_COMPLETED` |
+| `DELETE /sprints/:sprintId` | Owner, Manager, Admin | | `204`; its tasks go back to the backlog | `403`, `404`, `409 SPRINT_NOT_PLANNED` (active or completed) |
+| `POST /sprints/:sprintId/start` | Owner, Manager, Admin | | `200 Sprint`, `state "active"`, `committed` set | `403`, `404`, `409 ACTIVE_SPRINT_EXISTS` (names the running sprint), `409 SPRINT_NOT_PLANNED` |
+| `POST /sprints/:sprintId/complete` | Owner, Manager, Admin | `{ moveTo?: "backlog" (default) \| plannedSprintId }` | `200 Sprint`, `state "completed"`, `report` set | `400` (moveTo not a planned sprint of this project), `403`, `404`, `409 SPRINT_NOT_ACTIVE` |
+| `POST /tasks/:taskId/move` | Owner, Manager, Member, Admin (`task.edit`); **not Viewer** | `{ sprintId?: id \| null, previousId?: id \| null, nextId?: id \| null }` | `200 Task`. `sprintId` plans it (null: the backlog); `previousId`/`nextId` place it between two tasks of the project. | `400` (completed sprint, another project's sprint or task, itself as a neighbour, finished work out of a completed sprint), `403`, `404` |
 | `POST /tasks/:taskId/comments` | any project role, Viewers included | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
 | `DELETE /tasks/:taskId/comments/:commentId` | comment author, Owner, Manager or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
 
@@ -431,6 +449,8 @@ Project roles (per project, from `src/lib/permissions.js`). A workspace Admin ca
 | Be assigned tasks | ✅ | ✅ | ✅ | 400 | 400 |
 | Create, edit and assign tasks; add, rename and remove checklist items | ✅ | ✅ | ✅ | 403 ("Viewers cannot create tasks." / "Viewers cannot edit tasks.") | 403 |
 | Delete tasks | ✅ | ✅ | 403 | 403 | 403 |
+| Plan tasks into sprints and the backlog; rank them | ✅ | ✅ | ✅ | 403 | 403 |
+| Create, edit, start, complete and delete sprints (`sprint.manage`) | ✅ | ✅ | 403 | 403 | 403 |
 | Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
 | Edit project details, including visibility | ✅ | ✅ | 403 | 403 | 403 |
 | Change the project key (`project.key`) | ✅ | 403 | 403 | 403 | 403 |
@@ -481,10 +501,36 @@ Every route that changes a task writes **one entry per change**, naming the call
 | `POST /tasks/:taskId/comments` | `comment.add`: `{ commentId, excerpt }` (the first 120 characters) |
 | `DELETE /tasks/:taskId/comments/:commentId` | `comment.delete`: `{ commentId }`; the matching `comment.add` loses its `excerpt`, so deleted text does not live on in the history |
 | Removing a member, or making them a Viewer | `assignees` `{ added: [], removed: [userId] }` on each task they were on |
+| `POST /tasks/:taskId/move`, completing or deleting a sprint, reopening work from a completed sprint | `sprint`: `{ from, to }` (sprint ids; null is the backlog). Reordering alone writes nothing. |
 
 - Entries are deleted with their task and with their project. A fresh seed adds `created` entries (by the project owner) and `comment.add` entries for the fixture comments.
 - Reading the history needs the same access as reading the task: another organisation's task is `404`, a project you are not in is `403`.
 - The web app turns entries into sentences, e.g. "Mina Member moved ALPHA-12 from To Do to In Progress · 5 min ago".
+
+### 7.10 Backlog and sprints
+
+Rules live in [`src/lib/sprints.js`](../src/lib/sprints.js); the API, the mock API and the web app share them.
+
+- A task is in **one sprint** (`sprintId`) or in the **backlog** (`sprintId: null`). New tasks join the bottom of the backlog.
+- **Rank.** One ranked order per project (`rank`, lower first) gives the order of the backlog and of every sprint. `POST /tasks/:taskId/move` with `previousId`/`nextId` gives the task the midpoint of its neighbours' ranks; without neighbours it keeps its rank. When a gap gets too small to split, the project is renumbered (1024, 2048, ...). Tasks from before ranking get ranks, in their current order, the first time a project needs them. Ranking is not an edit: it leaves `updatedAt` alone.
+- A sprint is **planned**, then **active**, then **completed**. Only Owners, Managers and Admins create, edit, start, complete and delete sprints; Members (not Viewers) plan tasks into and out of sprints.
+- **One active sprint per project**, enforced by the route (`409 ACTIVE_SPRINT_EXISTS`, naming the running sprint) and by a unique partial index, so two starts at the same moment can't both win.
+- **Starting** records `committed`: the sprint's tasks and their points at that moment.
+- **Completing** keeps finished (`Done`) tasks in the sprint as its record and moves unfinished ones to the backlog or a planned sprint (`moveTo`), writing a `sprint` activity entry for each. `report` keeps both lists with counts and points, so the record survives later changes. A completed sprint can't be edited, restarted, completed again or deleted, and takes no new tasks.
+- **Reopening** a task finished in a completed sprint (moving it out of `Done`) sends it back to the backlog; finished work can't otherwise be moved out of a completed sprint.
+- Deleting a **planned** sprint sends its tasks to the backlog. Deleting a project deletes its sprints.
+- A fresh seed has `ALPHA Sprint 1` (completed: 2 finished, ALPHA-1 carried over) and `ALPHA Sprint 2` (active: ALPHA-5, ALPHA-6, ALPHA-1).
+
+### 7.11 Burndown, sprint report and velocity
+
+Built by [`src/lib/sprint-report.js`](../src/lib/sprint-report.js), shared by the API, the mock API and the web app. The report is worked out from the activity history (§7.9), not stored, so it always matches what happened.
+
+- **Membership** comes from `sprint` activity entries: a task is in the sprint from the moment it was moved in until it was moved out. Tasks with no such entries count from the sprint's start if they are in it now (or are in a completed sprint's `report`).
+- **Committed** is the sprint's work when it started; **added** joined after the start; **removed** was moved out while the sprint ran; **completed** reached `Done` inside the sprint; **carried over** was unfinished at completion and went to `movedTo` (the backlog is `null`).
+- **Unit.** The burndown counts story points; if none of the committed work is estimated it counts items instead and says so.
+- **Days** run from the start date to the end date (end of day, UTC). `remaining` is the work in the sprint not yet `Done` at the end of that day; days after today, or after completion, are `null`. `ideal` falls in a straight line from the committed amount to 0, rounded to one decimal.
+- **Velocity** is the completed points of each completed sprint (the last six are shown) against what it committed; the **average** is over the last three. The Insights forecast divides the open story points by that average to say "about N sprints". Unestimated open work is named, not guessed.
+- In the web app the burndown is one focusable chart: the left and right arrows (and Home and End) read each day aloud, and a table shows the same numbers. Velocity has a table too.
 
 ---
 
