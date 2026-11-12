@@ -7,6 +7,7 @@ import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
 import { PROJECT_ACCESS_FIELDS, getProjectForUser, getTaskForUser, inOrganisation, isAdmin } from '../services/access.js';
 import { nextTaskNumber, taskDto, taskDtos } from '../services/work-items.js';
 import { activityDtos, recordActivity, recordTaskChanges, taskSnapshot } from '../services/activity.js';
+import { rankForNewTask, releaseFromCompletedSprint } from '../services/sprints.js';
 import { TASK_TYPES, epicRuleErrors, labelError, normalizeLabel, parseTaskKey, projectAnswersToKey, readWorkItemFields } from '../../src/lib/work-items.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
@@ -24,7 +25,7 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
-const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId assigneeIds createdAt updatedAt';
+const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId sprintId rank assigneeIds createdAt updatedAt';
 // The export leaves out descriptions and checklists (an inclusion projection can't also exclude a field).
 const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '').replace(' checklist', '');
 
@@ -198,8 +199,10 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     await checkEpicRules({ next: { ...input, projectId: project.id } });
     // The number is reserved before the insert; a failed insert leaves a gap, never a duplicate.
     const number = await nextTaskNumber(project.id);
+    // New work joins the bottom of the backlog (issue #76).
+    const rank = await rankForNewTask(project.id);
     const at = now();
-    const task = await Task.create({ ...input, projectId: project.id, number, completedAt: input.status === 'Done' ? at : null });
+    const task = await Task.create({ ...input, projectId: project.id, number, rank, sprintId: null, completedAt: input.status === 'Done' ? at : null });
     await recordActivity({ task, actorId: request.user.id, at, entries: [{ action: 'created', details: { title: task.title, type: task.type } }] });
     const dto = taskDto(task, project.key);
     await notifyNewAssignees({ task, key: dto.key, actorId: request.user.id, now });
@@ -287,8 +290,10 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const { status, ...rest } = input;
     Object.assign(task, rest);
     if (status) applyStatus(task, status, now);
+    const released = await releaseFromCompletedSprint(task, before.status);
     await task.save();
     await recordTaskChanges({ task, before, actorId: request.user.id, at: now() });
+    if (released) await recordActivity({ task, actorId: request.user.id, at: now(), entries: [released] });
     const dto = taskDto(task, project.key);
     await notifyNewAssignees({ task, key: dto.key, previousIds, actorId: request.user.id, now });
     response.json(dto);
@@ -371,11 +376,13 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const body = requireObject(request.body);
     const from = task.status;
     applyStatus(task, readEnum(body, 'status', STATUSES, { label: 'Status' }), now);
+    // Reopening work finished in a completed sprint sends it back to the backlog (issue #76).
+    const released = await releaseFromCompletedSprint(task, from);
     await task.save();
     if (task.status !== from) {
-      await recordActivity({ task, actorId: request.user.id, at: now(), entries: [{ action: 'status', details: { from, to: task.status } }] });
+      await recordActivity({ task, actorId: request.user.id, at: now(), entries: [{ action: 'status', details: { from, to: task.status } }, ...(released ? [released] : [])] });
     }
-    response.json({ taskId: task.id, status: task.status, completedAt: task.completedAt, updatedAt: task.updatedAt });
+    response.json({ taskId: task.id, status: task.status, completedAt: task.completedAt, sprintId: task.sprintId ?? null, updatedAt: task.updatedAt });
   });
 
   return router;

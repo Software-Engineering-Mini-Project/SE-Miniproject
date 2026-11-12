@@ -12,12 +12,13 @@
  *   checklist.rename                          { from, to }
  *   comment.add                               { commentId, excerpt (null once the comment is deleted) }
  *   comment.delete                            { commentId }
+ *   sprint                                    { from, to } (sprint ids; null is the backlog)
  */
 
 export const ACTIVITY_ACTIONS = [
   'created', 'title', 'description', 'status', 'priority', 'dueDate', 'type', 'storyPoints', 'epicId',
   'assignees', 'labels', 'checklist.add', 'checklist.check', 'checklist.rename', 'checklist.remove',
-  'comment.add', 'comment.delete',
+  'comment.add', 'comment.delete', 'sprint',
 ];
 
 const EXCERPT_MAX = 120;
@@ -78,9 +79,9 @@ const quote = (text) => `"${text}"`;
 /**
  * What an entry says after the actor's name, e.g. `moved ALPHA-12 from To Do to In Progress`.
  * `taskKey` names the task (falls back to "this task"); `nameOf(userId)` and `taskTitleOf(id)`
- * turn ids into names; `formatDay(YYYY-MM-DD)` formats due dates.
+ * turn ids into names; `formatDay(YYYY-MM-DD)` formats due dates; `sprintNameOf(id)` names sprints.
  */
-export function describeActivity(entry, { taskKey, nameOf = (id) => id, taskTitleOf = () => null, formatDay = (day) => day } = {}) {
+export function describeActivity(entry, { taskKey, nameOf = (id) => id, taskTitleOf = () => null, formatDay = (day) => day, sprintNameOf = () => null } = {}) {
   const task = taskKey || 'this task';
   const d = entry.details ?? {};
   switch (entry.action) {
@@ -137,6 +138,11 @@ export function describeActivity(entry, { taskKey, nameOf = (id) => id, taskTitl
       return d.excerpt ? `commented on ${task}: ${quote(d.excerpt)}` : `commented on ${task}`;
     case 'comment.delete':
       return `deleted a comment on ${task}`;
+    case 'sprint': {
+      const name = (id) => quote(sprintNameOf(id) ?? 'a sprint');
+      if (!d.to) return `moved ${task} out of ${name(d.from)} to the backlog`;
+      return d.from ? `moved ${task} from ${name(d.from)} to ${name(d.to)}` : `moved ${task} from the backlog to ${name(d.to)}`;
+    }
     default:
       return `changed ${task}`;
   }
@@ -144,9 +150,10 @@ export function describeActivity(entry, { taskKey, nameOf = (id) => id, taskTitl
 
 /**
  * Entries for seeded data, so a fresh database has some history: each task was created by its
- * project's owner, and each comment added by its author. Ids are derived from the records'.
+ * project's owner, each comment added by its author, and each sprint's tasks planned into it by
+ * the owner (unfinished work carried over when a sprint completed). Ids derive from the records'.
  */
-export function seedActivities({ tasks, comments, projects }) {
+export function seedActivities({ tasks, comments, projects, sprints = [] }) {
   const ownerOf = new Map(projects.map((project) => [project.id, project.ownerId]));
   const projectOf = new Map(tasks.map((task) => [task.id, task.projectId]));
   return [
@@ -167,6 +174,18 @@ export function seedActivities({ tasks, comments, projects }) {
       action: 'comment.add',
       details: { commentId: comment.id, excerpt: commentExcerpt(comment.text) },
       createdAt: comment.createdAt,
+    })),
+    ...sprints.flatMap((sprint) => (sprint.committed?.taskIds ?? []).filter((taskId) => projectOf.has(taskId)).map((taskId) => {
+      const from = sprints.find((earlier) => earlier.report?.movedTo === sprint.id && earlier.report.unfinished?.taskIds?.includes(taskId));
+      return {
+        id: `activity-${sprint.id}-${taskId}`,
+        taskId,
+        projectId: sprint.projectId,
+        actorId: ownerOf.get(sprint.projectId) ?? null,
+        action: 'sprint',
+        details: { from: from?.id ?? null, to: sprint.id },
+        createdAt: from?.completedAt ?? sprint.createdAt,
+      };
     })),
   ];
 }

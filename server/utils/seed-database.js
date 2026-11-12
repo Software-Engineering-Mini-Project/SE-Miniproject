@@ -3,9 +3,10 @@ import fixtureComments from '../../fixtures/comments.json' with { type: 'json' }
 import fixtureOrganisations from '../../fixtures/organisations.json' with { type: 'json' };
 import fixtureNotifications from '../../fixtures/notifications.json' with { type: 'json' };
 import fixtureProjects from '../../fixtures/projects.json' with { type: 'json' };
+import fixtureSprints from '../../fixtures/sprints.json' with { type: 'json' };
 import fixtureTasks from '../../fixtures/tasks.json' with { type: 'json' };
 import fixtureUsers from '../../fixtures/users.json' with { type: 'json' };
-import { Activity, Comment, models, Notification, Organisation, Project, Task, User } from '../models/index.js';
+import { Activity, Comment, models, Notification, Organisation, Project, Sprint, Task, User } from '../models/index.js';
 import { seedActivities } from '../../src/lib/activity.js';
 import { BCRYPT_COST } from './password.js';
 import { numberTasks } from '../../src/lib/work-items.js';
@@ -33,8 +34,8 @@ function shiftTimestamp(value, days) {
 function shiftRecord(record, days) {
   if (!days) return record;
   const shifted = { ...record };
-  for (const key of ['createdAt', 'updatedAt', 'completedAt']) if (shifted[key]) shifted[key] = shiftTimestamp(shifted[key], days);
-  if ('dueDate' in shifted) shifted.dueDate = shiftDateOnly(shifted.dueDate, days);
+  for (const key of ['createdAt', 'updatedAt', 'completedAt', 'startedAt']) if (shifted[key]) shifted[key] = shiftTimestamp(shifted[key], days);
+  for (const key of ['dueDate', 'startDate', 'endDate']) if (key in shifted) shifted[key] = shiftDateOnly(shifted[key], days);
   return shifted;
 }
 
@@ -91,7 +92,9 @@ export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
   const tasks = [...fixtures.tasks, ...extra.tasks].map((task) => shiftRecord(task, shiftDays));
   const comments = fixtureComments.map((comment) => shiftRecord(comment, shiftDays));
   const notifications = fixtureNotifications.map((notification) => shiftRecord(notification, shiftDays));
-  const projects = fixtureProjects.map((project) => shiftRecord({ ...project, taskCounter: extra.counters[project.id] ?? 0 }, shiftDays));
+  const sprints = fixtureSprints.map((sprint) => shiftRecord(sprint, shiftDays));
+  const sprintCounter = (projectId) => sprints.filter((sprint) => sprint.projectId === projectId).reduce((max, sprint) => Math.max(max, sprint.number), 0);
+  const projects = fixtureProjects.map((project) => shiftRecord({ ...project, taskCounter: extra.counters[project.id] ?? 0, sprintCounter: sprintCounter(project.id) }, shiftDays));
   const users = fixtureUsers.map((user) => shiftRecord(user, shiftDays));
 
   const organisations = fixtureOrganisations.map((organisation) => shiftRecord(organisation, shiftDays));
@@ -105,10 +108,11 @@ export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
     passwordHash,
   })));
   await Project.insertMany(projects.map(({ id, ...project }) => ({ ...project, _id: id })));
+  await Sprint.insertMany(sprints.map(({ id, ...sprint }) => ({ ...sprint, _id: id })));
   await Task.insertMany(tasks.map(({ id, ...task }) => ({ ...task, _id: id })));
   await Comment.insertMany(comments.map(({ id, ...comment }) => ({ ...comment, _id: id })));
   // A little history, so the Activity tab is not empty on a fresh database.
-  await Activity.insertMany(seedActivities({ tasks, comments, projects }).map(({ id, ...entry }) => ({ ...entry, _id: id, updatedAt: entry.createdAt })));
+  await Activity.insertMany(seedActivities({ tasks, comments, projects, sprints }).map(({ id, ...entry }) => ({ ...entry, _id: id, updatedAt: entry.createdAt })));
 
   const taskProjects = new Map(tasks.map((task) => [task.id, task.projectId]));
   await Notification.insertMany(notifications.map(({ id, ...notification }) => {
@@ -123,5 +127,5 @@ export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
     };
   }));
 
-  return { organisations: organisations.length, users: users.length, projects: projects.length, tasks: tasks.length, comments: comments.length, notifications: notifications.length };
+  return { organisations: organisations.length, users: users.length, projects: projects.length, sprints: sprints.length, tasks: tasks.length, comments: comments.length, notifications: notifications.length };
 }

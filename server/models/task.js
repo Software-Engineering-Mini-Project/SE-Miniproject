@@ -32,6 +32,10 @@ const taskSchema = createSchema({
     validate: { validator: (labels) => labels.length <= LABELS_PER_TASK, message: `A task can have at most ${LABELS_PER_TASK} labels.` },
   },
   epicId: { type: String, ref: 'Task', default: null },
+  // Backlog and sprints (src/lib/sprints.js): the sprint the task is planned into (null: the
+  // backlog) and its place in the project's ranked order (lower first; null: not ranked yet).
+  sprintId: { type: String, ref: 'Sprint', default: null },
+  rank: { type: Number, default: null },
   // Set by the server when the task enters Done and cleared when it leaves; the delivery
   // forecast (src/lib/forecast.js) samples throughput from it.
   completedAt: { type: Date, default: null },
@@ -47,6 +51,7 @@ taskSchema.index({ projectId: 1, number: 1 }, { unique: true, partialFilterExpre
 taskSchema.index({ assigneeIds: 1 });
 taskSchema.index({ projectId: 1, epicId: 1 });
 taskSchema.index({ projectId: 1, labels: 1 });
+taskSchema.index({ projectId: 1, sprintId: 1, rank: 1 });
 taskSchema.index({ dueDate: 1, status: 1 });
 
 export const Task = mongoose.models.Task || mongoose.model('Task', taskSchema);

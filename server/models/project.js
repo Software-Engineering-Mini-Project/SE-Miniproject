@@ -20,6 +20,8 @@ const projectSchema = createSchema({
   previousKeys: { type: [String], default: [] },
   // Highest task number handed out; incremented atomically when a task is created.
   taskCounter: { type: Number, default: 0, min: 0 },
+  // Highest sprint number handed out (Sprint 1, Sprint 2 ...).
+  sprintCounter: { type: Number, default: 0, min: 0 },
 });
 
 projectSchema.index({ memberIds: 1 });

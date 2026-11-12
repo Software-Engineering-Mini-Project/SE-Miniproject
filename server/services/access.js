@@ -18,6 +18,7 @@ const FORBIDDEN = {
   'task.edit': 'Viewers cannot edit tasks.',
   'task.delete': 'Only the project owner, a manager or an admin can delete tasks.',
   'task.status': 'Viewers cannot change task status.',
+  'sprint.manage': 'Only the project owner, a manager or an admin can create, start and complete sprints.',
   'comment.create': 'You cannot comment in this project.',
 };
 
@@ -56,7 +57,7 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
   const taskId = readId(rawTaskId, 'Task');
   const query = Task.findById(taskId);
   const task = lean
-    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId assigneeIds createdAt updatedAt').lean()
+    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId sprintId rank assigneeIds createdAt updatedAt').lean()
     : await query;
   if (!task) throw new HttpError(404, 'NOT_FOUND', 'Task not found.');
   if (lean) task.id = String(task._id);

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Activity, Comment, Notification, Project, Task, User } from '../models/index.js';
+import { Activity, Comment, Notification, Project, Sprint, Task, User } from '../models/index.js';
 import {
   GRANTABLE_PROJECT_ROLES,
   PROJECT_ROLES,
@@ -161,6 +161,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
       Notification.deleteMany({ $or: [{ projectId: project.id }, { taskId: { $in: taskIds } }] }),
       Task.deleteMany({ projectId: project.id }),
       Activity.deleteMany({ projectId: project.id }),
+      Sprint.deleteMany({ projectId: project.id }),
     ]);
     await project.deleteOne();
     response.status(204).end();

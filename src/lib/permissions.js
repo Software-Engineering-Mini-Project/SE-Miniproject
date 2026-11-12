@@ -27,8 +27,8 @@ export const WORKSPACE_ROLE_SUMMARY = {
 
 export const PROJECT_ROLE_SUMMARY = {
   Owner: 'Full control, including deleting the project and transferring ownership.',
-  Manager: 'Edits the project, deletes tasks, and adds or removes members and viewers.',
-  Member: 'Creates, edits, assigns and moves tasks, and comments.',
+  Manager: 'Edits the project, runs sprints, deletes tasks, and adds or removes members and viewers.',
+  Member: 'Creates, edits, assigns and moves tasks, plans them into sprints, and comments.',
   Viewer: 'Read-only: can view the project and comment, but not change tasks.',
 };
 
@@ -56,6 +56,7 @@ const MATRIX = {
   'task.create': ['Owner', 'Manager', 'Member'],
   'task.edit': ['Owner', 'Manager', 'Member'],
   'task.delete': ['Owner', 'Manager'],
+  'sprint.manage': ['Owner', 'Manager'],
   'task.status': ['Owner', 'Manager', 'Member'],
   'task.assignable': ['Owner', 'Manager', 'Member'],
   'comment.create': ['Owner', 'Manager', 'Member', 'Viewer'],
@@ -78,6 +79,7 @@ export const PROJECT_ACTION_LABELS = {
   'task.create': 'Create tasks',
   'task.edit': 'Edit and assign tasks',
   'task.delete': 'Delete tasks',
+  'sprint.manage': 'Create, start and complete sprints',
   'task.status': 'Change task status',
   'task.assignable': 'Can be assigned tasks',
   'comment.create': 'Comment',
