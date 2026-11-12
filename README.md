@@ -11,7 +11,7 @@ fixtures/  Synthetic data
 tests/     Web tests
 e2e/       Playwright browser tests
 scripts/   Database seed and index management
-docs/      Feature guide, organisations design, API contract and handoff notes
+docs/      Feature guide, interface design, organisations design, API contract and handoff notes
 ```
 
 ## Setup
