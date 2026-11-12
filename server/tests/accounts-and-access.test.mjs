@@ -100,7 +100,11 @@ test('only Admins can list users, with search, role filter, paging, role totals 
 test('Admins change roles; the change takes effect at once, is audited, and the last Admin is protected', async () => {
   const admin = await login('admin@example.test');
   const outsider = await login('outsider@example.test');
-  assert.equal((await request(app).post('/api/projects').set(auth(outsider)).send({ name: 'Before promotion' })).status, 403);
+  // With project creation limited to leads, a Member can't create one until promoted.
+  assert.equal((await request(app).patch('/api/settings').set(auth(admin)).send({ projectCreation: 'leads' })).status, 200);
+  const blocked = await request(app).post('/api/projects').set(auth(outsider)).send({ name: 'Before promotion' });
+  assert.equal(blocked.status, 403);
+  assert.match(blocked.body.message, /only leads and admins can create projects/);
 
   const forbidden = await request(app).patch('/api/users/user-outsider-001/role').set(auth(outsider)).send({ role: 'Admin' });
   assert.equal(forbidden.status, 403);
@@ -116,6 +120,7 @@ test('Admins change roles; the change takes effect at once, is audited, and the 
   // The same token now has Lead rights: roles are read from the database on every request.
   const created = await request(app).post('/api/projects').set(auth(outsider)).send({ name: 'After promotion' });
   assert.equal(created.status, 201, created.text);
+  await request(app).patch('/api/settings').set(auth(admin)).send({ projectCreation: 'everyone' });
 
   assert.equal((await request(app).patch('/api/users/user-outsider-001/role').set(auth(admin)).send({ role: 'Owner' })).status, 400);
   assert.equal((await request(app).patch('/api/users/no-such-user/role').set(auth(admin)).send({ role: 'Lead' })).status, 404);
@@ -138,7 +143,7 @@ test('Admins change roles; the change takes effect at once, is audited, and the 
   await request(app).patch('/api/users/user-admin-001/role').set(auth(newAdmin)).send({ role: 'Admin' });
   await request(app).patch('/api/users/user-outsider-001/role').set(auth(admin)).send({ role: 'Member' });
   assert.deepEqual(
-    (await User.find({}).sort({ _id: 1 }).lean()).map((user) => [user._id, user.role]),
+    (await User.find({ organisationId: 'org-acme' }).sort({ _id: 1 }).lean()).map((user) => [user._id, user.role]),
     [['user-admin-001', 'Admin'], ['user-lead-001', 'Lead'], ['user-member-001', 'Member'], ['user-member-002', 'Member'], ['user-outsider-001', 'Member'], ['user-viewer-001', 'Member']],
   );
 });
@@ -171,14 +176,14 @@ test('invalid registrations do not use up the per-IP registration limit, and dup
     .post('/api/auth/register').set('X-Forwarded-For', ip).send({ name: 'Typo', email: 'not-an-email', password: 'short' })));
   assert.deepEqual(typos.map((response) => response.status), [400, 400, 400, 400, 400, 400]);
   const valid = await request(app).post('/api/auth/register').set('X-Forwarded-For', ip).send({
-    name: 'After Typos', email: 'after-typos@example.test', password: 'Password123',
+    name: 'After Typos', email: 'after-typos@example.test', password: 'Password123', joinCode: 'ACMELABS',
   });
   assert.equal(valid.status, 201, valid.text);
 
   await User.collection.dropIndex('emailNormalized_1');
   try {
     const duplicate = await request(app).post('/api/auth/register').set('X-Forwarded-For', '203.0.113.78').send({
-      name: 'Duplicate', email: 'AFTER-TYPOS@example.test', password: 'Password123',
+      name: 'Duplicate', email: 'AFTER-TYPOS@example.test', password: 'Password123', joinCode: 'ACMELABS',
     });
     assert.equal(duplicate.status, 409);
     assert.equal(duplicate.body.errorCode, 'DUPLICATE_EMAIL');

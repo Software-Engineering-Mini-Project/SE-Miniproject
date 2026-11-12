@@ -1,4 +1,8 @@
-import { Project, Task, User } from '../models/index.js';
+import mongoose from 'mongoose';
+import { Organisation, Project, Task, User } from '../models/index.js';
+import { uniqueJoinCode } from '../services/organisation.js';
+
+export const DEFAULT_ORGANISATION_ID = 'org-default';
 
 /**
  * Per-project roles (managerIds/viewerIds) replaced the old rule that any workspace Lead in a
@@ -39,8 +43,39 @@ export async function migrateCompletedAt() {
   return result.modifiedCount;
 }
 
+/**
+ * Before organisations, every account and project lived in one shared workspace. Put whatever has
+ * no organisation into a single "My organisation" (_id `org-default`) so nobody loses anything;
+ * an Admin can rename it and rotate its invite code on the Organisation page. The old global
+ * workspace setting (`settings` collection) becomes this organisation's setting.
+ *
+ * Idempotent: it only acts while something still lacks an organisation, and creating the
+ * organisation is an upsert, so two instances starting together agree on one. Returns the number
+ * of accounts and projects moved.
+ */
+export async function migrateOrganisations() {
+  const orphan = { $or: [{ organisationId: { $exists: false } }, { organisationId: null }] };
+  if (!await User.exists(orphan) && !await Project.exists(orphan)) return 0;
+  const legacy = await mongoose.connection.db.collection('settings').findOne({ _id: 'workspace' });
+  await Organisation.updateOne(
+    { _id: DEFAULT_ORGANISATION_ID },
+    { $setOnInsert: {
+      name: 'My organisation',
+      joinCode: await uniqueJoinCode(),
+      createdById: null,
+      projectCreation: legacy?.projectCreation === 'leads' ? 'leads' : 'everyone',
+    } },
+    { upsert: true },
+  );
+  const users = await User.updateMany(orphan, { $set: { organisationId: DEFAULT_ORGANISATION_ID } }, { timestamps: false });
+  const projects = await Project.updateMany(orphan, { $set: { organisationId: DEFAULT_ORGANISATION_ID } }, { timestamps: false });
+  return users.modifiedCount + projects.modifiedCount;
+}
+
 /** Runs every data migration; each is idempotent and cheap when there is nothing to do. */
 export async function runMigrations({ logger = console } = {}) {
+  const moved = await migrateOrganisations();
+  if (moved > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'organisations', records: moved }));
   const projects = await migrateProjectRoles();
   if (projects > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'project_roles', projects }));
   const tasks = await migrateCompletedAt();

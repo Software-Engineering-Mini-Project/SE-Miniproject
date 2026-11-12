@@ -1,0 +1,4 @@
+[
+  {"id":"org-acme","name":"Acme Labs","joinCode":"ACMELABS","projectCreation":"everyone","createdById":"user-admin-001","createdAt":"2026-10-01T08:00:00.000Z","updatedAt":"2026-10-01T08:00:00.000Z"},
+  {"id":"org-northwind","name":"Northwind Studio","joinCode":"NORTHWIND","projectCreation":"everyone","createdById":"user-northwind-001","createdAt":"2026-10-04T08:00:00.000Z","updatedAt":"2026-10-04T08:00:00.000Z"}
+]

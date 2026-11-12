@@ -10,15 +10,22 @@ it('invalidates the dashboard only after successful project, member, and task mu
   const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetcher);
   const mutations = [
-    () => api.projects.create({}), () => api.projects.update('p', {}), () => api.projects.remove('p'),
+    () => api.projects.create({}), () => api.projects.remove('p'),
     () => api.members.add('p', 'a@example.test'), () => api.members.remove('p', 'u'),
     () => api.tasks.create('p', {}), () => api.tasks.update('t', {}), () => api.tasks.setStatus('t', 'Done'), () => api.tasks.remove('t'),
   ];
   for (const mutate of mutations) {
     vi.mocked(invalidateQuery).mockClear();
     await mutate();
-    expect(invalidateQuery).toHaveBeenCalledExactlyOnceWith('dashboard:');
+    expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:']);
   }
+  // Editing a project can change its visibility, and joining changes what the project and its tasks return.
+  vi.mocked(invalidateQuery).mockClear();
+  await api.projects.update('p', {});
+  expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:', 'directory:']);
+  vi.mocked(invalidateQuery).mockClear();
+  await api.projects.join('p');
+  expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:', 'directory:', 'project:p', 'tasks:p']);
   for (const mutate of [() => api.comments.create('t', 'hi'), () => api.comments.remove('t', 'c'), () => api.notifications.markAllRead()]) {
     vi.mocked(invalidateQuery).mockClear();
     await mutate();

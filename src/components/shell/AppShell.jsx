@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Dialog } from '@base-ui/react/dialog';
-import { Bell, CloudOff, FolderKanban, LayoutDashboard, ListChecks, LogOut, Menu as MenuIcon, RotateCcw, UserRound, UsersRound, X } from 'lucide-react';
+import { Bell, Building2, CloudOff, FolderKanban, LayoutDashboard, ListChecks, LogOut, Menu as MenuIcon, RotateCcw, UserRound, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { localToday } from '@/lib/dates';
 import { invalidateQuery } from '@/lib/hooks/useQuery';
@@ -24,6 +24,7 @@ const NAV = [
   { href: '/tasks', label: 'My tasks', icon: ListChecks },
   { href: '/notifications', label: 'Notifications', icon: Bell, badge: 'unread' },
   { href: '/projects', label: 'Projects', icon: FolderKanban, exact: true },
+  { href: '/organisation', label: 'Organisation', icon: Building2 },
   { href: '/admin/users', label: 'Users', icon: UsersRound, role: 'Admin' },
 ];
 
@@ -54,6 +55,7 @@ function SidebarContent({ onNavigate }) {
       <Link href="/dashboard" className="sidebar-brand" onClick={onNavigate}>
         <Wordmark />
       </Link>
+      {user?.organisation ? <p className="sidebar-org" title="Your organisation">{user.organisation.name}</p> : null}
 
       <nav aria-label="Main" className="sidebar-nav">
         {NAV.filter((item) => !item.role || item.role === user?.role).map((item) => {

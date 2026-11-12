@@ -19,7 +19,9 @@ test('TC-AUTH-01/02/03 registration, login, and profile changes persist', async 
   await expect(page.getByText('Enter your name.')).toBeVisible();
   await expect(page.getByText('Enter a valid email address.')).toBeVisible();
   await expect(page.getByText('Use 8+ characters with a letter and a number.')).toBeVisible();
+  await expect(page.getByText("Enter your organisation's invite code.")).toBeVisible();
 
+  await page.getByLabel('Invite code', { exact: true }).fill('ACMELABS');
   await page.getByLabel('Full name').fill('Synthetic E2E User');
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByRole('textbox', { name: 'Password' }).fill(OLD_PASSWORD);

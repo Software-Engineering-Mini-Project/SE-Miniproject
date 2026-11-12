@@ -1,8 +1,9 @@
 [
-  {"id":"user-admin-001","name":"Synthetic Admin","email":"admin@example.test","role":"Admin","createdAt":"2026-10-01T09:00:00.000Z","updatedAt":"2026-10-01T09:00:00.000Z"},
-  {"id":"user-lead-001","name":"Synthetic Lead","email":"lead@example.test","role":"Lead","createdAt":"2026-10-01T09:05:00.000Z","updatedAt":"2026-10-01T09:05:00.000Z"},
-  {"id":"user-member-001","name":"Synthetic Member","email":"member@example.test","role":"Member","createdAt":"2026-10-01T09:10:00.000Z","updatedAt":"2026-10-01T09:10:00.000Z"},
-  {"id":"user-member-002","name":"Second Synthetic Member With A Deliberately Long Display Name","email":"member.two.with.a.long.address@example.test","role":"Member","createdAt":"2026-10-02T10:00:00.000Z","updatedAt":"2026-10-02T10:00:00.000Z"},
-  {"id":"user-outsider-001","name":"Synthetic Outsider","email":"outsider@example.test","role":"Member","createdAt":"2026-10-03T11:00:00.000Z","updatedAt":"2026-10-03T11:00:00.000Z"},
-  {"id":"user-viewer-001","name":"Synthetic Viewer","email":"viewer@example.test","role":"Member","createdAt":"2026-10-03T11:30:00.000Z","updatedAt":"2026-10-03T11:30:00.000Z"}
+  {"id":"user-admin-001","organisationId":"org-acme","name":"Synthetic Admin","email":"admin@example.test","role":"Admin","createdAt":"2026-10-01T09:00:00.000Z","updatedAt":"2026-10-01T09:00:00.000Z"},
+  {"id":"user-lead-001","organisationId":"org-acme","name":"Synthetic Lead","email":"lead@example.test","role":"Lead","createdAt":"2026-10-01T09:05:00.000Z","updatedAt":"2026-10-01T09:05:00.000Z"},
+  {"id":"user-member-001","organisationId":"org-acme","name":"Synthetic Member","email":"member@example.test","role":"Member","createdAt":"2026-10-01T09:10:00.000Z","updatedAt":"2026-10-01T09:10:00.000Z"},
+  {"id":"user-member-002","organisationId":"org-acme","name":"Second Synthetic Member With A Deliberately Long Display Name","email":"member.two.with.a.long.address@example.test","role":"Member","createdAt":"2026-10-02T10:00:00.000Z","updatedAt":"2026-10-02T10:00:00.000Z"},
+  {"id":"user-outsider-001","organisationId":"org-acme","name":"Synthetic Outsider","email":"outsider@example.test","role":"Member","createdAt":"2026-10-03T11:00:00.000Z","updatedAt":"2026-10-03T11:00:00.000Z"},
+  {"id":"user-viewer-001","organisationId":"org-acme","name":"Synthetic Viewer","email":"viewer@example.test","role":"Member","createdAt":"2026-10-03T11:30:00.000Z","updatedAt":"2026-10-03T11:30:00.000Z"},
+  {"id":"user-northwind-001","organisationId":"org-northwind","name":"Northwind Admin","email":"northwind-admin@example.test","role":"Admin","createdAt":"2026-10-04T09:00:00.000Z","updatedAt":"2026-10-04T09:00:00.000Z"}
 ]

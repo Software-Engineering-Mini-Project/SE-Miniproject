@@ -57,9 +57,15 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
         await settle(page);
         await expectAccessible(page, path);
       }
+      // The other way into registration: starting an organisation.
+      await page.getByRole('radio', { name: /Create an organisation/ }).check();
+      await expect(page.getByLabel('Organisation name')).toBeVisible();
+      await expectAccessible(page, '/register (create an organisation)');
     });
 
     test('core app pages and the task form', async ({ page }) => {
+      // Many pages, a dialog, the agenda and a scan of each: close to the default budget when two workers share the server.
+      test.slow();
       await signIn(page);
       for (const path of APP_PAGES) {
         await page.goto(path);
@@ -81,6 +87,52 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       // The forecast's state depends on how far today is from the fixture dates; scan whichever shows.
       await expect(page.getByRole('region', { name: /Delivery forecast/ })).toBeVisible();
       await expectAccessible(page, 'Project insights');
+
+      // Quick add with its preview, the task sheet with a checklist, and the Upcoming agenda.
+      await page.getByRole('button', { name: 'Board' }).click();
+      await page.getByRole('textbox', { name: 'Quick add a task' }).fill('Accessibility check tomorrow !high @me');
+      await expect(page.locator('.quick-chip').first()).toBeVisible();
+      await expectAccessible(page, 'Quick add preview');
+      await page.goto(`${PROJECT_PATH}?task=task-002`);
+      await expect(page.getByRole('heading', { name: 'Checklist' })).toBeVisible();
+      await expectAccessible(page, 'Task sheet with checklist');
+      await page.keyboard.press('Escape');
+      await page.goto('/tasks');
+      await settle(page);
+      await page.getByRole('button', { name: 'Upcoming' }).click();
+      await expect(page.locator('.agenda-day').first()).toBeVisible();
+      await expectAccessible(page, 'Upcoming agenda');
+    });
+
+    test('getting started, open projects and the project form', async ({ page }) => {
+      // The outsider is in no project, so Projects shows the getting-started screen.
+      await signIn(page, 'outsider@example.test');
+      await page.goto('/projects');
+      await settle(page);
+      await expect(page.getByRole('region', { name: 'Get started' })).toBeVisible();
+      await expect(page.getByText(/Nothing to join right now/)).toBeVisible();
+      await expectAccessible(page, 'Getting started');
+      await page.getByRole('region', { name: 'Get started' }).getByRole('button', { name: 'New project' }).click();
+      const dialog = page.getByRole('dialog', { name: 'New project' });
+      await dialog.getByRole('radio', { name: /Open/ }).check();
+      await expectAccessible(page, 'New project dialog');
+    });
+
+    test('organisation page as an admin (invite code and rename)', async ({ page }) => {
+      await signIn(page, 'admin@example.test');
+      await page.goto('/organisation');
+      await settle(page);
+      await expect(page.getByLabel('Invite code', { exact: true })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Projects' }).getByRole('link', { name: 'Alpha Project' })).toBeVisible();
+      await expectAccessible(page, '/organisation (admin)');
+    });
+
+    test('organisation page as a member', async ({ page }) => {
+      await signIn(page);
+      await page.goto('/organisation');
+      await settle(page);
+      await expect(page.getByRole('region', { name: 'Projects' }).getByRole('link', { name: 'Alpha Project' })).toBeVisible();
+      await expectAccessible(page, '/organisation (member)');
     });
 
     test('admin users page', async ({ page }) => {

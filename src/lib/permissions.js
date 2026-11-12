@@ -4,8 +4,10 @@
  * server would accept the request.
  *
  * Two layers (the model Plane and OpenProject use):
- * - Workspace role on the account (`user.role`): Admin manages accounts and sees every project;
- *   Lead may create projects; Member may only join projects they are added to.
+ * - Workspace role on the account (`user.role`): Admin manages accounts and settings and sees
+ *   every project. Who may create projects is a workspace setting (`projectCreation`):
+ *   'everyone' (the default, like Jira team-managed projects) or 'leads' (Leads and Admins).
+ *   Anyone may join an Open project; Private projects are invite-only.
  * - Project role per membership: Owner, Manager, Member or Viewer. It decides what someone
  *   can do inside one project and is independent of the workspace role.
  *
@@ -18,16 +20,28 @@ export const PROJECT_ROLES = ['Owner', 'Manager', 'Member', 'Viewer'];
 export const GRANTABLE_PROJECT_ROLES = ['Manager', 'Member', 'Viewer'];
 
 export const WORKSPACE_ROLE_SUMMARY = {
-  Admin: 'Manages accounts and roles; can open and manage every project.',
-  Lead: 'Can create projects and becomes their owner.',
-  Member: 'Works in the projects they are added to.',
+  Admin: 'Manages accounts, roles and workspace settings; can open and manage every project.',
+  Lead: 'Creates projects and becomes their owner, even when project creation is limited to leads.',
+  Member: 'Creates projects (unless an admin limits that to leads), joins open projects and works in projects they belong to.',
 };
 
 export const PROJECT_ROLE_SUMMARY = {
   Owner: 'Full control, including deleting the project and transferring ownership.',
-  Manager: 'Edits the project, manages tasks, and adds or removes members and viewers.',
-  Member: 'Moves tasks between statuses and comments.',
+  Manager: 'Edits the project, deletes tasks, and adds or removes members and viewers.',
+  Member: 'Creates, edits, assigns and moves tasks, and comments.',
   Viewer: 'Read-only: can view the project and comment, but not change tasks.',
+};
+
+/** Workspace setting: who may create projects. */
+export const PROJECT_CREATION = ['everyone', 'leads'];
+export const PROJECT_CREATION_LABELS = { everyone: 'Everyone', leads: 'Leads and admins only' };
+export const DEFAULT_WORKSPACE_SETTINGS = Object.freeze({ projectCreation: 'everyone' });
+
+/** Project visibility: Private projects are invite-only; anyone in the workspace can find and join an Open one. */
+export const PROJECT_VISIBILITIES = ['private', 'open'];
+export const PROJECT_VISIBILITY_SUMMARY = {
+  private: 'Only people who are added can see it.',
+  open: 'Anyone in the workspace can find it and join as a member.',
 };
 
 const MATRIX = {
@@ -38,8 +52,8 @@ const MATRIX = {
   'project.transfer': ['Owner'],
   'members.manage': ['Owner', 'Manager'],
   'members.manageManagers': ['Owner'],
-  'task.create': ['Owner', 'Manager'],
-  'task.edit': ['Owner', 'Manager'],
+  'task.create': ['Owner', 'Manager', 'Member'],
+  'task.edit': ['Owner', 'Manager', 'Member'],
   'task.delete': ['Owner', 'Manager'],
   'task.status': ['Owner', 'Manager', 'Member'],
   'task.assignable': ['Owner', 'Manager', 'Member'],
@@ -71,7 +85,18 @@ export const PROJECT_ACTION_LABELS = {
 const ids = (list) => (list ?? []).map(String);
 
 export const isAdmin = (user) => user?.role === 'Admin';
-export const canCreateProject = (user) => user?.role === 'Admin' || user?.role === 'Lead';
+/** Whether `user` may create a project under the workspace `settings`. */
+export function canCreateProject(user, settings = DEFAULT_WORKSPACE_SETTINGS) {
+  if (!user || user.active === false || user.deactivatedAt) return false;
+  if (user.role === 'Admin' || user.role === 'Lead') return true;
+  return (settings?.projectCreation ?? DEFAULT_WORKSPACE_SETTINGS.projectCreation) === 'everyone';
+}
+
+/** Whether `user` may add themselves to `project` (Open projects they are not in yet). */
+export function canJoinProject(user, project) {
+  if (!user || !project || user.active === false || user.deactivatedAt) return false;
+  return project.visibility === 'open' && !projectRoleOf(project, user.id);
+}
 export const canManageAccounts = (user) => isAdmin(user);
 
 /** Project role of `userId` in `project`, or null when they are not a member. */

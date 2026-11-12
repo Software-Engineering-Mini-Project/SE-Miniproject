@@ -1,6 +1,16 @@
 import mongoose from 'mongoose';
 import { createSchema } from './schema.js';
 
+export const CHECKLIST_LIMIT = 50;
+export const CHECKLIST_TEXT_MAX = 200;
+
+/** A checklist item (sub-step) of a task. Items keep their own id so edits target one item. */
+const checklistItemSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  text: { type: String, required: true, trim: true, minlength: 1, maxlength: CHECKLIST_TEXT_MAX },
+  done: { type: Boolean, default: false },
+}, { _id: false });
+
 const taskSchema = createSchema({
   title: { type: String, required: true, trim: true, minlength: 1, maxlength: 200 },
   description: { type: String, default: '', maxlength: 2000 },
@@ -12,6 +22,11 @@ const taskSchema = createSchema({
   // Set by the server when the task enters Done and cleared when it leaves; the delivery
   // forecast (src/lib/forecast.js) samples throughput from it.
   completedAt: { type: Date, default: null },
+  checklist: {
+    type: [checklistItemSchema],
+    default: [],
+    validate: { validator: (items) => items.length <= CHECKLIST_LIMIT, message: `A task can have at most ${CHECKLIST_LIMIT} checklist items.` },
+  },
 });
 
 taskSchema.index({ projectId: 1, status: 1, dueDate: 1 });

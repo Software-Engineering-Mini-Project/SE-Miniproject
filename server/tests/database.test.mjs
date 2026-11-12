@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import { after, before, test } from 'node:test';
 import { FIXTURE_PASSWORD } from '../utils/seed-database.js';
-import { Comment, Notification, Project, Task, User } from '../models/index.js';
+import { Comment, Notification, Organisation, Project, Task, User } from '../models/index.js';
 import { startTestDatabase } from '../test-support/database.mjs';
 
 let database;
@@ -17,8 +17,9 @@ after(async () => {
 });
 
 test('fixture helper seeds a fresh in-memory database with synthetic entities', async () => {
-  assert.equal(await User.countDocuments(), 6);
-  assert.equal(await Project.countDocuments(), 2);
+  assert.equal(await Organisation.countDocuments(), 2);
+  assert.equal(await User.countDocuments(), 7);
+  assert.equal(await Project.countDocuments(), 3);
   assert.equal(await Task.countDocuments(), 10);
   assert.equal(await Comment.countDocuments(), 4);
   assert.equal(await Notification.countDocuments(), 5);

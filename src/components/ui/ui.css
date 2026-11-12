@@ -377,6 +377,13 @@
   text-align: center;
 }
 
+.state-block .state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .state-block[data-tone='quiet'] {
   background: transparent;
   padding: 20px 4px;
@@ -661,3 +668,23 @@
   color: var(--danger);
   background: var(--danger-soft);
 }
+
+.visibility-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.visibility-badge[data-visibility='open'] {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+

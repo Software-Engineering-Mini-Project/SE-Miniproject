@@ -37,7 +37,7 @@ async function savedStatus(page, title, status, change) {
 
   await change();
   await expect
-    .poll(() => page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v2') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title))
+    .poll(() => page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v3') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title))
     .toBe(status);
 }
 
@@ -78,7 +78,9 @@ test('TC-Task-02/03 authorized lead edits task fields and members change status'
   await page.goto(`/projects/${PROJECT_ID}`);
   await taskCard(page, 'In Progress', UPDATED_TITLE).click();
   await expect(page.getByRole('heading', { name: UPDATED_TITLE })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+  // Members edit tasks, but deleting one is for owners and managers.
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete task' })).toHaveCount(0);
   await savedStatus(page, UPDATED_TITLE, 'Done', () => page.locator('#sheet-status').selectOption('Done'));
   await expect(page.locator('#sheet-status')).toHaveValue('Done');
   await page.getByRole('button', { name: 'Close task details' }).click();

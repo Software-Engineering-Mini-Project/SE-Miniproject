@@ -31,6 +31,8 @@ export const LIMITS = {
   descriptionMax: 2000,
   taskTitleMax: 200,
   commentMax: 1000,
+  checklistItems: 50,
+  checklistItemMax: 200,
   passwordMin: 8,
   passwordMax: 128,
 };
@@ -38,5 +40,3 @@ export const LIMITS = {
 // Initial reminder rule proposal from SRS TM-F-031: due within 24 hours and not Done.
 export const REMINDER_WINDOW_HOURS = 24;
 
-/** Roles that may create projects and manage tasks (SRS §2.2). */
-export { canCreateProject as canManageProjects } from './permissions.js';

@@ -16,6 +16,11 @@ const app = createApp({
   now: () => FIXED_NOW,
   logger: (record) => logRecords.push(record),
 });
+// Rate-limit counters expire through a MongoDB TTL index, which compares against the real clock.
+// Under FIXED_NOW (in the past) the counters already look expired, and the TTL monitor (every
+// ~60 s) could delete them mid-test. The throttling tests use a clock a day ahead instead.
+const LIMIT_NOW = new Date(Date.now() + 86_400_000);
+const limitApp = createApp({ jwtSecret: JWT_SECRET, now: () => LIMIT_NOW, logger: () => {} });
 
 let database;
 let adminToken;
@@ -23,15 +28,17 @@ let leadToken;
 let memberToken;
 let secondMemberToken;
 let outsiderToken;
+let viewerToken;
 
 before(async () => {
   database = await startTestDatabase();
-  [adminToken, leadToken, memberToken, secondMemberToken, outsiderToken] = await Promise.all([
+  [adminToken, leadToken, memberToken, secondMemberToken, outsiderToken, viewerToken] = await Promise.all([
     'admin@example.test',
     'lead@example.test',
     'member@example.test',
     'member.two.with.a.long.address@example.test',
     'outsider@example.test',
+    'viewer@example.test',
   ].map(async (email) => {
     const response = await request(app).post('/api/auth/login').send({ email, password: 'Password123!' });
     assert.equal(response.status, 200, response.text);
@@ -50,10 +57,16 @@ test('registration, login, bearer auth, profile updates, and password changes fo
     name: 'New Synthetic User',
     email: 'New.User@example.test',
     password: 'Password123!',
+    joinCode: 'acme-labs',
     role: 'Admin',
   });
   assert.equal(registration.status, 201, registration.text);
-  assert.deepEqual(registration.body, { userId: registration.body.userId, email: 'New.User@example.test' });
+  assert.deepEqual(registration.body, {
+    userId: registration.body.userId,
+    email: 'New.User@example.test',
+    role: 'Member',
+    organisation: { id: 'org-acme', name: 'Acme Labs' },
+  });
   const registered = await User.findById(registration.body.userId).select('+passwordHash');
   assert.equal(registered.role, 'Member');
   assert.equal(await bcrypt.compare('Password123!', registered.passwordHash), true);
@@ -90,7 +103,7 @@ test('registration, login, bearer auth, profile updates, and password changes fo
   assert.equal(oldLogin.body.errorCode, 'INVALID_CREDENTIALS');
 
   const duplicate = await request(app).post('/api/auth/register').send({
-    name: 'Duplicate', email: 'NEW.USER@example.test', password: 'Password123!',
+    name: 'Duplicate', email: 'NEW.USER@example.test', password: 'Password123!', joinCode: 'ACMELABS',
   });
   assert.equal(duplicate.status, 409);
   assert.equal(duplicate.body.errorCode, 'DUPLICATE_EMAIL');
@@ -99,13 +112,13 @@ test('registration, login, bearer auth, profile updates, and password changes fo
 
 test('registration is limited to five attempts per client IP per ten minutes', async () => {
   const ip = '198.51.100.88';
-  const registrations = await Promise.all(Array.from({ length: 5 }, (_, index) => request(app)
+  const registrations = await Promise.all(Array.from({ length: 5 }, (_, index) => request(limitApp)
     .post('/api/auth/register')
     .set('X-Forwarded-For', ip)
-    .send({ name: `Rate Limited ${index}`, email: `register-limit-${index}@example.test`, password: 'Password123!' })));
+    .send({ name: `Rate Limited ${index}`, email: `register-limit-${index}@example.test`, password: 'Password123!', joinCode: 'ACMELABS' })));
   assert.deepEqual(registrations.map((response) => response.status), [201, 201, 201, 201, 201]);
-  const limited = await request(app).post('/api/auth/register').set('X-Forwarded-For', ip).send({
-    name: 'Must not be created', email: 'register-limit-six@example.test', password: 'Password123!',
+  const limited = await request(limitApp).post('/api/auth/register').set('X-Forwarded-For', ip).send({
+    name: 'Must not be created', email: 'register-limit-six@example.test', password: 'Password123!', joinCode: 'ACMELABS',
   });
   assert.equal(limited.status, 429);
   assert.equal(limited.body.errorCode, 'RATE_LIMITED');
@@ -201,7 +214,7 @@ test('successful login migrates a cost-12 password hash to cost 10', async () =>
   const email = 'migration@example.test';
   const password = 'Password123!';
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await User.create({ name: 'Migration', email, emailNormalized: email, passwordHash, role: 'Member' });
+  const user = await User.create({ name: 'Migration', email, emailNormalized: email, passwordHash, organisationId: 'org-acme', role: 'Member' });
   const login = await request(app).post('/api/auth/login').send({ email, password });
   assert.equal(login.status, 200);
   assert.equal(login.body.user.id, user.id);
@@ -213,7 +226,7 @@ test('successful login migrates a cost-12 password hash to cost 10', async () =>
 test('rehash failure does not prevent a valid login', async () => {
   const email = 'migration-failure@example.test';
   const password = 'Password123!';
-  await User.create({ name: 'Migration Failure', email, emailNormalized: email, passwordHash: await bcrypt.hash(password, 12), role: 'Member' });
+  await User.create({ name: 'Migration Failure', email, emailNormalized: email, passwordHash: await bcrypt.hash(password, 12), organisationId: 'org-acme', role: 'Member' });
   const update = User.updateOne;
   const log = console.error;
   try {
@@ -231,7 +244,7 @@ test('rehash failure does not prevent a valid login', async () => {
 test('a deleted account cannot use an existing token', async () => {
   const email = 'deleted-user@example.test';
   const password = 'Password123!';
-  const user = await User.create({ name: 'Deleted User', email, emailNormalized: email, passwordHash: await bcrypt.hash(password, 10), role: 'Member' });
+  const user = await User.create({ name: 'Deleted User', email, emailNormalized: email, passwordHash: await bcrypt.hash(password, 10), organisationId: 'org-acme', role: 'Member' });
   const login = await request(app).post('/api/auth/login').send({ email, password });
   assert.equal(login.status, 200);
   await User.deleteOne({ _id: user._id });
@@ -254,19 +267,19 @@ test('authentication errors and failed-login throttling return stable envelopes'
   assert.equal(expired.body.errorCode, 'TOKEN_EXPIRED');
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const response = await request(app).post('/api/auth/login').send({
+    const response = await request(limitApp).post('/api/auth/login').send({
       email: 'rate-limit@example.test', password: 'WrongPassword123',
     }).set('X-Forwarded-For', '198.51.100.40');
     assert.equal(response.status, 401);
     assert.equal(response.body.errorCode, 'INVALID_CREDENTIALS');
   }
-  const throttled = await request(app).post('/api/auth/login').send({
+  const throttled = await request(limitApp).post('/api/auth/login').send({
     email: 'rate-limit@example.test', password: 'WrongPassword123',
   }).set('X-Forwarded-For', '198.51.100.40');
   assert.equal(throttled.status, 429);
   assert.equal(throttled.body.errorCode, 'RATE_LIMITED');
 
-  const restartedApp = createApp({ jwtSecret: JWT_SECRET, now: () => FIXED_NOW, logger: () => {} });
+  const restartedApp = createApp({ jwtSecret: JWT_SECRET, now: () => LIMIT_NOW, logger: () => {} });
   const afterRestart = await request(restartedApp).post('/api/auth/login').send({
     email: 'rate-limit@example.test', password: 'WrongPassword123',
   }).set('X-Forwarded-For', '198.51.100.40');
@@ -274,7 +287,7 @@ test('authentication errors and failed-login throttling return stable envelopes'
 
   const afterWindowApp = createApp({
     jwtSecret: JWT_SECRET,
-    now: () => new Date(FIXED_NOW.getTime() + 60_001),
+    now: () => new Date(LIMIT_NOW.getTime() + 60_001),
     logger: () => {},
   });
   const afterWindow = await request(afterWindowApp).post('/api/auth/login').send({
@@ -285,12 +298,12 @@ test('authentication errors and failed-login throttling return stable envelopes'
 
 test('failed login throttling also limits account spraying from one forwarded client IP', async () => {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const response = await request(app).post('/api/auth/login').send({
+    const response = await request(limitApp).post('/api/auth/login').send({
       email: `spray-${attempt}@example.test`, password: 'WrongPassword123',
     }).set('X-Forwarded-For', '198.51.100.66');
     assert.equal(response.status, 401, `failed login ${attempt + 1}`);
   }
-  const limited = await request(app).post('/api/auth/login').send({
+  const limited = await request(limitApp).post('/api/auth/login').send({
     email: 'spray-final@example.test', password: 'WrongPassword123',
   }).set('X-Forwarded-For', '198.51.100.66');
   assert.equal(limited.status, 429);
@@ -341,8 +354,12 @@ test('project and member endpoints enforce roles, membership, and cascades', asy
   assert.equal(created.status, 201, created.text);
   const projectId = created.body.id;
   assert.deepEqual(created.body.memberIds, ['user-lead-001']);
-  const memberCreate = await request(app).post('/api/projects').set(auth(memberToken)).send({ name: 'Blocked Project' });
-  assert.equal(memberCreate.status, 403);
+  // Anyone may create a project by default (workspace setting projectCreation: 'everyone').
+  const memberCreate = await request(app).post('/api/projects').set(auth(memberToken)).send({ name: 'Member Project' });
+  assert.equal(memberCreate.status, 201, memberCreate.text);
+  assert.equal(memberCreate.body.ownerId, 'user-member-001');
+  assert.equal(memberCreate.body.visibility, 'private');
+  assert.equal((await request(app).delete(`/api/projects/${memberCreate.body.id}`).set(auth(memberToken))).status, 204);
 
   const updated = await request(app).patch(`/api/projects/${projectId}`).set(auth(leadToken)).send({ name: 'Updated Lifecycle' });
   assert.equal(updated.status, 200);
@@ -355,7 +372,7 @@ test('project and member endpoints enforce roles, membership, and cascades', asy
   assert.equal(duplicateMember.status, 200);
   const unknownMember = await request(app).post(`/api/projects/${projectId}/members`).set(auth(leadToken)).send({ email: 'nobody@example.test' });
   assert.equal(unknownMember.status, 404);
-  assert.equal(unknownMember.body.fields.email, 'Email is not registered.');
+  assert.equal(unknownMember.body.fields.email, 'Email is not registered in your organisation.');
 
   const ownerRemoval = await request(app).delete(`/api/projects/${projectId}/members/user-lead-001`).set(auth(leadToken));
   assert.equal(ownerRemoval.status, 400);
@@ -447,12 +464,21 @@ test('TC-Task-01 creates a task through the API, persists it, and enforces valid
   assert.equal(invalidDate.status, 400);
   assert.equal(invalidDate.body.errorCode, 'VALIDATION_ERROR');
 
-  const forbidden = await request(app)
+  // Members create tasks (like Jira and Azure DevOps contributors); viewers cannot.
+  const memberCreated = await request(app)
     .post('/api/projects/project-alpha/tasks')
     .set(auth(memberToken))
-    .send({ title: 'Member cannot create tasks' });
+    .send({ title: 'Member-created task' });
+  assert.equal(memberCreated.status, 201, memberCreated.text);
+  assert.equal((await request(app).delete(`/api/tasks/${memberCreated.body.id}`).set(auth(memberToken))).status, 403, 'members cannot delete tasks');
+  assert.equal((await request(app).delete(`/api/tasks/${memberCreated.body.id}`).set(auth(leadToken))).status, 204);
+  const forbidden = await request(app)
+    .post('/api/projects/project-alpha/tasks')
+    .set(auth(viewerToken))
+    .send({ title: 'Viewer cannot create tasks' });
   assert.equal(forbidden.status, 403);
   assert.equal(forbidden.body.errorCode, 'FORBIDDEN');
+  assert.equal(forbidden.body.message, 'Viewers cannot create tasks.');
 });
 
 test('task, search, status, comment, summary, CSV, and reminder endpoints interoperate', async () => {
@@ -482,7 +508,7 @@ test('task, search, status, comment, summary, CSV, and reminder endpoints intero
   const status = await request(app).patch(`/api/tasks/${taskId}/status`).set(auth(memberToken)).send({ status: 'In Progress' });
   assert.equal(status.status, 200);
   assert.equal(status.body.status, 'In Progress');
-  const forbiddenEdit = await request(app).patch(`/api/tasks/${taskId}`).set(auth(memberToken)).send({ title: 'forbidden' });
+  const forbiddenEdit = await request(app).patch(`/api/tasks/${taskId}`).set(auth(viewerToken)).send({ title: 'forbidden' });
   assert.equal(forbiddenEdit.status, 403);
   const leadEdit = await request(app).patch(`/api/tasks/${taskId}`).set(auth(leadToken)).send({
     title: 'Updated export review', assigneeIds: ['user-member-001', 'user-member-002'],
@@ -599,12 +625,13 @@ test('TC-Task-02 edits task fields, persists changes, and enforces manager autho
   assert.equal(invalidDate.status, 400);
   assert.equal(invalidDate.body.errorCode, 'VALIDATION_ERROR');
 
-  const memberEdit = await request(app)
+  const viewerEdit = await request(app)
     .patch(`/api/tasks/${taskId}`)
-    .set(auth(memberToken))
-    .send({ title: 'Member cannot edit task fields.' });
-  assert.equal(memberEdit.status, 403);
-  assert.equal(memberEdit.body.errorCode, 'FORBIDDEN');
+    .set(auth(viewerToken))
+    .send({ title: 'Viewer cannot edit task fields.' });
+  assert.equal(viewerEdit.status, 403);
+  assert.equal(viewerEdit.body.errorCode, 'FORBIDDEN');
+  assert.equal(viewerEdit.body.message, 'Viewers cannot edit tasks.');
 
   const outsiderEdit = await request(app)
     .patch(`/api/tasks/${taskId}`)

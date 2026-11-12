@@ -11,7 +11,7 @@ fixtures/  Synthetic data
 tests/     Web tests
 e2e/       Playwright browser tests
 scripts/   Database seed and index management
-docs/      API contract and handoff notes
+docs/      Feature guide, organisations design, API contract and handoff notes
 ```
 
 ## Setup
@@ -32,33 +32,55 @@ Run `npm run dev` to serve the website and API on port 3000. The API health chec
 | `npm run db:migrate` | Applies data migrations ahead of a deploy (the API also runs them on startup; safe to repeat) |
 | `npm run seed` | Replaces every collection with the synthetic fixtures. Refuses non-local or production databases unless `-- --allow-remote-database` is passed |
 | `npm run seed:demo` | The same fixtures with dates moved to today, plus six weeks of completed tasks so the delivery forecast has history, for demos |
-| `npm run user:role -- <email> <Admin\|Lead\|Member>` | Sets a registered user's role, e.g. the first Admin of a new deployment |
+| `npm run user:role -- <email> <Admin\|Lead\|Member>` | Sets a registered user's role inside their organisation, e.g. to repair a deployment that has no Admin. (A new organisation's founder is made Admin automatically.) The last active Admin of an organisation cannot be demoted |
 
-Fixture accounts (`admin@`, `lead@`, `member@`, `viewer@`, `outsider@example.test`) share the password `Password123!`; they are synthetic and for local/test databases only.
+Fixture accounts (`admin@`, `lead@`, `member@`, `viewer@`, `outsider@example.test`) share the password `Password123!`; they are synthetic and for local/test databases only. They belong to the demo organisation **Acme Labs**, whose invite code is `ACMELABS`. A second organisation, **Northwind Studio** (`northwind-admin@example.test`, invite code `NORTHWIND`), exists to show that organisations cannot see each other.
+
+For what the app does, see the [feature guide](docs/features.md); for how organisations work, [docs/organisations.md](docs/organisations.md).
+
+## Organisations
+
+Everyone signs in on the same page. What differs is the **organisation** an account belongs to: every account and every project belongs to exactly one, and nothing crosses between organisations (another organisation's project answers *not found*, even to an Admin).
+
+- **Start one:** on *Create account*, choose *Create an organisation*. You become its Admin and land on its page, which shows the invite code.
+- **Join one:** choose *Join an organisation* and enter the invite code an Admin gave you. You join as a Member.
+- **The Organisation page** (sidebar) shows the organisation's people, projects, open and overdue work, and each project's progress. Admins see every project, plus the invite code (copy it, or replace it: the old code stops working at once) and can rename the organisation and open *Manage people*. Members see the projects they are in and the open ones, with a *Join* button.
+
+Details, the migration of existing data and the security notes are in [docs/organisations.md](docs/organisations.md).
 
 ## Roles
 
 Two layers, defined once in [`src/lib/permissions.js`](src/lib/permissions.js) and enforced by the API (the UI uses the same module, so it never offers an action the API would refuse).
 
-**Workspace role** (per account):
+**Organisation role** (per account, inside its organisation; the API and UI call it the workspace role):
 
-- **Member**: works in the projects they were added to.
-- **Lead**: can also create projects, and becomes their Owner.
-- **Admin**: everything in every project, plus the **Users** page to change roles and deactivate accounts. The last active Admin cannot be demoted.
+- **Member**: creates projects (becoming their Owner), joins open projects, and works in the projects they belong to.
+- **Lead**: the same, and can always create projects, even when an Admin limits creation to leads.
+- **Admin**: everything in every project of their organisation, plus the **Users** page to change roles, deactivate accounts and change the organisation's settings, and the invite code. The last active Admin of an organisation cannot be demoted.
+
+**Open workspace.** Like Jira's team-managed projects, anyone can start a project; an Admin can switch **Who can create projects** to *Leads and admins only*. Each project is **Private** (only people who are added can see it) or **Open** (listed under *Open projects* on the Projects page, where anyone in the organisation can join as a Member). A shared link to an open project offers a **Join project** button instead of an error. A new account starts on a getting-started screen: create a project, join an open one, or send their email to a project owner.
 
 **Project role** (per project):
 
 | | Owner | Manager | Member | Viewer |
 |---|:-:|:-:|:-:|:-:|
 | View, export, comment | ✓ | ✓ | ✓ | ✓ |
-| Move tasks between statuses | ✓ | ✓ | ✓ | |
-| Create, edit, assign and delete tasks | ✓ | ✓ | | |
-| Edit the project; add, remove and change Members and Viewers | ✓ | ✓ | | |
+| Create, edit, assign and move tasks; edit checklists | ✓ | ✓ | ✓ | |
+| Delete tasks and anyone's comments | ✓ | ✓ | | |
+| Edit the project (including Private/Open); add, remove and change Members and Viewers | ✓ | ✓ | | |
 | Grant or revoke Manager, transfer ownership, delete the project | ✓ | | | |
 
 Anyone except the Owner can leave a project. The full matrix is in [docs/backend-api-contract.md §7.5](docs/backend-api-contract.md).
 
 Changing a password signs out every other session for that account; deactivating an account signs it out everywhere and blocks sign-in until an Admin reactivates it.
+
+## Planning features
+
+- **Quick add** (project board and list): type a whole task on one line, e.g. `Draft the release notes fri !high @mina`. `!high`/`!medium`/`!low` (or `!1`–`!3`) set priority, `@name` assigns a member (first name, email name or a unique prefix; `@me` is you), and `today`, `tomorrow`, `fri`, `next week`, `in 3 days`, `nov 20` or `2026-11-20` set the due date. A preview shows what was understood before anything is created; ✕ on a piece keeps that word as plain text. Parser: [`src/lib/quick-add.js`](src/lib/quick-add.js).
+- **Checklists**: break a task into steps in the task sheet. Members tick steps off; owners and managers add and remove them. Cards show progress (`2/5`). Each change is one atomic update, so people working through the same list don't overwrite each other.
+- **Upcoming** (My tasks): open tasks as an agenda, grouped into Overdue, Today, Tomorrow, each of the next five days, Later and No due date.
+
+Quick-add syntax and the agenda follow [Vikunja](https://github.com/go-vikunja/vikunja) ("Quick Add Magic") and [Planify](https://github.com/alainm23/planify); checklists follow both.
 
 ## Delivery forecast
 

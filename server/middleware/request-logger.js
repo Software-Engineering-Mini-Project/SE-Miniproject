@@ -12,7 +12,8 @@ function requestIdFrom(request) {
 
 function routePattern(request) {
   if (!request.route) return request.path;
-  return `${request.baseUrl}${request.route.path}`;
+  // A router's root route ('/') would otherwise log as '/api/settings/'.
+  return request.route.path === '/' && request.baseUrl ? request.baseUrl : `${request.baseUrl}${request.route.path}`;
 }
 
 function targetIds(request) {

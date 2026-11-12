@@ -21,13 +21,13 @@ try {
   if (!user) {
     console.error(JSON.stringify({ event: 'user_role_change_failed', reason: 'no registered user has that email' }));
     process.exitCode = 1;
-  } else if (user.role !== 'Admin' || role === 'Admin' || await User.countDocuments({ role: 'Admin' }) > 1) {
+  } else if (user.role !== 'Admin' || role === 'Admin' || await User.countDocuments({ organisationId: user.organisationId, role: 'Admin', deactivatedAt: null }) > 1) {
     const from = user.role;
     user.role = role;
     await user.save();
     console.info(JSON.stringify({ event: 'user_role_changed', actor: 'operator-script', userId: user.id, from, to: role }));
   } else {
-    console.error(JSON.stringify({ event: 'user_role_change_failed', reason: 'cannot demote the last admin' }));
+    console.error(JSON.stringify({ event: 'user_role_change_failed', reason: 'cannot demote the last admin of the organisation' }));
     process.exitCode = 1;
   }
 } catch (error) {

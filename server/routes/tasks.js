@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { Comment, Notification, Project, Task, User } from '../models/index.js';
+import { CHECKLIST_LIMIT, CHECKLIST_TEXT_MAX } from '../models/task.js';
 import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
 import { getProjectForUser, getTaskForUser, isAdmin } from '../services/access.js';
 import { tasksToCsv } from '../utils/csv.js';
@@ -20,9 +22,9 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
-const TASK_FIELDS = '_id title description status priority dueDate completedAt projectId assigneeIds createdAt updatedAt';
-// The export leaves out descriptions (an inclusion projection can't also exclude a field).
-const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '');
+const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId assigneeIds createdAt updatedAt';
+// The export leaves out descriptions and checklists (an inclusion projection can't also exclude a field).
+const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '').replace(' checklist', '');
 
 /** Sets the status and keeps completedAt in step: stamped on entering Done, cleared on leaving. */
 function applyStatus(task, status, now) {
@@ -158,15 +160,16 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       const project = await getProjectForUser(request.user, filters.projectId);
       projectIds = [project.id];
       delete filters.projectId;
-    } else if (isAdmin(request.user)) {
-      projectIds = null;
     } else {
-      const projects = await Project.find({ memberIds: request.user.id }).select('_id').lean();
+      // Admins see every project in their organisation, everyone else the ones they are in.
+      const filter = isAdmin(request.user)
+        ? { organisationId: request.user.organisationId }
+        : { organisationId: request.user.organisationId, memberIds: request.user.id };
+      const projects = await Project.find(filter).select('_id').lean();
       projectIds = projects.map((project) => String(project._id));
     }
-    if (projectIds && projectIds.length === 0) return response.json([]);
-    const query = projectIds ? combineFilters({ projectId: { $in: projectIds } }, filters) : combineFilters({}, filters);
-    const tasks = await Task.find(query)
+    if (projectIds.length === 0) return response.json([]);
+    const tasks = await Task.find(combineFilters({ projectId: { $in: projectIds } }, filters))
       .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
@@ -203,6 +206,57 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     ]);
     await task.deleteOne();
     response.status(204).end();
+  });
+
+  // Checklist items change one at a time with atomic updates, so two people working through
+  // the same checklist never overwrite each other. Ticking an item is progress, like moving the
+  // task (task.status); adding, renaming and removing items is editing the task (task.edit).
+  const checklistResponse = (task) => ({ taskId: task.id, checklist: task.checklist, updatedAt: task.updatedAt });
+  const readItemText = (body) => readString(body, 'text', { max: CHECKLIST_TEXT_MAX, label: 'Checklist item' });
+  const itemNotFound = () => new HttpError(404, 'NOT_FOUND', 'Checklist item not found.');
+
+  router.post('/tasks/:taskId/checklist', requireAuth, async (request, response) => {
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.edit', lean: true });
+    const text = readItemText(requireObject(request.body));
+    const updated = await Task.findOneAndUpdate(
+      { _id: task._id, [`checklist.${CHECKLIST_LIMIT - 1}`]: { $exists: false } },
+      { $push: { checklist: { id: randomUUID(), text, done: false } } },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (!updated) invalid(`A task can have at most ${CHECKLIST_LIMIT} checklist items.`, { text: `A task can have at most ${CHECKLIST_LIMIT} checklist items.` });
+    response.status(201).json(checklistResponse(updated));
+  });
+
+  router.patch('/tasks/:taskId/checklist/:itemId', requireAuth, async (request, response) => {
+    const body = requireObject(request.body);
+    const changes = {};
+    if (body.done !== undefined) {
+      if (typeof body.done !== 'boolean') invalid('Done must be true or false.', { done: 'Done must be true or false.' });
+      changes['checklist.$.done'] = body.done;
+    }
+    if (body.text !== undefined) changes['checklist.$.text'] = readItemText(body);
+    if (Object.keys(changes).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide done or text to update.');
+    // Renaming needs edit rights; ticking needs status rights (which editors also have).
+    const action = body.text !== undefined ? 'task.edit' : 'task.status';
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action, lean: true });
+    const updated = await Task.findOneAndUpdate(
+      { _id: task._id, 'checklist.id': request.params.itemId },
+      { $set: changes },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (!updated) throw itemNotFound();
+    response.json(checklistResponse(updated));
+  });
+
+  router.delete('/tasks/:taskId/checklist/:itemId', requireAuth, async (request, response) => {
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.edit', lean: true });
+    const updated = await Task.findOneAndUpdate(
+      { _id: task._id, 'checklist.id': request.params.itemId },
+      { $pull: { checklist: { id: request.params.itemId } } },
+      { returnDocument: 'after' },
+    );
+    if (!updated) throw itemNotFound();
+    response.json(checklistResponse(updated));
   });
 
   router.patch('/tasks/:taskId/status', requireAuth, async (request, response) => {

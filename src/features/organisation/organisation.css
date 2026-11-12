@@ -1,0 +1,210 @@
+/* ---------- Organisation page ---------- */
+.org-admin {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 28px;
+}
+
+.org-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.org-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.org-card-title svg {
+  color: var(--ink-3);
+}
+
+.org-card-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.invite-code {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--text-lg, 1.125rem);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  user-select: all;
+}
+
+.invite-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+
+.invite-confirm p {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.invite-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.org-name-form {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
+.org-name-form .field {
+  width: 100%;
+}
+
+.org-projects {
+  margin-top: 8px;
+}
+
+.org-projects-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
+.org-projects-title {
+  margin: 0;
+  font-size: var(--text-lg, 1.125rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.org-projects-link {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.org-project-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.org-project {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.org-project-main {
+  min-width: 0;
+}
+
+.org-project-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.org-project-name {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+a.org-project-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.org-project-meta,
+.org-project-figures {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
+.org-progress-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+}
+
+.org-overdue {
+  margin-left: 10px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.org-project-side {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 5.5rem;
+}
+
+.org-role {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.org-role[data-muted] {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+
+@media (max-width: 760px) {
+  .org-admin {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .org-project {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .org-project-progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

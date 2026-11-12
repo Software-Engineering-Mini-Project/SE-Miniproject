@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
 import fixtureComments from '../../fixtures/comments.json' with { type: 'json' };
+import fixtureOrganisations from '../../fixtures/organisations.json' with { type: 'json' };
 import fixtureNotifications from '../../fixtures/notifications.json' with { type: 'json' };
 import fixtureProjects from '../../fixtures/projects.json' with { type: 'json' };
 import fixtureTasks from '../../fixtures/tasks.json' with { type: 'json' };
 import fixtureUsers from '../../fixtures/users.json' with { type: 'json' };
-import { Comment, models, Notification, Project, Task, User } from '../models/index.js';
+import { Comment, models, Notification, Organisation, Project, Task, User } from '../models/index.js';
 import { BCRYPT_COST } from './password.js';
 
 export const FIXTURE_PASSWORD = 'Password123!';
@@ -87,7 +88,10 @@ export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
   const projects = fixtureProjects.map((project) => shiftRecord(project, shiftDays));
   const users = fixtureUsers.map((user) => shiftRecord(user, shiftDays));
 
+  const organisations = fixtureOrganisations.map((organisation) => shiftRecord(organisation, shiftDays));
+
   const passwordHash = await bcrypt.hash(FIXTURE_PASSWORD, BCRYPT_COST);
+  await Organisation.insertMany(organisations.map(({ id, ...organisation }) => ({ ...organisation, _id: id })));
   await User.insertMany(users.map(({ id, ...user }) => ({
     ...user,
     _id: id,
@@ -111,5 +115,5 @@ export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
     };
   }));
 
-  return { users: users.length, projects: projects.length, tasks: tasks.length, comments: comments.length, notifications: notifications.length };
+  return { organisations: organisations.length, users: users.length, projects: projects.length, tasks: tasks.length, comments: comments.length, notifications: notifications.length };
 }

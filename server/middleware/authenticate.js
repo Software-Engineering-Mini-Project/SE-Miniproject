@@ -26,7 +26,7 @@ export function authenticate({ jwtSecret }) {
       return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
     }
 
-    const user = await User.findById(payload.sub).select('_id name email role tokenVersion deactivatedAt').lean();
+    const user = await User.findById(payload.sub).select('_id name email role organisationId tokenVersion deactivatedAt').lean();
     if (!user) return next(new HttpError(401, 'INVALID_TOKEN', 'Your session is invalid. Sign in again.'));
     if (user.deactivatedAt) {
       return next(new HttpError(401, 'ACCOUNT_DEACTIVATED', 'This account has been deactivated. Contact a workspace admin.'));
@@ -38,7 +38,7 @@ export function authenticate({ jwtSecret }) {
     delete user.tokenVersion;
 
     const id = String(user._id);
-    request.user = { id, role: user.role };
+    request.user = { id, role: user.role, organisationId: user.organisationId ?? null };
     request.authUser = { ...user, id };
     return next();
   };
