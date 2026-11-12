@@ -3,14 +3,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 14px 0 24px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) 0 var(--space-6);
 }
 
 .sheet-head-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .sheet-head-id {
@@ -24,7 +24,7 @@
 .task-key-copy {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-height: 28px;
   margin-left: -6px;
   padding: 0 6px;
@@ -55,22 +55,22 @@
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 16px 24px 28px;
+  padding: var(--space-4) var(--space-6) var(--space-7);
 }
 
 .sheet-title {
   font-size: var(--text-xl);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.02em;
   line-height: 1.2;
   overflow-wrap: anywhere;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .task-facts {
   display: grid;
   gap: 2px;
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-5);
 }
 
 .task-facts > div {
@@ -95,13 +95,13 @@
   min-height: 34px;
   padding-top: 6px;
   padding-bottom: 6px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .assignee-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
+  gap: 6px var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -123,7 +123,7 @@
 }
 
 .task-description {
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
   background: var(--surface-2);
   font-size: var(--text-sm);
@@ -132,22 +132,22 @@
 }
 
 .task-stamps {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   font-size: var(--text-xs);
   color: var(--ink-3);
 }
 
 .sheet-section-title {
   font-size: var(--text-base);
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
 
 .confirm-subject {
-  padding: 12px 14px;
+  padding: var(--space-3) var(--space-3);
   border-radius: var(--radius);
   background: var(--surface-2);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   overflow-wrap: anywhere;
 }
 
@@ -155,14 +155,14 @@
 .checklist {
   display: grid;
   gap: 10px;
-  margin-top: 24px;
+  margin-top: var(--space-6);
 }
 
 .checklist-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .checklist-progress-text {
@@ -195,9 +195,9 @@
 .checklist-item {
   display: flex;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--space-1);
   margin: 0 -8px;
-  padding: 0 0 0 8px;
+  padding: 0 0 0 var(--space-2);
   border-radius: var(--radius);
   transition: background-color var(--dur-fast) var(--ease-out);
 }
@@ -213,7 +213,7 @@
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
-  padding: 8px 0;
+  padding: var(--space-2) 0;
   font-size: var(--text-sm);
   cursor: pointer;
 }
@@ -321,13 +321,13 @@
 
 .checklist-add {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .checklist-add .input {
   min-height: 36px;
-  padding-top: 7px;
-  padding-bottom: 7px;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
 }
 
 .checklist-note {
@@ -346,21 +346,21 @@
 /* ---------- Comments ---------- */
 .comments {
   display: grid;
-  gap: 14px;
-  margin-top: 28px;
+  gap: var(--space-3);
+  margin-top: var(--space-7);
 }
 
 .comments-empty {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--ink-3);
 }
 
 .comment-list {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -378,7 +378,7 @@
 .comment-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--space-1) var(--space-2);
   align-items: baseline;
   font-size: var(--text-xs);
   color: var(--ink-3);
@@ -386,7 +386,7 @@
 
 .comment-author {
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--ink);
 }
 
@@ -399,7 +399,7 @@
 
 .comment-composer {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .comment-composer .textarea {
@@ -410,19 +410,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 /* ---------- Task form ---------- */
 .task-form {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .task-form-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 @media (max-width: 560px) {
@@ -438,7 +438,7 @@
   align-items: center;
   gap: 6px;
   min-height: 40px;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--surface);
@@ -505,8 +505,8 @@
 
 .assignee-options {
   display: grid;
-  gap: 4px;
-  margin-top: 4px;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
 }
 
 .assignee-option {
@@ -540,38 +540,73 @@
   white-space: nowrap;
 }
 
-/* ---------- Filters ---------- */
+/* ---------- Filters ----------
+   Search, then one row of compact selects sized to their labels, then the count on the right. */
 .filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .filters .input-with-icon {
-  flex: 1 1 240px;
-  max-width: 360px;
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.filters .input,
+.filters .select {
+  min-height: 40px;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.filters-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .filters .select {
   width: auto;
-  min-width: 140px;
   max-width: 200px;
+  padding-left: var(--space-3);
+  padding-right: var(--space-8);
   text-overflow: ellipsis;
 }
 
+.filters .select:has(option:checked:not([value=''])) {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+}
+
 @media (max-width: 640px) {
+  .filters {
+    display: grid;
+    gap: var(--space-2);
+  }
+
   .filters .input-with-icon {
-    flex-basis: 100%;
     max-width: none;
   }
 
-  .filters .select {
-    flex: 1 1 0;
-    width: 0;
-    min-width: 0;
-    max-width: none;
+  /* Bleeds to the screen edges and scrolls sideways, so each select shows its whole label
+     instead of being squeezed to "An…". */
+  .filters-fields {
+    flex-wrap: nowrap;
+    margin-inline: calc(-1 * var(--gutter));
+    padding-inline: var(--gutter);
+    padding-bottom: 2px;
+    overflow-x: auto;
+    scroll-padding-inline: var(--gutter);
+    scrollbar-width: none;
+  }
+
+  .filters-fields > * {
+    flex: none;
   }
 }
 
@@ -599,10 +634,10 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px 200px 150px 90px;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   width: 100%;
   min-height: 56px;
-  padding: 10px 16px;
+  padding: 10px var(--space-4);
   border: 0;
   background: transparent;
   text-align: left;
@@ -630,7 +665,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .task-row-project {
@@ -663,7 +698,7 @@
   .task-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: 'title status' 'meta meta';
-    gap: 6px 12px;
+    gap: 6px var(--space-3);
   }
 
   .task-row-title {
@@ -694,7 +729,7 @@
   align-items: center;
   gap: 10px;
   min-height: 46px;
-  padding: 0 6px 0 14px;
+  padding: 0 6px 0 var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -728,7 +763,7 @@
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: 16px; /* no iOS zoom */
+  font-size: var(--text-base); /* 16px: no iOS zoom */
   color: var(--ink);
   outline: none;
 }
@@ -779,41 +814,40 @@
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
 }
 
+/* A quiet line of syntax, not a row of key caps (issue #80). */
 .quick-add-help {
+  padding-left: var(--space-1);
   font-size: var(--text-xs);
   color: var(--ink-3);
 }
 
 .quick-add-help kbd {
-  padding: 1px 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface);
-  font-family: inherit;
-  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  font-weight: var(--weight-semibold);
   color: var(--ink-2);
 }
 
 .quick-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   height: 26px;
-  padding: 0 4px 0 9px;
+  padding: 0 var(--space-1) 0 var(--space-2);
   border-radius: var(--radius-full);
   background: var(--accent-soft);
   color: var(--accent-hover);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   white-space: nowrap;
   animation: quick-chip-in var(--dur-fast) var(--ease-out);
 }
 
 .quick-chip[data-kind='unknown'] {
-  padding-right: 9px;
+  padding-right: var(--space-2);
   background: var(--status-progress-soft);
   color: var(--status-progress);
 }
@@ -850,7 +884,7 @@
 }
 
 .quick-add-error {
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   font-size: var(--text-xs);
   color: var(--danger);
 }
@@ -862,28 +896,22 @@
 }
 
 /* ---------- Upcoming agenda (My tasks) ---------- */
-.toolbar-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .agenda {
   display: grid;
-  gap: 22px;
+  gap: var(--space-6);
 }
 
 .agenda-day {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .agenda-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
   letter-spacing: -0.005em;
 }
 
@@ -893,12 +921,12 @@
 
 .agenda-count {
   min-width: 22px;
-  padding: 0 7px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-full);
   background: var(--surface-3);
   color: var(--ink-2);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 20px;
   text-align: center;
 }
@@ -916,7 +944,7 @@
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  padding: 4px 6px;
+  padding: var(--space-1) 6px;
   margin: -4px -6px;
   border: 0;
   border-radius: var(--radius-sm);
@@ -955,17 +983,20 @@
 
 .epic-items {
   display: grid;
+  /* minmax(0, 1fr): a long item title truncates instead of widening the sheet past a phone screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  margin-top: 20px;
+  margin-top: var(--space-5);
 }
 
 .epic-items-title {
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .epic-items-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
   padding: 0;
@@ -976,35 +1007,36 @@
   display: flex;
   width: 100%;
   margin: 0;
-  padding: 8px;
+  padding: var(--space-2);
 }
 
 .epic-item-title {
   flex: 1;
+  min-width: 0;
 }
 
 /* ---------- Comments / Activity tabs and the history list ---------- */
 .sheet-discussion {
   display: grid;
-  gap: 12px;
-  margin-top: 24px;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
 }
 
 .sheet-tabs {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   border-bottom: 1px solid var(--line);
 }
 
 .sheet-tab {
   position: relative;
-  padding: 8px 10px;
+  padding: var(--space-2) 10px;
   border: 0;
   background: transparent;
   color: var(--ink-3);
   font: inherit;
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   cursor: pointer;
 }
 
@@ -1029,13 +1061,17 @@
   border-radius: var(--radius-sm);
 }
 
+.sheet-tabpanel {
+  animation: rise-in var(--dur-base) var(--ease-out);
+}
+
 .sheet-tabpanel > .comments {
   margin-top: 0;
 }
 
 .activity-list {
   display: grid;
-  gap: 14px;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1057,7 +1093,7 @@
 
 .activity-text strong {
   color: var(--ink);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .activity-time {
@@ -1066,6 +1102,6 @@
 }
 
 .activity-more {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   font-size: var(--text-xs);
 }

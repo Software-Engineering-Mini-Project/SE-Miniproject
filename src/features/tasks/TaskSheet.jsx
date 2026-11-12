@@ -70,7 +70,7 @@ function DiscussionTabs({ task, members, permissions }) {
           </button>
         ))}
       </div>
-      <div role="tabpanel" id={`${id}-panel-${tab}`} aria-labelledby={`${id}-tab-${tab}`} className="sheet-tabpanel">
+      <div key={tab} role="tabpanel" id={`${id}-panel-${tab}`} aria-labelledby={`${id}-tab-${tab}`} className="sheet-tabpanel">
         {tab === 'comments' ? (
           <CommentThread taskId={task.id} canComment={permissions.comment} canModerate={permissions.moderate} />
         ) : (

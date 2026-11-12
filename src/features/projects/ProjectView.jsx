@@ -415,31 +415,33 @@ export function ProjectView({ projectId }) {
         {tasks.data ? <SummaryStrip tasks={tasks.data} /> : null}
 
         <div className="project-toolbar">
-          <TaskFilters filters={filters} onChange={setFilters} members={p.members} labels={workItems.labels} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
-          {activeSprint && (view === 'board' || view === 'list') ? (
-            <div className="view-toggle" role="group" aria-label="Show">
-              <button type="button" aria-pressed={!sprintOnly} onClick={() => setSprintOnly(false)}>
-                All tasks
+          <div className="toolbar-row">
+            <div className="view-toggle" role="group" aria-label="View">
+              <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
+                <KanbanSquare size={16} aria-hidden="true" /> Board
               </button>
-              <button type="button" aria-pressed={sprintOnly} onClick={() => setSprintOnly(true)} title={activeSprint.name}>
-                Active sprint
+              <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
+                <List size={16} aria-hidden="true" /> List
+              </button>
+              <button type="button" aria-pressed={view === 'backlog'} onClick={() => changeView('backlog')}>
+                <Rows3 size={16} aria-hidden="true" /> Backlog
+              </button>
+              <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
+                <BarChart3 size={16} aria-hidden="true" /> Insights
               </button>
             </div>
-          ) : null}
-          <div className="view-toggle" role="group" aria-label="View">
-            <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
-              <KanbanSquare size={16} aria-hidden="true" /> Board
-            </button>
-            <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
-              <List size={16} aria-hidden="true" /> List
-            </button>
-            <button type="button" aria-pressed={view === 'backlog'} onClick={() => changeView('backlog')}>
-              <Rows3 size={16} aria-hidden="true" /> Backlog
-            </button>
-            <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
-              <BarChart3 size={16} aria-hidden="true" /> Insights
-            </button>
+            {activeSprint && (view === 'board' || view === 'list') ? (
+              <div className="view-toggle" role="group" aria-label="Show">
+                <button type="button" aria-pressed={!sprintOnly} onClick={() => setSprintOnly(false)}>
+                  All tasks
+                </button>
+                <button type="button" aria-pressed={sprintOnly} onClick={() => setSprintOnly(true)} title={activeSprint.name}>
+                  Active sprint
+                </button>
+              </div>
+            ) : null}
           </div>
+          <TaskFilters filters={filters} onChange={setFilters} members={p.members} labels={workItems.labels} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
         </div>
 
         {canCreateTask && tasks.data && view !== 'insights' ? (
@@ -456,57 +458,60 @@ export function ProjectView({ projectId }) {
 
         {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
         {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
-        {tasks.error && !tasks.data ? (
-          <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
-        ) : !tasks.data ? (
-          <div className="board">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} height={360} radius="var(--radius-lg)" />
-            ))}
-          </div>
-        ) : tasks.data.length === 0 ? (
-          <EmptyState
-            title="No tasks yet"
-            action={
-              canCreateTask ? (
-                <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
-                  <Plus size={16} /> Create the first task
-                </Button>
-              ) : null
-            }
-          >
-            {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
-          </EmptyState>
-        ) : view === 'backlog' ? (
-          sprints.error && !sprints.data ? (
-            <ErrorState error={sprints.error} title="Sprints did not load" onRetry={sprints.reload} />
-          ) : !sprints.data ? (
-            <Skeleton height={240} radius="var(--radius-lg)" />
+        {/* Keyed by the view so switching views replays the short rise-in (globals.css). */}
+        <div className="view-pane" key={view}>
+          {tasks.error && !tasks.data ? (
+            <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
+          ) : !tasks.data ? (
+            <div className="board">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} height={360} radius="var(--radius-lg)" />
+              ))}
+            </div>
+          ) : tasks.data.length === 0 ? (
+            <EmptyState
+              title="No tasks yet"
+              action={
+                canCreateTask ? (
+                  <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
+                    <Plus size={16} /> Create the first task
+                  </Button>
+                ) : null
+              }
+            >
+              {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
+            </EmptyState>
+          ) : view === 'backlog' ? (
+            sprints.error && !sprints.data ? (
+              <ErrorState error={sprints.error} title="Sprints did not load" onRetry={sprints.reload} />
+            ) : !sprints.data ? (
+              <Skeleton height={240} radius="var(--radius-lg)" />
+            ) : (
+              <BacklogView
+                project={p}
+                tasks={filteredTasks}
+                allTasks={tasks.data}
+                sprints={sprints.data}
+                members={p.members}
+                today={localToday()}
+                canPlan={allowed('task.edit')}
+                canManage={allowed('sprint.manage')}
+                onPlan={planTask}
+                onOpen={openTask}
+                onSprintsChange={sprints.setData}
+                filtered={hasActiveFilters(filters)}
+              />
+            )
+          ) : view === 'insights' ? (
+            <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} sprints={sprints.data ?? []} onOpenTask={openTask} />
+          ) : view === 'board' ? (
+            <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
+          ) : visibleTasks.length ? (
+            <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
           ) : (
-            <BacklogView
-              project={p}
-              tasks={filteredTasks}
-              allTasks={tasks.data}
-              sprints={sprints.data}
-              members={p.members}
-              today={localToday()}
-              canPlan={allowed('task.edit')}
-              canManage={allowed('sprint.manage')}
-              onPlan={planTask}
-              onOpen={openTask}
-              onSprintsChange={sprints.setData}
-              filtered={hasActiveFilters(filters)}
-            />
-          )
-        ) : view === 'insights' ? (
-          <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} sprints={sprints.data ?? []} onOpenTask={openTask} />
-        ) : view === 'board' ? (
-          <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
-        ) : visibleTasks.length ? (
-          <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
-        ) : (
-          <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
-        )}
+            <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
+          )}
+        </div>
 
         <TaskSheet
           key={selectedTask?.id || 'no-task'}

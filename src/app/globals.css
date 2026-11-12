@@ -65,8 +65,17 @@
   --danger-soft-hover: #f6d3cf;
   --success: #16723a;
 
-  /* Type */
+  /* Project colour dots (the other seeds reuse status and ink tokens) */
+  --project-teal: #145d70;
+
+  /* Type: one sans and one mono family, four weights, one size scale (issue #80) */
   --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -75,7 +84,22 @@
   --text-2xl: 2rem;
   --text-display: clamp(2.5rem, 6vw, 4.75rem);
 
-  /* Space and shape */
+  /* Space: a 4px grid. Spacing uses these steps; 1px, 2px, 6px and 10px remain only as optical
+     half-steps inside small chips and controls. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-11: 44px;
+  --space-12: 48px;
+
+  /* Shape */
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -149,6 +173,8 @@
     --danger-soft: #3d1d1b;
     --danger-soft-hover: #4d2421;
     --success: #62d394;
+
+    --project-teal: #3c9db5;
 
     --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.5);
     --shadow-drag: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 32px rgb(0 0 0 / 0.6);
@@ -247,17 +273,33 @@ svg {
   left: 12px;
   top: -48px;
   z-index: 100;
-  padding: 10px 14px;
+  padding: 10px var(--space-3);
   border-radius: var(--radius);
   background: var(--ink);
   color: var(--ink-inverse);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--dur-fast) var(--ease-out);
 }
 
 .skip-link:focus-visible {
   transform: translateY(60px);
+}
+
+/*
+ * Content entering: a view's content when it mounts or the view changes, and a task sheet's
+ * tab panel. Movement only, no fade, so nothing is ever drawn at partial opacity (an
+ * accessibility scan mid-animation would read that as low contrast). Short enough not to delay
+ * anyone; removed under reduced motion by the rule below.
+ */
+@keyframes rise-in {
+  from {
+    transform: translateY(6px);
+  }
+}
+
+.view-pane > :not(.skeleton) {
+  animation: rise-in var(--dur-base) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {

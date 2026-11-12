@@ -104,6 +104,34 @@ for (const [name, viewport] of Object.entries(VIEWPORTS)) {
       await expectAccessible(page, 'Upcoming agenda');
     });
 
+    // Issue #80: the redesigned toolbar and every project view, in the light theme and then the
+    // dark one, at this width.
+    test('project views and the task sheet, light and dark', async ({ page }) => {
+      test.slow();
+      await signIn(page);
+      for (const scheme of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.goto(PROJECT_PATH);
+        await settle(page);
+        for (const view of ['Board', 'List', 'Backlog', 'Insights']) {
+          const button = page.getByRole('group', { name: 'View' }).getByRole('button', { name: view });
+          await button.click();
+          await expect(button).toHaveAttribute('aria-pressed', 'true');
+          await expect(page.locator('.skeleton')).toHaveCount(0);
+          if (view === 'Backlog') await expect(page.getByRole('region', { name: /^Backlog/ })).toBeVisible();
+          await expectAccessible(page, `${view} (${scheme})`);
+        }
+        if (scheme === 'dark') {
+          await page.goto('/dashboard');
+          await settle(page);
+          await expectAccessible(page, 'Dashboard (dark)');
+        }
+        await page.goto('/browse/ALPHA-5');
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await expectAccessible(page, `Task sheet (${scheme})`);
+      }
+    });
+
     test('getting started, open projects and the project form', async ({ page }) => {
       // The outsider is in no project, so Projects shows the getting-started screen.
       await signIn(page, 'outsider@example.test');
