@@ -48,6 +48,13 @@
   --priority-medium: #a54d07;
   --priority-low: #5f636c;
 
+  /* Work-item types (always shown with an icon and a name, never colour alone) */
+  --type-task: #2350e6;
+  --type-bug: #b3261e;
+  --type-story: #16723a;
+  --type-epic: #6b3fc4;
+  --type-epic-soft: #efe9fb;
+
   --danger: #b3261e;
   --danger-soft: #fbe5e3;
   --success: #16723a;

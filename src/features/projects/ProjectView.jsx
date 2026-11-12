@@ -30,6 +30,7 @@ import { TaskForm } from '@/features/tasks/TaskForm';
 import { TaskList } from '@/features/tasks/TaskList';
 import { QuickAdd } from '@/features/tasks/QuickAdd';
 import { TaskSheet } from '@/features/tasks/TaskSheet';
+import { WorkItemContext, buildWorkItemIndex } from '@/features/tasks/work-item-context';
 import { MembersDialog } from './MembersDialog';
 import { ProjectInsights } from './ProjectInsights';
 import { ProjectFormDialog } from './ProjectFormDialog';
@@ -217,6 +218,8 @@ export function ProjectView({ projectId }) {
   // The forecast always uses every task in the project (filters only change what is shown).
   const forecast = useMemo(() => (tasks.data ? forecastProject(tasks.data, { today: localToday() }) : null), [tasks.data]);
   const membersById = useMemo(() => new Map((project.data?.members || []).map((m) => [m.id, m])), [project.data]);
+  // Epics, their items and the project's labels, for cards, rows, the form and the sheet.
+  const workItems = useMemo(() => buildWorkItemIndex(tasks.data || []), [tasks.data]);
 
   // Optimistic status change with rollback (TM-F-012, TM-F-023).
   const moveTask = useCallback(
@@ -296,6 +299,8 @@ export function ProjectView({ projectId }) {
         status: filters.status || undefined,
         priority: filters.priority || undefined,
         assigneeId: filters.assigneeId || undefined,
+        type: filters.type || undefined,
+        label: filters.label || undefined,
       });
       const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project';
       downloadText(`${slug}-tasks.csv`, csv, 'text/csv;charset=utf-8', { bom: true });
@@ -321,213 +326,217 @@ export function ProjectView({ projectId }) {
   };
 
   return (
-    <div className="project">
-      <header className="project-header">
-        <div className="project-heading">
-          <div className="project-title-row">
-            <h1 className="page-title">{p.name}</h1>
-            {p.key ? (
-              <span className="project-key" title="Project key: tasks are numbered with it">
-                <span className="visually-hidden">Key </span>
-                {p.key}
-              </span>
-            ) : null}
-            <VisibilityBadge visibility={p.visibility} />
-            {myRole ? (
-              <span className="role-badge" data-role={myRole.toLowerCase()} title="Your role in this project">
-                {myRole === 'Admin' ? 'Admin access' : myRole}
-              </span>
-            ) : null}
+    <WorkItemContext value={workItems}>
+      <div className="project">
+        <header className="project-header">
+          <div className="project-heading">
+            <div className="project-title-row">
+              <h1 className="page-title">{p.name}</h1>
+              {p.key ? (
+                <span className="project-key" title="Project key: tasks are numbered with it">
+                  <span className="visually-hidden">Key </span>
+                  {p.key}
+                </span>
+              ) : null}
+              <VisibilityBadge visibility={p.visibility} />
+              {myRole ? (
+                <span className="role-badge" data-role={myRole.toLowerCase()} title="Your role in this project">
+                  {myRole === 'Admin' ? 'Admin access' : myRole}
+                </span>
+              ) : null}
+            </div>
+            {p.description ? <p className="page-description">{p.description}</p> : null}
           </div>
-          {p.description ? <p className="page-description">{p.description}</p> : null}
-        </div>
-        <div className="page-actions">
-          {/* Named by its content, not aria-label, so the visible initials need not be in the name (WCAG 2.5.3). */}
-          <button type="button" className="members-button" onClick={() => setMembersOpen(true)}>
-            <AvatarStack users={p.members} max={4} decorative />
-            <Users size={15} aria-hidden="true" />
-            <span className="tabular" aria-hidden="true">
-              {p.members.length}
-            </span>
-            <span className="visually-hidden">Members: {p.members.length}</span>
-          </button>
-          <Button onClick={handleExport} loading={exporting}>
-            <Download size={16} /> Export CSV
-          </Button>
-          {canCreateTask ? (
-            <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
-              <Plus size={16} /> New task
+          <div className="page-actions">
+            {/* Named by its content, not aria-label, so the visible initials need not be in the name (WCAG 2.5.3). */}
+            <button type="button" className="members-button" onClick={() => setMembersOpen(true)}>
+              <AvatarStack users={p.members} max={4} decorative />
+              <Users size={15} aria-hidden="true" />
+              <span className="tabular" aria-hidden="true">
+                {p.members.length}
+              </span>
+              <span className="visually-hidden">Members: {p.members.length}</span>
+            </button>
+            <Button onClick={handleExport} loading={exporting}>
+              <Download size={16} /> Export CSV
             </Button>
-          ) : null}
-          <Menu
-            trigger={<Button iconOnly aria-label="Project options" />}
-            triggerContent={<MoreHorizontal size={16} />}
-            items={menuItems}
-          />
-        </div>
-      </header>
-
-      {tasks.data ? <SummaryStrip tasks={tasks.data} /> : null}
-
-      <div className="project-toolbar">
-        <TaskFilters filters={filters} onChange={setFilters} members={p.members} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
-        <div className="view-toggle" role="group" aria-label="View">
-          <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
-            <KanbanSquare size={16} aria-hidden="true" /> Board
-          </button>
-          <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
-            <List size={16} aria-hidden="true" /> List
-          </button>
-          <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
-            <BarChart3 size={16} aria-hidden="true" /> Insights
-          </button>
-        </div>
-      </div>
-
-      {canCreateTask && tasks.data && view !== 'insights' ? (
-        <QuickAdd
-          projectId={p.id}
-          members={assignable}
-          currentUserId={user?.id}
-          onCreated={(created) => {
-            tasks.setData((list) => [...(list || []), created]);
-            toast.success(`Added "${created.title}".`, { action: { label: 'Open', onClick: () => openTask(created.id) } });
-          }}
-        />
-      ) : null}
-
-      {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
-      {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
-      {tasks.error && !tasks.data ? (
-        <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
-      ) : !tasks.data ? (
-        <div className="board">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={360} radius="var(--radius-lg)" />
-          ))}
-        </div>
-      ) : tasks.data.length === 0 ? (
-        <EmptyState
-          title="No tasks yet"
-          action={
-            canCreateTask ? (
+            {canCreateTask ? (
               <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
-                <Plus size={16} /> Create the first task
+                <Plus size={16} /> New task
               </Button>
-            ) : null
-          }
-        >
-          {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
-        </EmptyState>
-      ) : view === 'insights' ? (
-        <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} onOpenTask={openTask} />
-      ) : view === 'board' ? (
-        <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
-      ) : visibleTasks.length ? (
-        <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
-      ) : (
-        <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
-      )}
+            ) : null}
+            <Menu
+              trigger={<Button iconOnly aria-label="Project options" />}
+              triggerContent={<MoreHorizontal size={16} />}
+              items={menuItems}
+            />
+          </div>
+        </header>
 
-      <TaskSheet
-        key={selectedTask?.id || 'no-task'}
-        task={selectedTask}
-        members={p.members}
-        assignable={assignable}
-        risk={selectedTask ? forecast?.risk.get(selectedTask.id) : undefined}
-        permissions={{
-          edit: allowed('task.edit'),
-          remove: allowed('task.delete'),
-          status: allowed('task.status'),
-          comment: allowed('comment.create'),
-          moderate: allowed('comment.moderate'),
-        }}
-        open={Boolean(selectedTask)}
-        onOpenChange={(open) => !open && closeTask()}
-        onStatusChange={moveTask}
-        onUpdated={(updated) => {
-          tasks.setData((list) => list.map((t) => (t.id === updated.id ? updated : t)));
-          loadUnread();
-        }}
-        onDeleted={(taskId) => {
-          closeTask();
-          tasks.setData((list) => list.filter((t) => t.id !== taskId));
-        }}
-        onChecklistChange={(taskId, checklist, updatedAt) => {
-          tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, checklist, updatedAt: updatedAt || t.updatedAt } : t)));
-        }}
-      />
+        {tasks.data ? <SummaryStrip tasks={tasks.data} /> : null}
 
-      <Modal open={Boolean(createStatus)} onOpenChange={(open) => !open && setCreateStatus(null)} title="New task" description={`Adds a task to ${p.name}.`}>
-        {createStatus ? (
-          <TaskForm
-            initial={{ status: createStatus }}
+        <div className="project-toolbar">
+          <TaskFilters filters={filters} onChange={setFilters} members={p.members} labels={workItems.labels} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
+          <div className="view-toggle" role="group" aria-label="View">
+            <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
+              <KanbanSquare size={16} aria-hidden="true" /> Board
+            </button>
+            <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
+              <List size={16} aria-hidden="true" /> List
+            </button>
+            <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
+              <BarChart3 size={16} aria-hidden="true" /> Insights
+            </button>
+          </div>
+        </div>
+
+        {canCreateTask && tasks.data && view !== 'insights' ? (
+          <QuickAdd
+            projectId={p.id}
             members={assignable}
-            submitLabel="Create task"
-            onCancel={() => setCreateStatus(null)}
-            onSubmit={async (payload) => {
-              const created = await api.tasks.create(p.id, payload);
+            currentUserId={user?.id}
+            onCreated={(created) => {
               tasks.setData((list) => [...(list || []), created]);
-              setCreateStatus(null);
-              toast.success('Task created.', { action: { label: 'Open', onClick: () => openTask(created.id) } });
+              toast.success(`Added "${created.title}".`, { action: { label: 'Open', onClick: () => openTask(created.id) } });
             }}
           />
         ) : null}
-      </Modal>
 
-      <MembersDialog
-        open={membersOpen}
-        onOpenChange={setMembersOpen}
-        project={p}
-        onMembersChange={(members, { removedId, unassignedId } = {}) => {
-          // Someone who leaves (or removes themselves) loses access; admins keep it.
-          if (removedId && removedId === user?.id && user.role !== 'Admin') {
-            removeProject(p.id);
-            setMembersOpen(false);
-            toast.success(`You left ${p.name}.`);
-            router.replace('/projects');
-            return;
-          }
-          const next = {
-            ...p,
-            members,
-            memberIds: members.map((m) => m.id),
-            ownerId: members.find((m) => m.projectRole === 'Owner')?.id ?? p.ownerId,
-            managerIds: members.filter((m) => m.projectRole === 'Manager').map((m) => m.id),
-            viewerIds: members.filter((m) => m.projectRole === 'Viewer').map((m) => m.id),
-          };
-          project.setData(next);
-          upsertProject(next);
-          const dropped = removedId || unassignedId;
-          if (dropped) tasks.setData((list) => list.map((t) => ({ ...t, assigneeIds: t.assigneeIds.filter((id) => id !== dropped) })));
-        }}
-      />
+        {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
+        {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
+        {tasks.error && !tasks.data ? (
+          <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
+        ) : !tasks.data ? (
+          <div className="board">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} height={360} radius="var(--radius-lg)" />
+            ))}
+          </div>
+        ) : tasks.data.length === 0 ? (
+          <EmptyState
+            title="No tasks yet"
+            action={
+              canCreateTask ? (
+                <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
+                  <Plus size={16} /> Create the first task
+                </Button>
+              ) : null
+            }
+          >
+            {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
+          </EmptyState>
+        ) : view === 'insights' ? (
+          <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} onOpenTask={openTask} />
+        ) : view === 'board' ? (
+          <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
+        ) : visibleTasks.length ? (
+          <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
+        ) : (
+          <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
+        )}
 
-      <ProjectFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        project={p}
-        canEditKey={allowed('project.key')}
-        onSubmit={async (input) => {
-          const updated = await api.projects.update(p.id, input);
-          project.setData(updated);
-          upsertProject(updated);
-          // A new key renames every task key; api.projects.update invalidates the task list, so it refetches.
-          toast.success(input.key ? `Project updated. Tasks are now ${updated.key}-1, ${updated.key}-2 …` : 'Project updated.');
-        }}
-      />
+        <TaskSheet
+          key={selectedTask?.id || 'no-task'}
+          task={selectedTask}
+          members={p.members}
+          assignable={assignable}
+          risk={selectedTask ? forecast?.risk.get(selectedTask.id) : undefined}
+          permissions={{
+            edit: allowed('task.edit'),
+            remove: allowed('task.delete'),
+            status: allowed('task.status'),
+            comment: allowed('comment.create'),
+            moderate: allowed('comment.moderate'),
+          }}
+          open={Boolean(selectedTask)}
+          onOpenChange={(open) => !open && closeTask()}
+          onStatusChange={moveTask}
+          onUpdated={(updated) => {
+            tasks.setData((list) => list.map((t) => (t.id === updated.id ? updated : t)));
+            loadUnread();
+          }}
+          onDeleted={(taskId) => {
+            closeTask();
+            // Deleting an epic keeps its items, now outside any epic (as the API does).
+            tasks.setData((list) => list.filter((t) => t.id !== taskId).map((t) => (t.epicId === taskId ? { ...t, epicId: null } : t)));
+          }}
+          onOpenTask={openTask}
+          onChecklistChange={(taskId, checklist, updatedAt) => {
+            tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, checklist, updatedAt: updatedAt || t.updatedAt } : t)));
+          }}
+        />
 
-      <Modal open={deleteOpen} onOpenChange={setDeleteOpen} title="Delete this project?" description="All of its tasks, comments and notifications are deleted. This cannot be undone.">
-        <p className="confirm-subject">{p.name}</p>
-        <div className="dialog-actions">
-          <Button variant="ghost" onClick={() => setDeleteOpen(false)}>
-            Keep project
-          </Button>
-          <Button variant="danger" loading={deleting} onClick={handleDeleteProject}>
-            Delete project
-          </Button>
-        </div>
-      </Modal>
-    </div>
+        <Modal open={Boolean(createStatus)} onOpenChange={(open) => !open && setCreateStatus(null)} title="New task" description={`Adds a task to ${p.name}.`}>
+          {createStatus ? (
+            <TaskForm
+              initial={{ status: createStatus }}
+              members={assignable}
+              submitLabel="Create task"
+              onCancel={() => setCreateStatus(null)}
+              onSubmit={async (payload) => {
+                const created = await api.tasks.create(p.id, payload);
+                tasks.setData((list) => [...(list || []), created]);
+                setCreateStatus(null);
+                toast.success('Task created.', { action: { label: 'Open', onClick: () => openTask(created.id) } });
+              }}
+            />
+          ) : null}
+        </Modal>
+
+        <MembersDialog
+          open={membersOpen}
+          onOpenChange={setMembersOpen}
+          project={p}
+          onMembersChange={(members, { removedId, unassignedId } = {}) => {
+            // Someone who leaves (or removes themselves) loses access; admins keep it.
+            if (removedId && removedId === user?.id && user.role !== 'Admin') {
+              removeProject(p.id);
+              setMembersOpen(false);
+              toast.success(`You left ${p.name}.`);
+              router.replace('/projects');
+              return;
+            }
+            const next = {
+              ...p,
+              members,
+              memberIds: members.map((m) => m.id),
+              ownerId: members.find((m) => m.projectRole === 'Owner')?.id ?? p.ownerId,
+              managerIds: members.filter((m) => m.projectRole === 'Manager').map((m) => m.id),
+              viewerIds: members.filter((m) => m.projectRole === 'Viewer').map((m) => m.id),
+            };
+            project.setData(next);
+            upsertProject(next);
+            const dropped = removedId || unassignedId;
+            if (dropped) tasks.setData((list) => list.map((t) => ({ ...t, assigneeIds: t.assigneeIds.filter((id) => id !== dropped) })));
+          }}
+        />
+
+        <ProjectFormDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          project={p}
+          canEditKey={allowed('project.key')}
+          onSubmit={async (input) => {
+            const updated = await api.projects.update(p.id, input);
+            project.setData(updated);
+            upsertProject(updated);
+            // A new key renames every task key; api.projects.update invalidates the task list, so it refetches.
+            toast.success(input.key ? `Project updated. Tasks are now ${updated.key}-1, ${updated.key}-2 …` : 'Project updated.');
+          }}
+        />
+
+        <Modal open={deleteOpen} onOpenChange={setDeleteOpen} title="Delete this project?" description="All of its tasks, comments and notifications are deleted. This cannot be undone.">
+          <p className="confirm-subject">{p.name}</p>
+          <div className="dialog-actions">
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>
+              Keep project
+            </Button>
+            <Button variant="danger" loading={deleting} onClick={handleDeleteProject}>
+              Delete project
+            </Button>
+          </div>
+        </Modal>
+      </div>
+    </WorkItemContext>
   );
 }

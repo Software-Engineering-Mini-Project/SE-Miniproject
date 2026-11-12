@@ -153,6 +153,33 @@
   color: var(--ink-2);
 }
 
+/* An epic card carries a thin epic-coloured edge; items show which epic they belong to. */
+.task-card[data-type='epic'] {
+  box-shadow: inset 3px 0 0 var(--type-epic);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .task-card[data-type='epic']:hover {
+    box-shadow: inset 3px 0 0 var(--type-epic), 0 0 0 1px var(--line);
+  }
+}
+
+.task-card-epic {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--type-epic);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.task-card-epic-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .task-card-meta {
   display: flex;
   align-items: center;

@@ -551,6 +551,10 @@ describe('task creation, search, and board', () => {
       priority: 'High',
       dueDate: '2026-11-01',
       assigneeIds: [member.id],
+      type: 'Task',
+      storyPoints: null,
+      labels: [],
+      epicId: null,
     }));
   });
 
@@ -612,7 +616,7 @@ describe('task creation, search, and board', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ...filters, q: 'release' });
     rerender(h(TaskFilters, { filters: { ...filters, q: 'release' }, onChange, members: [member], resultCount: 1 }));
     await user.click(screen.getByRole('button', { name: /Clear/ }));
-    expect(onChange).toHaveBeenLastCalledWith({ q: '', status: '', priority: '', assigneeId: '' });
+    expect(onChange).toHaveBeenLastCalledWith({ q: '', status: '', priority: '', assigneeId: '', type: '', label: '' });
     expect(screen.getByText('1 task')).toBeInTheDocument();
   });
 

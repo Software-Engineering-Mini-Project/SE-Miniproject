@@ -1,7 +1,7 @@
 // Work-item keys (issue #73), end to end: the fixture tasks read as ALPHA-1.., a key search finds
 // one task, the sheet shows the key, and an owner's own project gets a key, numbers its tasks and
-// keeps old links working after the key changes. Leaves the shared fixtures as it found them: the
-// project it creates is deleted at the end.
+// keeps old links working after the key changes; and (issue #74) types, points, labels and epics.
+// Leaves the shared fixtures as it found them: what it creates is deleted at the end.
 import { expect, test } from '@playwright/test';
 
 const PASSWORD = 'Password123!';
@@ -79,4 +79,52 @@ test('a new project gets a key, numbers its tasks, and old links survive a key c
   await page.getByRole('menuitem', { name: 'Delete project' }).click();
   await page.getByRole('button', { name: 'Delete project' }).click();
   await expect(page).toHaveURL(/\/projects$/);
+});
+
+// Issue #74: types, story points, labels and epics. Adds one task to Alpha and deletes it again.
+test('types, points, labels and epics: filter, quick add, move into an epic', async ({ page }) => {
+  const title = `Drop zone flickers ${Date.now()}`;
+  await signIn(page, 'lead@example.test');
+  await page.goto('/projects/project-alpha');
+
+  const epicCard = page.locator('.task-card[data-type="epic"]').filter({ hasText: 'Build the project board columns' });
+  await expect(epicCard.getByRole('progressbar', { name: 'Epic progress' })).toBeVisible();
+  await expect(page.locator('.task-card').filter({ hasText: 'Keyboard support for moving board cards' }).locator('.task-card-epic')).toHaveText(/Build the project board columns/);
+
+  const filters = page.getByRole('search', { name: 'Filter tasks' });
+  await filters.getByLabel('Type').selectOption('Bug');
+  await expect(page.locator('.task-card')).toHaveCount(1);
+  await expect(page.locator('.task-card')).toContainText('Export check');
+  await filters.getByLabel('Type').selectOption('');
+  await filters.getByLabel('Label').selectOption('accessibility');
+  await expect(page.locator('.task-card')).toHaveCount(1);
+  await expect(page.locator('.task-card')).toContainText('Keyboard support for moving board cards');
+  await filters.getByRole('button', { name: /Clear/ }).click();
+
+  const quickAdd = page.getByRole('textbox', { name: 'Quick add a task' });
+  await quickAdd.fill(`${title} #bug #e2e 5pts`);
+  await expect(page.locator('.quick-chip[data-kind="type"]')).toHaveText(/Bug/);
+  await quickAdd.press('Enter');
+  await expect(quickAdd).toHaveValue('');
+  const card = toDo(page).locator('.task-card').filter({ hasText: title });
+  await expect(card).toHaveAttribute('data-type', 'bug');
+  await expect(card.getByText('5 story points')).toBeAttached();
+  await expect(card.locator('.label-chip')).toHaveText('e2e');
+
+  // Put the bug into the epic from the task sheet; the epic then lists it.
+  await card.click();
+  const sheet = page.getByRole('dialog');
+  await sheet.getByRole('button', { name: 'Edit' }).click();
+  await sheet.getByLabel('Epic').selectOption({ label: 'ALPHA-4 Build the project board columns' });
+  await sheet.getByRole('button', { name: 'Save changes' }).click();
+  await sheet.getByRole('button', { name: /Build the project board columns/ }).click();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Build the project board columns' })).toBeVisible();
+  const items = page.getByRole('region', { name: 'Items in this epic' });
+  await expect(items.getByRole('button', { name: new RegExp(title) })).toBeVisible();
+
+  // Clean up: delete the bug.
+  await items.getByRole('button', { name: new RegExp(title) }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete task' }).click();
+  await page.getByRole('dialog', { name: 'Delete this task?' }).getByRole('button', { name: 'Delete task' }).click();
+  await expect(page.locator('.task-card').filter({ hasText: title })).toHaveCount(0);
 });

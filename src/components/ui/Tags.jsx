@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronsUp, ChevronUp, Gauge, Globe, Lock, Minus } from 'lucide-react';
+import { Bookmark, Bug, CalendarClock, ChevronsUp, ChevronUp, Gauge, Globe, Lock, Minus, SquareCheckBig, Zap } from 'lucide-react';
 import { PRIORITY_META, STATUS_META } from '@/lib/constants';
 import { daysUntil, formatDue, isOverdue } from '@/lib/format';
 
@@ -61,6 +61,81 @@ export function DueTag({ task }) {
 export function TaskKey({ value }) {
   if (!value) return null;
   return <span className="task-key">{value}</span>;
+}
+
+const TYPE_ICON = { Task: SquareCheckBig, Bug, Story: Bookmark, Epic: Zap };
+
+/**
+ * A work item's type as its icon; the name is in the tooltip and for screen readers, or shown
+ * with `showLabel`.
+ */
+export function TypeIcon({ type, showLabel = false }) {
+  const name = TYPE_ICON[type] ? type : 'Task';
+  const Icon = TYPE_ICON[name];
+  return (
+    <span className="type-icon" data-type={name.toLowerCase()} title={showLabel ? undefined : name}>
+      <Icon size={14} strokeWidth={2.25} aria-hidden="true" />
+      {showLabel ? <span className="type-icon-name">{name}</span> : <span className="visually-hidden">{name}</span>}
+    </span>
+  );
+}
+
+/** A story-point estimate as a small round badge; nothing when there is no estimate. */
+export function PointsBadge({ points }) {
+  if (!points) return null;
+  return (
+    <span className="points-badge" title={`${points} story ${points === 1 ? 'point' : 'points'}`}>
+      <span aria-hidden="true">{points}</span>
+      <span className="visually-hidden">{points} story {points === 1 ? 'point' : 'points'}</span>
+    </span>
+  );
+}
+
+/** Labels as quiet chips; past `max`, the rest collapse into "+2". */
+export function LabelList({ labels, max = Infinity }) {
+  if (!labels?.length) return null;
+  const shown = labels.slice(0, max);
+  const hidden = labels.length - shown.length;
+  return (
+    <ul className="label-list" aria-label="Labels">
+      {shown.map((label) => (
+        <li key={label} className="label-chip">
+          {label}
+        </li>
+      ))}
+      {hidden > 0 ? (
+        <li className="label-chip" data-more title={labels.slice(max).join(', ')}>
+          +{hidden}
+          <span className="visually-hidden"> more: {labels.slice(max).join(', ')}</span>
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
+/** How far an epic is: a thin bar and "3/5 done", from epicProgress() in src/lib/work-items.js. */
+export function EpicProgress({ progress, compact = false }) {
+  if (!progress) return null;
+  const text = progress.total ? `${progress.done}/${progress.total} done` : 'No items yet';
+  return (
+    <div className="epic-progress" data-compact={compact || undefined}>
+      <div
+        className="epic-progress-bar"
+        role="progressbar"
+        aria-label="Epic progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progress.percent}
+        aria-valuetext={`${text}${progress.points ? `, ${progress.donePoints} of ${progress.points} points` : ''}`}
+      >
+        <span style={{ width: `${progress.percent}%` }} />
+      </div>
+      <span className="epic-progress-text tabular">
+        {text}
+        {!compact && progress.points ? ` · ${progress.donePoints}/${progress.points} pts` : null}
+      </span>
+    </div>
+  );
 }
 
 /** Private (invite only) or Open (anyone in the workspace can join). */
