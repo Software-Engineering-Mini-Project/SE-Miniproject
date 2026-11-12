@@ -5,6 +5,7 @@ import {
   GRANTABLE_PROJECT_ROLES,
   PROJECT_ROLES,
   PROJECT_VISIBILITIES,
+  can,
   memberRemovalError,
   memberRoleChangeError,
   projectRoleOf,
@@ -17,6 +18,8 @@ import { projectDto, projectDtos, projectMembers } from '../utils/dto.js';
 import { HttpError } from '../utils/http-error.js';
 import { readListOptions } from '../utils/pagination.js';
 import { getProjectSummaries } from '../services/task-aggregates.js';
+import { changeProjectKey, createProjectWithKey, readProjectKey, takenProjectKeys } from '../services/work-items.js';
+import { suggestProjectKey } from '../../src/lib/work-items.js';
 import { escapeRegex, normalizeEmail, readEmail, readEnum, readId, readString, requireObject } from '../utils/validation.js';
 
 export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {}) {
@@ -42,16 +45,23 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     const q = typeof request.query.q === 'string' ? request.query.q.trim().slice(0, 80) : '';
     const filter = { organisationId: request.user.organisationId, visibility: 'open', memberIds: { $ne: request.user.id } };
     if (q) filter.name = { $regex: escapeRegex(q), $options: 'i' };
-    const projects = await Project.find(filter).select('_id name description ownerId memberIds').sort({ name: 1, _id: 1 }).limit(50).lean();
+    const projects = await Project.find(filter).select('_id name description key ownerId memberIds').sort({ name: 1, _id: 1 }).limit(50).lean();
     const owners = await User.find({ _id: { $in: projects.map((project) => project.ownerId) } }).select('_id name').lean();
     const ownerNames = new Map(owners.map((owner) => [String(owner._id), owner.name]));
     response.json(projects.map((project) => ({
       id: String(project._id),
       name: project.name,
+      key: project.key ?? null,
       description: project.description,
       ownerName: ownerNames.get(String(project.ownerId)) ?? null,
       memberCount: project.memberIds.length,
     })));
+  });
+
+  // A free key for a new project, suggested from its name (the form shows it while typing).
+  router.get('/projects/key-suggestion', requireAuth, async (request, response) => {
+    const name = typeof request.query.name === 'string' ? request.query.name.slice(0, 80) : '';
+    response.json({ key: suggestProjectKey(name, await takenProjectKeys(request.user.organisationId)) });
   });
 
   router.post('/projects', requireAuth, async (request, response) => {
@@ -60,7 +70,9 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     const name = readString(body, 'name', { max: 80, label: 'Project name' });
     const description = readString(body, 'description', { required: false, max: 2000, allowEmpty: true, label: 'Description' });
     const visibility = body.visibility === undefined ? 'private' : readEnum(body, 'visibility', PROJECT_VISIBILITIES, { label: 'Visibility' });
-    const project = await Project.create({
+    // No key (or an empty one) means "suggest one from the name".
+    const key = body.key === undefined || body.key === null || body.key === '' ? undefined : readProjectKey(body);
+    const project = await createProjectWithKey({
       organisationId: request.user.organisationId,
       name,
       description: description ?? '',
@@ -69,7 +81,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
       managerIds: [],
       viewerIds: [],
       visibility,
-    });
+    }, key);
     response.status(201).json(await projectDto(project));
   });
 
@@ -104,9 +116,24 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
       changes.description = readString(body, 'description', { required: false, max: 2000, allowEmpty: true, label: 'Description' });
     }
     if (body.visibility !== undefined) changes.visibility = readEnum(body, 'visibility', PROJECT_VISIBILITIES, { label: 'Visibility' });
-    if (Object.keys(changes).length === 0) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a project field to update.');
+    const key = body.key === undefined ? undefined : readProjectKey(body);
+    if (Object.keys(changes).length === 0 && key === undefined) throw new HttpError(400, 'VALIDATION_ERROR', 'Provide a project field to update.');
+    if (key !== undefined && key !== project.key) {
+      if (!can(request.user, 'project.key', project)) throw forbidden('Only the project owner or an admin can change the project key.');
+      const from = project.key ?? null;
+      await changeProjectKey(project, key);
+      response.locals.auditChange = { field: 'projectKey', from, to: key };
+    }
     Object.assign(project, changes);
-    await project.save();
+    try {
+      await project.save();
+    } catch (error) {
+      // Another project took the key between the check and the save.
+      if (error?.code === 11000 && error.keyPattern?.key) {
+        throw new HttpError(409, 'KEY_TAKEN', 'Another project in your organisation uses that key.', { key: 'This key is taken. Choose another.' });
+      }
+      throw error;
+    }
     response.json(await projectDto(project));
   });
 

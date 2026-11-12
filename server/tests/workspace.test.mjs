@@ -56,7 +56,7 @@ test('open projects are listed in the directory and can be joined; private ones 
 
   const directory = await api().get('/api/projects/directory').set(auth(tokens.outsider));
   assert.equal(directory.status, 200);
-  assert.deepEqual(directory.body, [{ id: created.body.id, name: 'Design system', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 }]);
+  assert.deepEqual(directory.body, [{ id: created.body.id, name: 'Design system', key: 'DESIG', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 }]);
   assert.deepEqual((await api().get('/api/projects/directory').set(auth(tokens.lead))).body, [], 'projects you are in are not listed');
   assert.equal((await api().get('/api/projects/directory?q=design').set(auth(tokens.outsider))).body.length, 1);
   assert.equal((await api().get('/api/projects/directory?q=alpha').set(auth(tokens.outsider))).body.length, 0, 'private projects never appear');

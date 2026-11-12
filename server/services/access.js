@@ -7,11 +7,12 @@ import { readId } from '../utils/validation.js';
 export { isAdmin };
 
 /** Fields every authorization check needs; kept in one place so lean queries never miss one. */
-export const PROJECT_ACCESS_FIELDS = '_id organisationId name description ownerId memberIds managerIds viewerIds visibility createdAt updatedAt';
+export const PROJECT_ACCESS_FIELDS = '_id organisationId name description key previousKeys ownerId memberIds managerIds viewerIds visibility createdAt updatedAt';
 
 const FORBIDDEN = {
   'project.edit': 'Only the project owner, a manager or an admin can edit this project.',
   'project.delete': 'Only the project owner or an admin can delete this project.',
+  'project.key': 'Only the project owner or an admin can change the project key.',
   'members.manage': 'Only the project owner, a manager or an admin can manage members.',
   'task.create': 'Viewers cannot create tasks.',
   'task.edit': 'Viewers cannot edit tasks.',
@@ -55,7 +56,7 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
   const taskId = readId(rawTaskId, 'Task');
   const query = Task.findById(taskId);
   const task = lean
-    ? await query.select('_id title description status priority dueDate completedAt checklist projectId assigneeIds createdAt updatedAt').lean()
+    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number assigneeIds createdAt updatedAt').lean()
     : await query;
   if (!task) throw new HttpError(404, 'NOT_FOUND', 'Task not found.');
   if (lean) task.id = String(task._id);

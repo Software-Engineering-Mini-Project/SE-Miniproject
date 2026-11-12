@@ -48,6 +48,9 @@ export async function projectDtos(projects) {
     dto.managerIds = (dto.managerIds ?? []).map(String);
     dto.viewerIds = (dto.viewerIds ?? []).map(String);
     dto.visibility = dto.visibility ?? 'private';
+    dto.key = dto.key ?? null;
+    dto.previousKeys = dto.previousKeys ?? [];
+    delete dto.taskCounter;
     dto.members = project.memberIds.map(String).filter((id) => usersById.has(id)).map((id) => memberDto(usersById.get(id), project));
     return dto;
   });

@@ -4,11 +4,12 @@ import { authenticate } from '../middleware/authenticate.js';
 import { Comment, Notification, Project, Task, User } from '../models/index.js';
 import { CHECKLIST_LIMIT, CHECKLIST_TEXT_MAX } from '../models/task.js';
 import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
-import { getProjectForUser, getTaskForUser, isAdmin } from '../services/access.js';
+import { PROJECT_ACCESS_FIELDS, getProjectForUser, getTaskForUser, inOrganisation, isAdmin } from '../services/access.js';
+import { nextTaskNumber, taskDto, taskDtos } from '../services/work-items.js';
+import { parseTaskKey, projectAnswersToKey } from '../../src/lib/work-items.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
 import { readListOptions } from '../utils/pagination.js';
-import { toApi } from '../utils/to-api.js';
 import {
   escapeRegex,
   invalid,
@@ -22,7 +23,7 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
-const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId assigneeIds createdAt updatedAt';
+const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number assigneeIds createdAt updatedAt';
 // The export leaves out descriptions and checklists (an inclusion projection can't also exclude a field).
 const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '').replace(' checklist', '');
 
@@ -50,6 +51,19 @@ function readTaskFilters(query, { includeProjectId = false } = {}) {
   if (priority) filters.priority = readEnum({ priority }, 'priority', PRIORITIES, { label: 'Priority' });
   if (assigneeId) filters.assigneeIds = readId(assigneeId, 'Assignee');
   if (projectId) filters.projectId = readId(projectId, 'Project');
+  if (q) Object.defineProperty(filters, 'q', { value: q, enumerable: false });
+  return filters;
+}
+
+/**
+ * When the search text is a task key (ALPHA-12, any case), also match that task: by number in
+ * the projects among `projects` that use or used the key. Old keys keep working after a rename.
+ */
+function addKeySearch(filters, projects) {
+  const parsed = parseTaskKey(filters.q);
+  if (!parsed || !filters.$or) return filters;
+  const projectIds = projects.filter((project) => projectAnswersToKey(project, parsed.projectKey)).map((project) => String(project._id ?? project.id));
+  if (projectIds.length) filters.$or.push({ projectId: { $in: projectIds }, number: parsed.number });
   return filters;
 }
 
@@ -88,7 +102,7 @@ async function validateAssignees(assigneeIds, project) {
   }
 }
 
-async function notifyNewAssignees({ task, previousIds = [], actorId, now }) {
+async function notifyNewAssignees({ task, key, previousIds = [], actorId, now }) {
   const existing = new Set(previousIds);
   const newIds = task.assigneeIds.filter((id) => !existing.has(id) && id !== actorId);
   if (newIds.length === 0) return;
@@ -97,7 +111,7 @@ async function notifyNewAssignees({ task, previousIds = [], actorId, now }) {
     taskId: task.id,
     projectId: task.projectId,
     type: 'assignment',
-    message: `You were assigned to "${task.title}".`,
+    message: key ? `You were assigned to ${key} "${task.title}".` : `You were assigned to "${task.title}".`,
     read: false,
     createdAt: now(),
   })));
@@ -118,11 +132,11 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
 
   router.get('/projects/:projectId/tasks/export.csv', requireAuth, async (request, response) => {
     const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
-    const filters = readTaskFilters(request.query);
+    const filters = addKeySearch(readTaskFilters(request.query), [project]);
     const tasks = (await Task.find(combineFilters({ projectId: project.id }, filters))
       .select(EXPORT_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
-      .lean()).map(toApi);
+      .lean()).map((task) => taskDto(task, project.key));
     const userIds = [...new Set(tasks.flatMap((task) => task.assigneeIds))];
     const users = await User.find({ _id: { $in: userIds } }).select('_id name').lean();
     const usersById = new Map(users.map((user) => [String(user._id), user]));
@@ -131,7 +145,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
 
   router.get('/projects/:projectId/tasks', requireAuth, async (request, response) => {
     const project = await getProjectForUser(request.user, request.params.projectId, { lean: true });
-    const filters = readTaskFilters(request.query);
+    const filters = addKeySearch(readTaskFilters(request.query), [project]);
     const options = readListOptions(request.query);
     const tasks = await Task.find(combineFilters({ projectId: project.id }, filters))
       .select(TASK_FIELDS)
@@ -139,7 +153,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       .skip(options.skip)
       .limit(options.limit)
       .lean();
-    response.json(tasks.map(toApi));
+    response.json(tasks.map((task) => taskDto(task, project.key)));
   });
 
   router.post('/projects/:projectId/tasks', requireAuth, async (request, response) => {
@@ -147,40 +161,63 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     const body = requireObject(request.body);
     const input = readTaskInput(body, { create: true });
     await validateAssignees(input.assigneeIds, project);
-    const task = await Task.create({ ...input, projectId: project.id, completedAt: input.status === 'Done' ? now() : null });
-    await notifyNewAssignees({ task, actorId: request.user.id, now });
-    response.status(201).json(task);
+    // The number is reserved before the insert; a failed insert leaves a gap, never a duplicate.
+    const number = await nextTaskNumber(project.id);
+    const task = await Task.create({ ...input, projectId: project.id, number, completedAt: input.status === 'Done' ? now() : null });
+    const dto = taskDto(task, project.key);
+    await notifyNewAssignees({ task, key: dto.key, actorId: request.user.id, now });
+    response.status(201).json(dto);
   });
 
   router.get('/tasks', requireAuth, async (request, response) => {
     const filters = readTaskFilters(request.query, { includeProjectId: true });
     const options = readListOptions(request.query);
-    let projectIds;
+    let projects;
     if (filters.projectId) {
-      const project = await getProjectForUser(request.user, filters.projectId);
-      projectIds = [project.id];
+      projects = [await getProjectForUser(request.user, filters.projectId, { lean: true })];
       delete filters.projectId;
     } else {
       // Admins see every project in their organisation, everyone else the ones they are in.
       const filter = isAdmin(request.user)
         ? { organisationId: request.user.organisationId }
         : { organisationId: request.user.organisationId, memberIds: request.user.id };
-      const projects = await Project.find(filter).select('_id').lean();
-      projectIds = projects.map((project) => String(project._id));
+      projects = await Project.find(filter).select('_id key previousKeys').lean();
     }
-    if (projectIds.length === 0) return response.json([]);
+    if (projects.length === 0) return response.json([]);
+    const projectIds = projects.map((project) => String(project._id));
+    addKeySearch(filters, projects);
     const tasks = await Task.find(combineFilters({ projectId: { $in: projectIds } }, filters))
       .select(TASK_FIELDS)
       .sort({ createdAt: 1, _id: 1 })
       .skip(options.skip)
       .limit(options.limit)
       .lean();
-    response.json(tasks.map(toApi));
+    const keys = new Map(projects.map((project) => [String(project._id), project.key ?? null]));
+    response.json(await taskDtos(tasks, keys));
+  });
+
+  // Opens a task by its key (ALPHA-12). A key the project used before still resolves, so links
+  // survive a key change. Another organisation's keys look like keys that don't exist.
+  router.get('/tasks/by-key/:key', requireAuth, async (request, response) => {
+    const parsed = parseTaskKey(request.params.key);
+    const notFound = () => new HttpError(404, 'NOT_FOUND', 'No task has that key.');
+    if (!parsed) throw notFound();
+    const candidates = await Project.find({
+      organisationId: request.user.organisationId,
+      $or: [{ key: parsed.projectKey }, { previousKeys: parsed.projectKey }],
+    }).select(PROJECT_ACCESS_FIELDS).lean();
+    // The project that uses the key now wins over one that used it before.
+    const match = candidates.find((project) => project.key === parsed.projectKey) ?? candidates[0];
+    if (!match || !inOrganisation(request.user, match)) throw notFound();
+    const task = await Task.findOne({ projectId: String(match._id), number: parsed.number }).select(TASK_FIELDS).lean();
+    if (!task) throw notFound();
+    const project = await getProjectForUser(request.user, String(match._id), { lean: true });
+    response.json(taskDto(task, project.key));
   });
 
   router.get('/tasks/:taskId', requireAuth, async (request, response) => {
-    const { task } = await getTaskForUser(request.user, request.params.taskId, { lean: true });
-    response.json(toApi(task));
+    const { task, project } = await getTaskForUser(request.user, request.params.taskId, { lean: true });
+    response.json(taskDto(task, project.key));
   });
 
   router.patch('/tasks/:taskId', requireAuth, async (request, response) => {
@@ -194,8 +231,9 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     Object.assign(task, rest);
     if (status) applyStatus(task, status, now);
     await task.save();
-    await notifyNewAssignees({ task, previousIds, actorId: request.user.id, now });
-    response.json(task);
+    const dto = taskDto(task, project.key);
+    await notifyNewAssignees({ task, key: dto.key, previousIds, actorId: request.user.id, now });
+    response.json(dto);
   });
 
   router.delete('/tasks/:taskId', requireAuth, async (request, response) => {

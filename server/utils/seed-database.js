@@ -7,6 +7,7 @@ import fixtureTasks from '../../fixtures/tasks.json' with { type: 'json' };
 import fixtureUsers from '../../fixtures/users.json' with { type: 'json' };
 import { Comment, models, Notification, Organisation, Project, Task, User } from '../models/index.js';
 import { BCRYPT_COST } from './password.js';
+import { numberTasks } from '../../src/lib/work-items.js';
 
 export const FIXTURE_PASSWORD = 'Password123!';
 // The fixtures were written as if "today" were this date; `shiftDays` moves them to another day.
@@ -82,10 +83,14 @@ export function historyTasks() {
  */
 export async function seedDatabase({ shiftDays = 0, history = false } = {}) {
   await Promise.all(models.map((model) => model.deleteMany({})));
-  const tasks = [...fixtureTasks, ...(history ? historyTasks() : [])].map((task) => shiftRecord(task, shiftDays));
+  // Fixture tasks are numbered first so their keys (ALPHA-1 ...) are the same with or without
+  // the demo history, which takes the numbers after them.
+  const fixtures = numberTasks(fixtureTasks);
+  const extra = history ? numberTasks(historyTasks(), fixtures.counters) : { tasks: [], counters: fixtures.counters };
+  const tasks = [...fixtures.tasks, ...extra.tasks].map((task) => shiftRecord(task, shiftDays));
   const comments = fixtureComments.map((comment) => shiftRecord(comment, shiftDays));
   const notifications = fixtureNotifications.map((notification) => shiftRecord(notification, shiftDays));
-  const projects = fixtureProjects.map((project) => shiftRecord(project, shiftDays));
+  const projects = fixtureProjects.map((project) => shiftRecord({ ...project, taskCounter: extra.counters[project.id] ?? 0 }, shiftDays));
   const users = fixtureUsers.map((user) => shiftRecord(user, shiftDays));
 
   const organisations = fixtureOrganisations.map((organisation) => shiftRecord(organisation, shiftDays));

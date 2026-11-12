@@ -18,6 +18,8 @@ const taskSchema = createSchema({
   priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Medium', required: true },
   dueDate: { type: String, default: null },
   projectId: { type: String, ref: 'Project', required: true },
+  // Number within the project (ALPHA-12 is number 12); taken from Project.taskCounter.
+  number: { type: Number, min: 1 },
   assigneeIds: [{ type: String, ref: 'User' }],
   // Set by the server when the task enters Done and cleared when it leaves; the delivery
   // forecast (src/lib/forecast.js) samples throughput from it.
@@ -30,6 +32,7 @@ const taskSchema = createSchema({
 });
 
 taskSchema.index({ projectId: 1, status: 1, dueDate: 1 });
+taskSchema.index({ projectId: 1, number: 1 }, { unique: true, partialFilterExpression: { number: { $type: 'number' } } });
 taskSchema.index({ assigneeIds: 1 });
 taskSchema.index({ dueDate: 1, status: 1 });
 

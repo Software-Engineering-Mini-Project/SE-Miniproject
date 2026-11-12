@@ -1,4 +1,4 @@
-const HEADERS = ['id', 'title', 'status', 'priority', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
+const HEADERS = ['id', 'key', 'title', 'status', 'priority', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
 
 function csvCell(value) {
   let text = value === undefined || value === null ? '' : String(value);
@@ -10,6 +10,7 @@ function csvCell(value) {
 export function tasksToCsv(tasks, usersById) {
   const rows = tasks.map((task) => [
     task.id,
+    task.key,
     task.title,
     task.status,
     task.priority,

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Notification, Task, User } from '../models/index.js';
+import { Notification, Project, Task, User } from '../models/index.js';
+import { formatTaskKey } from '../../src/lib/work-items.js';
 import { HttpError } from '../utils/http-error.js';
 import { readFilterString, readId, invalid } from '../utils/validation.js';
 import { toApi } from '../utils/to-api.js';
@@ -11,8 +12,10 @@ const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 async function generateDueReminders(now, userId) {
   const timestamp = now().getTime();
   const tasks = await Task.find({ status: { $ne: 'Done' }, dueDate: { $ne: null }, assigneeIds: userId })
-    .select('_id title status dueDate projectId assigneeIds')
+    .select('_id title status dueDate projectId number assigneeIds')
     .lean();
+  const projects = await Project.find({ _id: { $in: [...new Set(tasks.map((task) => task.projectId))] } }).select('_id key').lean();
+  const keys = new Map(projects.map((project) => [String(project._id), project.key]));
   const writes = [];
   for (const task of tasks) {
     if (!task.dueDate) continue;
@@ -20,6 +23,7 @@ async function generateDueReminders(now, userId) {
     if (!Number.isFinite(dueEnd) || dueEnd <= timestamp || dueEnd > timestamp + REMINDER_WINDOW_MS) continue;
     const taskId = String(task._id);
     const dedupeKey = `${taskId}:${task.dueDate}`;
+    const key = formatTaskKey(keys.get(String(task.projectId)), task.number);
     writes.push(Notification.updateOne(
       { userId, taskId, type: 'due-date', dedupeKey },
       {
@@ -28,7 +32,7 @@ async function generateDueReminders(now, userId) {
           taskId,
           projectId: task.projectId,
           type: 'due-date',
-          message: `"${task.title}" is due within 24 hours.`,
+          message: key ? `${key} "${task.title}" is due within 24 hours.` : `"${task.title}" is due within 24 hours.`,
           read: false,
           dedupeKey,
         },

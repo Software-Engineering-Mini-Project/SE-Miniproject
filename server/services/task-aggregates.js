@@ -1,6 +1,6 @@
 import { resolveToday } from '../../src/lib/dates.js';
 import { Task } from '../models/index.js';
-import { toApi } from '../utils/to-api.js';
+import { taskDtos } from './work-items.js';
 
 function summarizeStages(today) {
   return [
@@ -90,6 +90,7 @@ export async function getDashboardData(projectIds, userId, now, clientToday) {
               priority: 1,
               dueDate: 1,
               projectId: 1,
+              number: 1,
               assigneeIds: 1,
               createdAt: 1,
               updatedAt: 1,
@@ -102,7 +103,7 @@ export async function getDashboardData(projectIds, userId, now, clientToday) {
 
   return {
     projects: applySummaries(normalizedIds, result?.summaries ?? []),
-    myTasks: (result?.myTasks ?? []).map(toApi),
+    myTasks: await taskDtos(result?.myTasks ?? []),
     stats: result?.stats?.[0] ? (({ openAssigned, dueIn7Days, overdue, completed }) => ({ openAssigned, dueIn7Days, overdue, completed }))(result.stats[0]) : emptyStats,
   };
 }
