@@ -57,6 +57,12 @@ export function DueTag({ task }) {
   );
 }
 
+/** A task's work-item key (ALPHA-12), set in monospace so keys line up in lists. */
+export function TaskKey({ value }) {
+  if (!value) return null;
+  return <span className="task-key">{value}</span>;
+}
+
 /** Private (invite only) or Open (anyone in the workspace can join). */
 export function VisibilityBadge({ visibility }) {
   const open = visibility === 'open';

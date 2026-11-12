@@ -15,7 +15,7 @@ import { useQuery } from '@/lib/hooks/useQuery';
 import { api } from '@/lib/api/client';
 import { useWorkspace } from '@/lib/workspace';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
-import { DueTag, PriorityTag } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, TaskKey } from '@/components/ui/Tags';
 import { PRIORITY_META } from '@/lib/constants';
 import './dashboard.css';
 
@@ -137,7 +137,11 @@ export function Dashboard() {
                       <Link href={`/projects/${task.projectId}?task=${task.id}`} className="attention-item" data-overdue={isOverdue(task) || undefined}>
                         <span className="attention-main">
                           <span className="attention-title">{task.title}</span>
-                          <span className="attention-project">{projectsById.get(task.projectId)?.name}</span>
+                          <span className="attention-project">
+                            <TaskKey value={task.key} />
+                            {task.key ? ' · ' : null}
+                            {projectsById.get(task.projectId)?.name}
+                          </span>
                         </span>
                         <span className="attention-meta">
                           <PriorityTag priority={task.priority} />

@@ -123,7 +123,7 @@ test('open projects: directory, join, JOIN_REQUIRED and visibility changes mirro
   assertEnvelope(call('POST', '/projects', { token: lead, body: { name: 'Bad', visibility: 'public' } }), 400, 'VALIDATION_ERROR');
 
   assert.deepEqual(call('GET', '/projects/directory', { token: outsider }).data, [
-    { id: created.id, name: 'Design system', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 },
+    { id: created.id, name: 'Design system', key: 'DESIG', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 },
   ]);
   assert.deepEqual(call('GET', '/projects/directory', { token: lead }).data, [], 'projects you are in are not listed');
   assert.equal(call('GET', '/projects/directory', { token: outsider, query: { q: 'DESIGN' } }).data.length, 1);
@@ -537,4 +537,43 @@ test('the organisation page data: invite code for Admins only, rename, rotate, a
   assert.deepEqual(mine.projects.map((project) => [project.name, project.yourRole]), [['Alpha Project', 'Member'], ['Design system', null]]);
   assert.equal(mine.totals.tasks, mine.projects.reduce((sum, project) => sum + project.total, 0));
   assert.deepEqual(call('GET', '/organisation/overview', { token: login('outsider@example.test'), query }).data.projects.map((project) => project.name), ['Design system']);
+});
+
+test('work-item keys mirror the API: numbering, key changes, old keys, search and lookup by key', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  const admin = login('admin@example.test');
+  const northwind = login('northwind-admin@example.test');
+
+  const listed = call('GET', '/projects/project-alpha/tasks', { token: lead }).data;
+  assert.equal(listed.find((t) => t.id === 'task-001').key, 'ALPHA-1');
+  assert.equal(listed.find((t) => t.id === 'task-007').key, 'ALPHA-7');
+  const created = call('POST', '/projects/project-alpha/tasks', { token: member, body: { title: 'Next one' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.key, 'ALPHA-8');
+  assert.equal(call('GET', '/projects/project-alpha', { token: lead }).data.taskCounter, undefined);
+
+  assert.deepEqual(call('GET', '/projects/key-suggestion', { token: member, query: { name: 'Alpha Launch' } }).data, { key: 'AL' });
+  assertEnvelope(call('POST', '/projects', { token: member, body: { name: 'Copy', key: 'BETA' } }), 409, 'KEY_TAKEN');
+  assertEnvelope(call('POST', '/projects', { token: member, body: { name: 'Bad', key: 'B4D' } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('POST', '/projects', { token: northwind, body: { name: 'Alpha elsewhere', key: 'ALPHA' } }).status, 201);
+
+  assertEnvelope(call('PATCH', '/projects/project-alpha', { token: member, body: { key: 'CORE' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', '/projects/project-beta', { token: lead, body: { key: 'QUAL' } }), 403, 'FORBIDDEN');
+  const renamed = call('PATCH', '/projects/project-alpha', { token: lead, body: { key: 'core' } });
+  assert.equal(renamed.data.key, 'CORE');
+  assert.deepEqual(renamed.data.previousKeys, ['ALPHA']);
+  assert.equal(call('GET', '/tasks/task-001', { token: lead }).data.key, 'CORE-1');
+  assert.equal(call('GET', '/tasks/by-key/alpha-1', { token: member }).data.id, 'task-001');
+  assert.deepEqual(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { q: 'ALPHA-4' } }).data.map((t) => t.id), ['task-002']);
+  assert.deepEqual(call('GET', '/tasks', { token: admin, query: { q: 'beta-2' } }).data.map((t) => t.id), ['task-008']);
+  assertEnvelope(call('POST', '/projects', { token: member, body: { name: 'Thief', key: 'ALPHA' } }), 409, 'KEY_TAKEN');
+
+  assertEnvelope(call('GET', '/tasks/by-key/BETA-1', { token: member }), 403, 'FORBIDDEN');
+  assertEnvelope(call('GET', '/tasks/by-key/CORE-99', { token: lead }), 404, 'NOT_FOUND');
+  assertEnvelope(call('GET', '/tasks/by-key/CORE-1', { token: northwind }), 404, 'NOT_FOUND');
+  const csv = call('GET', '/projects/project-beta/tasks/export.csv', { token: admin }).data;
+  assert.match(csv.split('\r\n')[0], /^id,key,title,/);
+  assert.match(csv, /task-003,BETA-1,/);
 });

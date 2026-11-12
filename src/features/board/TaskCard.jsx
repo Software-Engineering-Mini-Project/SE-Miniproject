@@ -3,7 +3,7 @@
 import { forwardRef } from 'react';
 import { ListChecks } from 'lucide-react';
 import { AvatarStack } from '@/components/ui/Avatar';
-import { DueTag, PriorityTag, RiskTag } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, RiskTag, TaskKey } from '@/components/ui/Tags';
 import { isOverdue } from '@/lib/format';
 import { checklistProgress } from '@/features/tasks/Checklist';
 
@@ -20,6 +20,7 @@ export const TaskCard = forwardRef(function TaskCard({ task, assignees = [], ris
       {...rest}
     >
       <div className="task-card-top">
+        {task.key ? <TaskKey value={task.key} /> : null}
         <PriorityTag priority={task.priority} />
         <RiskTag risk={risk} />
       </div>

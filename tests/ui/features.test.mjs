@@ -1,6 +1,6 @@
 import { localToday } from '../../src/lib/dates.js';
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,7 +19,7 @@ const state = vi.hoisted(() => {
       tasks: { search: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), listByProject: fn(), setStatus: fn() },
       comments: { list: fn(), create: fn(), remove: fn() },
       notifications: { list: fn(), markRead: fn(), markAllRead: fn() },
-      projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn(), directory: fn(), join: fn() },
+      projects: { summary: fn(), get: fn(), create: fn(), update: fn(), remove: fn(), exportCsv: fn(), directory: fn(), join: fn(), suggestKey: fn() },
       settings: { get: fn(), update: fn() },
       organisation: { get: fn(), update: fn(), rotateJoinCode: fn(), overview: fn() },
       dashboard: { get: fn() },
@@ -142,6 +142,8 @@ beforeEach(() => {
   resetMockCalls(state.api);
   resetMockCalls(state.router);
   resetMockCalls(state.toast);
+  // The server's free-key suggestion for a new project (GET /projects/key-suggestion).
+  state.api.projects.suggestKey.mockResolvedValue({ key: 'FREE' });
   state.queries.clear();
   state.searchParams = new Map();
   state.session = {
@@ -424,6 +426,59 @@ describe('projects and membership', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it('suggests a work-item key from the name, takes the server’s free key, and sends a key only when typed', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(project);
+    state.api.projects.suggestKey.mockResolvedValue({ key: 'MOBIA' });
+    render(h(ProjectFormDialog, { open: true, onOpenChange: vi.fn(), project: null, onSubmit }));
+
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Mobile app');
+    // The local suggestion shows at once; the server's (which knows the taken keys) replaces it.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Key' })).toHaveValue('MOBIA'));
+    expect(state.api.projects.suggestKey).toHaveBeenCalledWith('Mobile app');
+    expect(screen.getByText(/Tasks will be numbered MOBIA-1, MOBIA-2/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Mobile app', description: '', visibility: 'private' }));
+    cleanup();
+
+    // A key typed by hand is upper-cased, stripped of non-letters and validated before sending.
+    onSubmit.mockClear();
+    render(h(ProjectFormDialog, { open: true, onOpenChange: vi.fn(), project: null, onSubmit }));
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Mobile app');
+    const key = screen.getByRole('textbox', { name: 'Key' });
+    await user.clear(key);
+    await user.type(key, 'm');
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    expect(screen.getByText(/Use 2 to 10 letters A to Z/)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.type(key, 'ob-1le');
+    expect(key).toHaveValue('MOBLE');
+    await user.click(screen.getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Mobile app', description: '', visibility: 'private', key: 'MOBLE' }));
+  });
+
+  it('lets only the owner change the key, and says old task keys keep working', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(project);
+    const keyed = { ...project, key: 'ALPHA', description: '', visibility: 'private' };
+    render(h(ProjectFormDialog, { open: true, onOpenChange: vi.fn(), project: keyed, canEditKey: false, onSubmit }));
+    expect(screen.getByRole('textbox', { name: 'Key' })).toHaveAttribute('readonly');
+    expect(screen.getByText('Only the project owner or an admin can change the key.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Alpha', description: '', visibility: 'private' }));
+    cleanup();
+
+    onSubmit.mockClear();
+    render(h(ProjectFormDialog, { open: true, onOpenChange: vi.fn(), project: keyed, canEditKey: true, onSubmit }));
+    const key = screen.getByRole('textbox', { name: 'Key' });
+    await user.clear(key);
+    await user.type(key, 'core');
+    expect(screen.getByText(/Tasks become CORE-1, CORE-2 … Links and searches that use ALPHA keep working/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Alpha', description: '', visibility: 'private', key: 'CORE' }));
+    expect(state.api.projects.suggestKey).not.toHaveBeenCalled();
+  });
+
   it('shows member management controls only to project managers', async () => {
     const user = userEvent.setup();
     const onMembersChange = vi.fn();
@@ -517,6 +572,35 @@ describe('task creation, search, and board', () => {
     ];
     expect(applyFilters(tasks, { q: ' RELEASE ', status: 'To Do', priority: 'High', assigneeId: member.id })).toEqual([tasks[0]]);
     expect(applyFilters(tasks, { q: 'missing', status: '', priority: '', assigneeId: '' })).toEqual([]);
+  });
+
+  it('finds a task by its key, in any case, and by a key the project used before', () => {
+    const tasks = [
+      { ...task, id: 'a', title: 'Review release', number: 1, key: 'CORE-1' },
+      { ...task, id: 'b', title: 'Write docs', number: 12, key: 'CORE-12' },
+    ];
+    const none = { status: '', priority: '', assigneeId: '' };
+    expect(applyFilters(tasks, { ...none, q: 'core-12' })).toEqual([tasks[1]]);
+    // "CORE-1" is the task CORE-1, not every key that starts with it.
+    expect(applyFilters(tasks, { ...none, q: 'CORE-1' })).toEqual([tasks[0]]);
+    const renamed = { ...project, key: 'CORE', previousKeys: ['ALPHA'] };
+    expect(applyFilters(tasks, { ...none, q: 'ALPHA-12' }, renamed)).toEqual([tasks[1]]);
+    expect(applyFilters(tasks, { ...none, q: 'BETA-12' }, renamed)).toEqual([]);
+  });
+
+  it('shows the key on board cards and list rows, and the sheet copies a link that uses the key', async () => {
+    const user = userEvent.setup();
+    const keyed = { ...task, number: 7, key: 'ALPHA-7' };
+    const { unmount } = render(h(TaskList, { tasks: [keyed], membersById: new Map(), onOpen: vi.fn() }));
+    expect(screen.getByText('ALPHA-7')).toHaveClass('task-key');
+    unmount();
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(h(TaskSheet, { task: keyed, members: project.members, open: true, onOpenChange: vi.fn(), onStatusChange: vi.fn(), onUpdated: vi.fn(), onDeleted: vi.fn() }));
+    await user.click(screen.getByRole('button', { name: /Copy link to ALPHA-7/ }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/browse/ALPHA-7`);
+    expect(state.toast.success).toHaveBeenCalledWith('Link to ALPHA-7 copied.');
   });
 
   it('updates filter state and clears active filters from the search controls', async () => {

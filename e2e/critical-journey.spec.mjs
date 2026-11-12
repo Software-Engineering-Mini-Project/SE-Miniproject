@@ -45,7 +45,7 @@ async function savedStatus(page, title, status, drop) {
   await drop();
   await expect
     .poll(() =>
-      page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v3') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title),
+      page.evaluate((t) => JSON.parse(localStorage.getItem('taskline.mockdb.v4') || '{"tasks":[]}').tasks.find((task) => task.title === t)?.status, title),
     )
     .toBe(status);
 }
@@ -119,7 +119,8 @@ test('TC-E2E-01 critical journey: register, project, member, assign, move, reloa
     await signOut(page);
     await signIn(page, NEW_USER.email);
     await page.goto('/notifications');
-    await expect(page.getByText(`You were assigned to "${TASK}".`)).toBeVisible();
+    // The message names the task by its key too, e.g. You were assigned to WRITE-1 "Write release notes".
+    await expect(page.getByText(new RegExp(`^You were assigned to [A-Z]{2,10}-1 "${TASK}"\\.$`))).toBeVisible();
     await page.goto('/projects');
     await expect(page.getByRole('main').getByRole('link', { name: new RegExp(PROJECT) })).toBeVisible();
   });

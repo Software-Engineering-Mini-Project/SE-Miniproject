@@ -130,7 +130,11 @@
 .task-card-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-card-top .risk-tag {
+  margin-left: auto;
 }
 
 .task-card-title {

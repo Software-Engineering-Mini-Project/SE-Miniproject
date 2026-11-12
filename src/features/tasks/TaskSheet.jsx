@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Pencil, Trash2, X } from 'lucide-react';
+import { Link2, Pencil, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { describeError } from '@/lib/api/errors';
@@ -10,7 +10,7 @@ import { formatDate, formatDue } from '@/lib/format';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal, Sheet, SheetClose, SheetTitle } from '@/components/ui/Dialog';
-import { DueTag, PriorityTag, RiskTag, StatusChip } from '@/components/ui/Tags';
+import { DueTag, PriorityTag, RiskTag, StatusChip, TaskKey } from '@/components/ui/Tags';
 import { Checklist } from './Checklist';
 import { CommentThread } from './CommentThread';
 import { TaskForm } from './TaskForm';
@@ -31,6 +31,17 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
   if (!task) return null;
   const assignees = task.assigneeIds.map((id) => members.find((m) => m.id === id)).filter(Boolean);
 
+  // The link uses the key (/browse/ALPHA-12), which keeps working if the project key changes.
+  async function copyLink() {
+    const url = `${window.location.origin}/browse/${encodeURIComponent(task.key)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(`Link to ${task.key} copied.`);
+    } catch {
+      toast.error('Could not copy the link. Copy it from the address bar instead.');
+    }
+  }
+
   async function handleDelete() {
     setDeleting(true);
     try {
@@ -49,7 +60,16 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <div className="sheet-head">
-          <StatusChip status={task.status} />
+          <div className="sheet-head-id">
+            {task.key ? (
+              <button type="button" className="task-key-copy" onClick={copyLink} title="Copy a link to this task">
+                <TaskKey value={task.key} />
+                <Link2 size={13} aria-hidden="true" />
+                <span className="visually-hidden">Copy link to {task.key}</span>
+              </button>
+            ) : null}
+            <StatusChip status={task.status} />
+          </div>
           <div className="sheet-head-actions">
             {permissions.edit && !editing ? (
               <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>

@@ -13,6 +13,44 @@
   gap: 4px;
 }
 
+.sheet-head-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The key doubles as "copy link": quiet until hovered or focused. */
+.task-key-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.task-key-copy:focus-visible {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .task-key-copy:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+}
+
+.task-key-copy .task-key {
+  color: inherit;
+}
+
 .sheet-body {
   flex: 1;
   overflow-y: auto;

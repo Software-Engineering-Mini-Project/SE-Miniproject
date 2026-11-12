@@ -16,13 +16,13 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
 /**
  * @typedef {{ id: string, name: string, email: string, role: import('../constants.js').UserRole, createdAt?: string, updatedAt?: string }} User
  * @typedef {{ id: string, name: string, email: string, role: string, active?: boolean, projectRole?: 'Owner' | 'Manager' | 'Member' | 'Viewer' }} Member
- * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerId: string, memberIds: string[], managerIds?: string[], viewerIds?: string[], members: Member[], createdAt: string, updatedAt: string }} Project
- * @typedef {{ id: string, name: string, description: string, ownerName: string | null, memberCount: number }} DirectoryProject
+ * @typedef {{ id: string, name: string, description: string, key: string | null, previousKeys?: string[], visibility: 'private' | 'open', ownerId: string, memberIds: string[], managerIds?: string[], viewerIds?: string[], members: Member[], createdAt: string, updatedAt: string }} Project
+ * @typedef {{ id: string, name: string, key?: string | null, description: string, ownerName: string | null, memberCount: number }} DirectoryProject
  * @typedef {{ projectCreation: 'everyone' | 'leads' }} WorkspaceSettings
  * @typedef {{ id: string, name: string, projectCreation: 'everyone' | 'leads', createdAt: string, memberCount: number, projectCount?: number, joinCode?: string }} Organisation  (projectCount and joinCode: Admins only)
  * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerName: string | null, memberCount: number, yourRole: string | null, updatedAt: string, total: number, counts: Record<string, number>, overdue: number }} OrganisationProject
  * @typedef {{ projects: OrganisationProject[], totals: { people: number, projects: number, tasks: number, done: number, overdue: number } }} OrganisationOverview
- * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, assigneeIds: string[], createdAt: string, updatedAt: string }} Task
+ * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, number?: number | null, key?: string | null, assigneeIds: string[], createdAt: string, updatedAt: string }} Task  (key: work-item key such as ALPHA-12)
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
  * @typedef {{ id: string, userId: string, taskId: string, projectId: string | null, type: 'assignment' | 'due-date', message: string, read: boolean, createdAt: string }} Notification
@@ -156,7 +156,10 @@ export const api = {
     create: (input) => request('POST', '/projects', { invalidates: ['dashboard:', 'organisation:'], body: input }),
     /** @returns {Promise<Project>} DECISION: response embeds `members` (safe user fields). */
     get: (projectId) => request('GET', `/projects/${enc(projectId)}`),
-    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'organisation:', 'directory:'], body: input }),
+    // A new key changes every task key in the project, so cached task lists are refetched too.
+    update: (projectId, input) => request('PATCH', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'organisation:', 'directory:', `tasks:${projectId}`, 'search:'], body: input }),
+    /** A free work-item key for a new project, from its name. @returns {Promise<{ key: string }>} */
+    suggestKey: (name) => request('GET', '/projects/key-suggestion', { query: { name } }),
     remove: (projectId) => request('DELETE', `/projects/${enc(projectId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
     /** @returns {Promise<ProjectSummary>} TM-F-041 */
     summary: (projectId) => request('GET', `/projects/${enc(projectId)}/summary`, { query: { today: localToday() } }),
@@ -186,6 +189,8 @@ export const api = {
     search: (filters) => request('GET', '/tasks', { query: filters }),
     /** @returns {Promise<Task>} */
     get: (taskId) => request('GET', `/tasks/${enc(taskId)}`),
+    /** Opens a task by its key (ALPHA-12); old keys of a renamed project still resolve. @returns {Promise<Task>} */
+    getByKey: (key) => request('GET', `/tasks/by-key/${enc(key)}`),
     /** @returns {Promise<Task>} TM-F-011 */
     update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'], body: input }),
     remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'] }),

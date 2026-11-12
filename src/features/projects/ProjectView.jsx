@@ -213,7 +213,7 @@ export function ProjectView({ projectId }) {
     window.dispatchEvent(new Event('taskline:project-view-change'));
   };
 
-  const visibleTasks = useMemo(() => applyFilters(tasks.data || [], filters), [tasks.data, filters]);
+  const visibleTasks = useMemo(() => applyFilters(tasks.data || [], filters, project.data), [tasks.data, filters, project.data]);
   // The forecast always uses every task in the project (filters only change what is shown).
   const forecast = useMemo(() => (tasks.data ? forecastProject(tasks.data, { today: localToday() }) : null), [tasks.data]);
   const membersById = useMemo(() => new Map((project.data?.members || []).map((m) => [m.id, m])), [project.data]);
@@ -326,6 +326,12 @@ export function ProjectView({ projectId }) {
         <div className="project-heading">
           <div className="project-title-row">
             <h1 className="page-title">{p.name}</h1>
+            {p.key ? (
+              <span className="project-key" title="Project key: tasks are numbered with it">
+                <span className="visually-hidden">Key </span>
+                {p.key}
+              </span>
+            ) : null}
             <VisibilityBadge visibility={p.visibility} />
             {myRole ? (
               <span className="role-badge" data-role={myRole.toLowerCase()} title="Your role in this project">
@@ -501,11 +507,13 @@ export function ProjectView({ projectId }) {
         open={editOpen}
         onOpenChange={setEditOpen}
         project={p}
+        canEditKey={allowed('project.key')}
         onSubmit={async (input) => {
           const updated = await api.projects.update(p.id, input);
           project.setData(updated);
           upsertProject(updated);
-          toast.success('Project updated.');
+          // A new key renames every task key; api.projects.update invalidates the task list, so it refetches.
+          toast.success(input.key ? `Project updated. Tasks are now ${updated.key}-1, ${updated.key}-2 …` : 'Project updated.');
         }}
       />
 
