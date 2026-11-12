@@ -24,6 +24,7 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ projects: OrganisationProject[], totals: { people: number, projects: number, tasks: number, done: number, overdue: number } }} OrganisationOverview
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, number?: number | null, key?: string | null, assigneeIds: string[], createdAt: string, updatedAt: string }} Task  (key: work-item key such as ALPHA-12)
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
+ * @typedef {{ id: string, taskId: string, projectId: string, actorId: string | null, action: string, details: object, createdAt: string, actor: { id: string, name: string } | null }} Activity  (src/lib/activity.js)
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
  * @typedef {{ id: string, userId: string, taskId: string, projectId: string | null, type: 'assignment' | 'due-date', message: string, read: boolean, createdAt: string }} Notification
  * @typedef {{ items: Notification[], page: number, pageSize: number, total: number, unreadCount: number }} NotificationPage
@@ -178,7 +179,7 @@ export const api = {
     add: (projectId, email, role) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:', 'organisation:'], body: role ? { email, role } : { email } }),
     /** Changes a project role; 'Owner' transfers ownership. @returns {Promise<Member[]>} */
     setRole: (projectId, userId, role) => request('PATCH', `/projects/${enc(projectId)}/members/${enc(userId)}`, { body: { role } }),
-    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
+    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:', 'organisation:', 'activity:'] }),
   },
   tasks: {
     /** @returns {Promise<Task[]>} */
@@ -192,23 +193,25 @@ export const api = {
     /** Opens a task by its key (ALPHA-12); old keys of a renamed project still resolve. @returns {Promise<Task>} */
     getByKey: (key) => request('GET', `/tasks/by-key/${enc(key)}`),
     /** @returns {Promise<Task>} TM-F-011 */
-    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'], body: input }),
+    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`], body: input }),
     remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
-    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:'], body: { status } }),
+    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`], body: { status } }),
+    /** Who changed what on the task, newest first (issue #75). @returns {Promise<{ items: Activity[], page: number, pageSize: number, total: number }>} */
+    activity: (taskId, { page = 1, pageSize = 50 } = {}) => request('GET', `/tasks/${enc(taskId)}/activity`, { query: { page, pageSize } }),
   },
   checklist: {
     /** @returns {Promise<{ taskId: string, checklist: ChecklistItem[], updatedAt: string }>} */
-    add: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/checklist`, { body: { text } }),
+    add: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/checklist`, { invalidates: [`activity:${taskId}`], body: { text } }),
     /** `changes`: { done } and/or { text }. Owners, managers and members; viewers cannot. */
-    update: (taskId, itemId, changes) => request('PATCH', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { body: changes }),
-    remove: (taskId, itemId) => request('DELETE', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`),
+    update: (taskId, itemId, changes) => request('PATCH', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { invalidates: [`activity:${taskId}`], body: changes }),
+    remove: (taskId, itemId) => request('DELETE', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { invalidates: [`activity:${taskId}`] }),
   },
   comments: {
     /** @returns {Promise<Comment[]>} TM-F-032. DECISION: each comment embeds `author`. */
     list: (taskId) => request('GET', `/tasks/${enc(taskId)}/comments`),
-    create: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/comments`, { body: { text } }),
-    remove: (taskId, commentId) => request('DELETE', `/tasks/${enc(taskId)}/comments/${enc(commentId)}`),
+    create: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/comments`, { invalidates: [`activity:${taskId}`], body: { text } }),
+    remove: (taskId, commentId) => request('DELETE', `/tasks/${enc(taskId)}/comments/${enc(commentId)}`, { invalidates: [`activity:${taskId}`] }),
   },
   notifications: {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */

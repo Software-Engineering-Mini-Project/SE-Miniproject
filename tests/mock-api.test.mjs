@@ -612,3 +612,32 @@ test('work-item types, points, labels and epics mirror the API (issue #74)', () 
   assert.equal(call('DELETE', '/tasks/task-002', { token: lead }).status, 204);
   assert.equal(call('GET', '/tasks/task-005', { token: lead }).data.epicId, null);
 });
+
+test('task activity mirrors the API: one entry per change, newest first, isolated (issue #75)', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  const outsider = login('outsider@example.test');
+  const northwind = login('northwind-admin@example.test');
+  const history = (taskId, token = lead) => call('GET', `/tasks/${taskId}/activity`, { token }).data;
+
+  assert.deepEqual(history('task-002').items.map((e) => e.action), ['comment.add', 'comment.add', 'created']);
+  const created = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Ship it' } }).data;
+  call('PATCH', `/tasks/${created.id}`, { token: lead, body: { priority: 'High', storyPoints: 5, labels: ['ui'] } });
+  call('PATCH', `/tasks/${created.id}`, { token: lead, body: { priority: 'High' } });
+  call('PATCH', `/tasks/${created.id}/status`, { token: member, body: { status: 'Done' } });
+  const page = history(created.id);
+  assert.equal(page.total, 5);
+  assert.deepEqual(page.items[0], { ...page.items[0], action: 'status', details: { from: 'To Do', to: 'Done' }, actorId: 'user-member-001' });
+  assert.equal(page.items[0].actor.id, 'user-member-001');
+  assert.deepEqual(page.items.slice(1, 4).map((e) => e.action).sort(), ['labels', 'priority', 'storyPoints']);
+
+  const comment = call('POST', `/tasks/${created.id}/comments`, { token: member, body: { text: 'Private note' } }).data;
+  call('DELETE', `/tasks/${created.id}/comments/${comment.id}`, { token: member });
+  assert.ok(!JSON.stringify(history(created.id)).includes('Private note'));
+
+  assertEnvelope(call('GET', '/tasks/task-001/activity', { token: outsider }), 403, 'FORBIDDEN');
+  assertEnvelope(call('GET', '/tasks/task-001/activity', { token: northwind }), 404, 'NOT_FOUND');
+  call('DELETE', `/tasks/${created.id}`, { token: lead });
+  assertEnvelope(call('GET', `/tasks/${created.id}/activity`, { token: lead }), 404, 'NOT_FOUND');
+});

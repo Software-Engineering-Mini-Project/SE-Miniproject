@@ -52,6 +52,7 @@ import {
   suggestProjectKey,
   withWorkItemDefaults,
 } from '../../work-items.js';
+import { commentExcerpt, seedActivities, taskChangeActivities, taskSnapshot } from '../../activity.js';
 import { toCsv } from './csv.js';
 
 export const MOCK_PASSWORD = 'Password123!';
@@ -129,6 +130,7 @@ export function seedDatabase(seed) {
     })(),
     comments: clone(seed.comments),
     notifications: clone(seed.notifications),
+    activities: seedActivities({ tasks: clone(seed.tasks), comments: clone(seed.comments), projects: clone(seed.projects) }),
     counter: 1000,
   };
 }
@@ -253,6 +255,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     return key;
   }
   const keyTaken = () => fail(409, 'KEY_TAKEN', 'Another project in your organisation uses that key.', { key: 'This key is taken. Choose another.' });
+  /** Mirrors server/services/activity.js: one entry per change, by `user`, now. */
+  function record(task, user, entries) {
+    db.activities ??= [];
+    const at = stamp();
+    for (const entry of entries) {
+      db.activities.push({ id: nextId('activity'), taskId: task.id, projectId: task.projectId, actorId: user.id, action: entry.action, details: entry.details ?? {}, createdAt: at });
+    }
+  }
   /** Mirrors the API's readTaskInput for the work-item fields: 400 with the field's message. */
   function readWorkItem(body, { create = false } = {}) {
     const { values, errors } = readWorkItemFields(body ?? {}, { create });
@@ -463,6 +473,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     });
     db.comments = db.comments.filter((c) => c.taskId !== taskId);
     db.notifications = db.notifications.filter((n) => n.taskId !== taskId);
+    db.activities = (db.activities ?? []).filter((a) => a.taskId !== taskId);
   }
 
   function isOverdue(task, today = resolveToday(undefined, now())) {
@@ -828,7 +839,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         if (role === 'Viewer') {
           db.tasks
             .filter((t) => t.projectId === project.id && t.assigneeIds.includes(params.userId))
-            .forEach((t) => { t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId); });
+            .forEach((t) => {
+              t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
+              record(t, user, [{ action: 'assignees', details: { added: [], removed: [params.userId] } }]);
+            });
         }
         project.updatedAt = stamp();
       }
@@ -850,7 +864,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         .filter((t) => t.projectId === project.id)
         .forEach((t) => {
           projectTaskIds.add(t.id);
-          if (t.assigneeIds.includes(params.userId)) t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
+          if (t.assigneeIds.includes(params.userId)) {
+            t.assigneeIds = t.assigneeIds.filter((id) => id !== params.userId);
+            record(t, user, [{ action: 'assignees', details: { added: [], removed: [params.userId] } }]);
+          }
         });
       db.notifications = db.notifications.filter((n) => !(n.userId === params.userId && projectTaskIds.has(n.taskId)));
       project.updatedAt = stamp();
@@ -876,6 +893,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const at = stamp();
       const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, number: nextTaskNumber(project), ...workItem, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
       db.tasks.push(task);
+      record(task, user, [{ action: 'created', details: { title: task.title, type: task.type } }]);
       notifyAssignment(task, assigneeIds, user);
       return [201, taskDto(task)];
     }],
@@ -903,6 +921,23 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       return [200, taskDto(task)];
     }],
 
+    // Who changed what on a task, newest first (issue #75).
+    ['GET', '/tasks/:taskId/activity', ({ user, params, query }) => {
+      const { task } = taskFor(user, params.taskId);
+      const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.pageSize ?? '50', 10) || 50));
+      const all = (db.activities ?? [])
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry.taskId === task.id)
+        .sort((a, b) => b.entry.createdAt.localeCompare(a.entry.createdAt) || b.index - a.index)
+        .map(({ entry }) => entry);
+      const items = all.slice((page - 1) * pageSize, page * pageSize).map((entry) => {
+        const actor = findUser(entry.actorId);
+        return { ...clone(entry), actor: actor ? { id: actor.id, name: actor.name } : null };
+      });
+      return [200, { items, page, pageSize, total: all.length }];
+    }],
+
     ['GET', '/tasks/:taskId', ({ user, params }) => [200, taskDto(taskFor(user, params.taskId).task)]],
 
     ['PATCH', '/tasks/:taskId', ({ user, params, body }) => {
@@ -921,6 +956,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
           next: { id: task.id, projectId: project.id, type: workItem.type ?? current.type, epicId: workItem.epicId !== undefined ? workItem.epicId : current.epicId },
         });
       }
+      const before = taskSnapshot(task);
       Object.assign(task, workItem);
       if (title) task.title = title;
       if (description !== undefined) task.description = description;
@@ -932,6 +968,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         task.assigneeIds = assigneeIds;
         notifyAssignment(task, added, user);
       }
+      record(task, user, taskChangeActivities(before, taskSnapshot(task)));
       task.updatedAt = stamp();
       return [200, taskDto(task)];
     }],
@@ -946,7 +983,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     // task status"); viewers are read-only.
     ['PATCH', '/tasks/:taskId/status', ({ user, params, body }) => {
       const { task } = taskFor(user, params.taskId, { action: 'task.status' });
+      const from = task.status;
       applyStatus(task, oneOf(body, 'status', TASK_STATUSES, { label: 'Status' }));
+      if (task.status !== from) record(task, user, [{ action: 'status', details: { from, to: task.status } }]);
       task.updatedAt = stamp();
       return [200, { taskId: task.id, status: task.status, completedAt: task.completedAt ?? null, updatedAt: task.updatedAt }];
     }],
@@ -960,6 +999,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         badRequest(`A task can have at most ${LIMITS.checklistItems} checklist items.`, { text: `A task can have at most ${LIMITS.checklistItems} checklist items.` });
       }
       task.checklist.push({ id: nextId('check'), text, done: false });
+      record(task, user, [{ action: 'checklist.add', details: { text } }]);
       task.updatedAt = stamp();
       return [201, { taskId: task.id, checklist: clone(task.checklist), updatedAt: task.updatedAt }];
     }],
@@ -972,6 +1012,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const { task } = taskFor(user, params.taskId, { action: text !== undefined ? 'task.edit' : 'task.status' });
       const item = (task.checklist || []).find((entry) => entry.id === params.itemId);
       if (!item) notFound('Checklist item');
+      const entries = [];
+      if (body.done !== undefined && body.done !== item.done) entries.push({ action: 'checklist.check', details: { text: text ?? item.text, done: body.done } });
+      if (text !== undefined && text !== item.text) entries.push({ action: 'checklist.rename', details: { from: item.text, to: text } });
+      record(task, user, entries);
       if (body.done !== undefined) item.done = body.done;
       if (text !== undefined) item.text = text;
       task.updatedAt = stamp();
@@ -982,6 +1026,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const { task } = taskFor(user, params.taskId, { action: 'task.edit' });
       const index = (task.checklist || []).findIndex((entry) => entry.id === params.itemId);
       if (index < 0) notFound('Checklist item');
+      record(task, user, [{ action: 'checklist.remove', details: { text: task.checklist[index].text } }]);
       task.checklist.splice(index, 1);
       task.updatedAt = stamp();
       return [200, { taskId: task.id, checklist: clone(task.checklist), updatedAt: task.updatedAt }];
@@ -1001,6 +1046,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const text = str(body, 'text', { max: LIMITS.commentMax, label: 'Comment' });
       const comment = { id: nextId('comment'), taskId: task.id, authorId: user.id, text, createdAt: stamp() };
       db.comments.push(comment);
+      record(task, user, [{ action: 'comment.add', details: { commentId: comment.id, excerpt: commentExcerpt(text) } }]);
       return [201, { ...clone(comment), author: memberDto(user) }];
     }],
 
@@ -1012,6 +1058,11 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const comment = db.comments[index];
       if (comment.authorId !== user.id && !can(user, 'comment.moderate', project)) forbidden('You cannot delete this comment.');
       db.comments.splice(index, 1);
+      // The history keeps that a comment was made, but not the text of one that was deleted.
+      (db.activities ?? []).forEach((a) => {
+        if (a.taskId === task.id && a.action === 'comment.add' && a.details?.commentId === comment.id) a.details = { ...a.details, excerpt: null };
+      });
+      record(task, user, [{ action: 'comment.delete', details: { commentId: comment.id } }]);
       return [204, null];
     }],
 
