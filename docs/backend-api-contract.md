@@ -164,6 +164,8 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 { id, number, key, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
   completedAt /* ISO timestamp while Done, else null; server-set (§7.6) */,
   checklist: [{ id, text, done }] /* up to 50 items; changed only through §6.3 checklist routes */,
+  type /* "Task" (default) | "Bug" | "Story" | "Epic" */, storyPoints /* 1 | 2 | 3 | 5 | 8 | 13 | 21 | null */,
+  labels: [string] /* lower-case, up to 10 */, epicId /* id of an Epic in the same project, or null */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
 
 // Checklist change (every checklist route answers with the whole, current list)
@@ -188,7 +190,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 |---|---|---|
 | User | `name`, `email` (as typed), `emailNormalized` (trim + lowercase), `passwordHash`, `role` enum, timestamps | **unique** `emailNormalized`. Never serialize `passwordHash`. |
 | Project | `name`, `description`, `key`, `previousKeys[]`, `taskCounter`, `ownerId` → User, `memberIds[]` → User, timestamps | index `memberIds`; **unique** `{organisationId, key}`; index `{organisationId, previousKeys}`. Owner is always in `memberIds`. |
-| Task | `number`, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`. Every assignee must be in the project's `memberIds`. |
+| Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`. Every assignee must be in the project's `memberIds`. |
 | Comment | `taskId` → Task, `authorId` → User, `text`, `createdAt` | index `{taskId, createdAt}` |
 | Notification | `userId`, `taskId`, `type` enum, `message`, `read`, `createdAt`, plus `dedupeKey` for reminders | index `{userId, read, createdAt}`. **Unique** `{userId, type, dedupeKey}` for due reminders. |
 
@@ -283,13 +285,13 @@ Stored on the organisation document (`projectCreation`); the seed resets it. Cha
 
 | Method and path | Who | Body or query | Success | Errors |
 |---|---|---|---|---|
-| `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
-| `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer), `403` |
-| `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
+| `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, type, label, epicId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
+| `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds?, type?, storyPoints?, labels?, epicId? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`, `type "Task"`, `storyPoints null`, `labels []`, `epicId null`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer, and the work-item rules of §7.8), `403` |
+| `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, type, label, epicId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
 | `GET /tasks/by-key/:key` | member of the task's project | `key` such as `ALPHA-12`, any case; an old project key works too | `200 Task` (the `/browse/ALPHA-12` page uses it) | `404` "No task has that key." (also a malformed key, or another organisation's), `403` / `403 JOIN_REQUIRED` as for the project |
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
-| `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
+| `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11). Deleting an epic keeps its items, with `epicId` cleared. | `403`, `404` |
 | `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 | `POST /tasks/:taskId/checklist` | Owner, Manager, Admin | `{ text }` (1–200 chars, trimmed) | `201` checklist change | `400` empty, too long, not text, or the task already has 50 items; `403`, `404` |
 | `PATCH /tasks/:taskId/checklist/:itemId` | `done`: Owner, Manager, Member, Admin (**not Viewer**); `text`: Owner, Manager, Admin | `{ done?: boolean, text?: string }` | `200` checklist change | `400` neither field, `done` not boolean; `403`; `404` task or item |
@@ -301,6 +303,7 @@ Checklist routes update one item with a single atomic MongoDB operation (`$push`
 - `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`. A `q` that is a task key (`alpha-4`, or one under an old project key) also matches that task exactly.
 - `status` and `priority` must be valid enum values (else 400).
 - `assigneeId`: the task's `assigneeIds` contains it.
+- `type`: one of the four types (else 400). `label`: normalized like a stored label (so `#Frontend` finds `frontend`), then matched exactly. `epicId`: the items of that epic.
 - All filters combine with AND. An empty result is `200 []`, not 404.
 
 For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50 with a maximum of 100. Supplying either parameter enables pagination; an omitted `page` defaults to 1. The response remains a plain array for backward compatibility. If neither parameter is supplied, the API returns the first 500 matching records at most. CSV export remains unpaginated and accepts filters only.
@@ -344,10 +347,10 @@ Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip
 - Columns, in this order:
 
   ```
-  id,key,title,status,priority,dueDate,assignees,createdAt,updatedAt
+  id,key,type,title,status,priority,storyPoints,labels,epic,dueDate,assignees,createdAt,updatedAt
   ```
 
-  `assignees` is the assignee **names** joined with `"; "`. Use CRLF line endings, a header row, then one row per task.
+  `labels` and `assignees` (the assignee **names**) are joined with `"; "`; `epic` is the epic's key, such as `ALPHA-4`. Use CRLF line endings, a header row, then one row per task.
 - **Formula-injection protection (PRJ-SR-005, TC-REPORT-02):** if a cell starts with `=`, `+`, `-`, `@`, a tab or a CR, prefix it with `'`.
 - **Quoting:** if a cell contains `"`, `,`, CR or LF, or has leading or trailing spaces, wrap it in quotes and double the inner quotes.
 - Reference implementation (18 lines): [`src/lib/api/mock/csv.js`](../src/lib/api/mock/csv.js). Fixture `task-007` has a formula-like title. Its expected cell is `"'=HYPERLINK(""https://example.test"",""Export check"")"`.
@@ -445,6 +448,17 @@ Every task has a short, stable name such as `ALPHA-12`, made of its project's `k
 - **Task numbers** come from the project's `taskCounter`, raised with a single `$inc`, so tasks created at the same moment get different numbers. A number is never reused, not even after the task is deleted. A unique partial index on `{ projectId, number }` backs it. `taskCounter` is never sent to clients.
 - **Renaming a key** (Owner or Admin) changes every task key at once, since keys are computed in the DTO, not stored on tasks. The old key moves to `previousKeys`, so `/browse/OLD-3`, `GET /tasks/by-key/OLD-3` and a search for `old-3` keep finding the task, and no other project can take the old key.
 - **Migration.** Projects without a key get one suggested from their name, and their tasks are numbered oldest first (`migrateWorkItemKeys` in `server/utils/migrations.js`, run with the other migrations). Running it twice changes nothing.
+
+### 7.8 Work-item types, story points, labels and epics
+
+Shared rules: [`src/lib/work-items.js`](../src/lib/work-items.js) (`readWorkItemFields`, `epicRuleErrors`). Each violation is `400 VALIDATION_ERROR` with the field in `fields`.
+- **`type`** is `Task`, `Bug`, `Story` or `Epic`; a task created without one is a `Task`. Records saved before types existed read as `Task` with no estimate, labels or epic.
+- **`storyPoints`** is `null` or one of `1, 2, 3, 5, 8, 13, 21` (a number; `"3"` is refused).
+- **`labels`** are free text scoped to the project: each is trimmed, lower-cased, has a leading `#` dropped and spaces turned into `-` (`" Front End "` → `front-end`), is 1 to 30 characters of letters, digits and `- _ . / +` starting with a letter or digit, and duplicates collapse. At most 10 per task. A project's labels are simply the ones its tasks use.
+- **`epicId`** names a task of type `Epic` **in the same project** (another project's epic, a non-epic or an unknown id: `fields.epicId`). An Epic never has an `epicId`, so epics don't nest, and a task can't be its own epic.
+- An Epic that still holds items can't change type (`fields.type`: "Move the 2 items out of this epic first."). Deleting an epic clears `epicId` on its items.
+- Who may change these fields is who may edit the task (`task.edit`, §7.5); Viewers get `403`.
+- Epic progress (done / total items, and story points) is computed by the web app from the project's tasks (`epicProgress`), so it needs no endpoint.
 
 ---
 
