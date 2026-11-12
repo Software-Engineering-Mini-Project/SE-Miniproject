@@ -4,7 +4,7 @@ Status: implemented on branch `feat/quick-add-subtasks` (PR #64), 2026-11-08. Th
 
 ## Why
 
-The team asked (Akash, 2026-11-08) that **admin and member sign in on the same page, but the organisation page differs**: an organisation has many projects working in it. Before this, the whole deployment was one shared workspace, so two teams using one deployment would see each other's accounts and could not be kept apart.
+The team asked (Akash, 2026-11-08) that **admin and member sign in on the same page, but the organisation page differs**: an organisation has many projects working in it. Before this, the whole deployment was one shared space, so two teams using one deployment would see each other's accounts and could not be kept apart.
 
 ## The model
 
@@ -55,12 +55,16 @@ Tests that pin this: `server/tests/organisations.test.mjs` (API), `tests/mock-ap
 - It does not expire by itself and is not single-use. If you need to close the door, rotate it.
 - The demo codes (`ACMELABS`, `NORTHWIND`) are short and public on purpose. They exist only in the synthetic seed.
 
+## Terminology
+
+The app says **organisation** everywhere people can see it (issue #79): *Organisation settings* on the Users page, "organisation role", "Contact an organisation admin." Some internal names keep the older word because changing them would break stored data or nothing visible: the legacy `settings` document `_id: "workspace"` read by the migration, and identifiers such as `getWorkspaceSettings`, `DEFAULT_WORKSPACE_SETTINGS`, the `useWorkspace` client store and `workspace-settings` CSS classes. The API's paths and fields never used the word.
+
 ## Migrating existing data
 
 A database from before organisations has accounts and projects with no `organisationId`. On the first connection after upgrading (and with `npm run db:migrate`), `migrateOrganisations` in [`server/utils/migrations.js`](../server/utils/migrations.js):
 
 1. creates one organisation, `_id: org-default`, named **My organisation**, with a fresh invite code (an upsert, so two instances starting together agree on one);
-2. carries over the old global workspace setting (`settings` collection) as that organisation's `projectCreation`;
+2. carries over the old global setting (the `settings` collection, document `workspace`) as that organisation's `projectCreation`;
 3. assigns every account and project without an organisation to it.
 
 It does nothing once nothing is orphaned, so it is safe on every start. After upgrading, an Admin should rename the organisation and, if the code was ever shared, rotate it. The old `settings` collection is left in place and is no longer read.
@@ -72,5 +76,4 @@ It does nothing once nothing is orphaned, so it is safe on every start. After up
 - **Deleting an organisation**, or exporting its data.
 - **Per-organisation audit log screen.** Audit records exist in the server log (`audit: true`, with `change`), but there is no page for them.
 - **Organisation-level billing, quotas or branding.**
-- **Terminology:** the code and some screens still say "workspace" for the organisation's rules (for example *Workspace settings* on the Users page). It means the same thing; renaming it everywhere is a separate, mechanical change.
 - **Production onboarding owners** (who approves the first Admin of a real deployment) are still open, see [admin-onboarding-proposal.md](admin-onboarding-proposal.md).

@@ -39,7 +39,7 @@ The web app defaults to HTTP mode. To use the browser mock without MongoDB, set 
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
-| Email | Workspace role | Project roles |
+| Email | Organisation role | Project roles |
 |---|---|---|
 | `admin@example.test` | Admin | Owner of Beta |
 | `lead@example.test` | Lead | Owner of Alpha, Manager of Beta |
@@ -162,7 +162,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Directory entry (GET /projects/directory)
 { id, name, description, key, ownerName, memberCount }
 
-// Workspace settings (GET/PATCH /settings)
+// Organisation settings (GET/PATCH /settings)
 { projectCreation /* "everyone" (default) | "leads" */ }
 
 // Task. `number` is given by the server when the task is created and never reused in its project;
@@ -286,7 +286,7 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects of the caller's organisation where the user is in `memberIds` (Admin: all of the organisation's) | |
-| `POST /projects` | anyone signed in; only Lead and Admin when the workspace setting is `leads` | `{ name, description?, visibility?, key? }` (`private` default, or `open`). Without `key` the server picks a free one from the name. | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` (with `fields.key` for a malformed key), `409 KEY_TAKEN` with `fields.key` when the organisation already uses that key, now or before |
+| `POST /projects` | anyone signed in; only Lead and Admin when the organisation's setting is `leads` | `{ name, description?, visibility?, key? }` (`private` default, or `open`). Without `key` the server picks a free one from the name. | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` (with `fields.key` for a malformed key), `409 KEY_TAKEN` with `fields.key` when the organisation already uses that key, now or before |
 | `GET /projects/key-suggestion` | any signed-in user | `name` | `200 { key }`: a key free in the caller's organisation, from the name (`Alpha Launch` → `AL`; no usable letters → `PROJ`) | |
 | `GET /projects/directory` | any signed-in user | optional `q` (name contains, case-insensitive, literal text, max 80) | `200 DirectoryEntry[]`: **open** projects of the caller's organisation that the caller is not in, by name, at most 50. Private projects never appear, and neither does anything from another organisation. | |
 | `POST /projects/:projectId/join` | any signed-in user | | `201 Project` when newly joined as a Member (audited `change: { field: 'projectRole', from: null, to: 'Member' }`); `200 Project` if already in it | `403` private project ("Ask its owner or a manager to add you."), `404` (also for another organisation's project), `400` bad id |
@@ -298,9 +298,9 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | `PATCH /projects/:projectId/members/:userId` | Owner, Manager, Admin | `{ role }`: `Owner` (transfer), `Manager`, `Member` or `Viewer` | `200 Member[]`. Transfer: the previous owner becomes a Manager. Changing someone to Viewer unassigns them from the project's tasks. Audited (`change: { field: 'projectRole', from, to }`). | `400` bad role, changing the Owner's role, or transferring to a deactivated account; `403` (only an Owner or Admin grants, revokes or removes Manager, and transfers); `404` not a member |
 | `DELETE /projects/:projectId/members/:userId` | Owner, Manager, Admin; **any member for themselves** (leave) | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the Owner, `404` if not a member, `403` |
 
-**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects when an Admin limits it to leads, and who manages accounts and settings (Admin); a workspace Lead has no extra rights inside a project they aren't a member of. Every route under a project (tasks, members, summary, export) answers `403 JOIN_REQUIRED` to a non-member of an open project.
+**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The organisation role only decides who may create projects when an Admin limits it to leads, and who manages accounts and settings (Admin); an organisation Lead has no extra rights inside a project they aren't a member of. Every route under a project (tasks, members, summary, export) answers `403 JOIN_REQUIRED` to a non-member of an open project.
 
-#### Workspace settings (per organisation)
+#### Organisation settings
 
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
@@ -309,7 +309,7 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 
 Stored on the organisation document (`projectCreation`); the seed resets it. Changing it in one organisation never affects another.
 
-**Migration.** Before project roles, any workspace Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
+**Migration.** Before project roles, any organisation Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
 
 ### 6.3 Tasks (TM-F-010..012, TM-F-022, TM-F-023, TM-F-040)
 
@@ -447,15 +447,15 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 
 ### 7.5 Authorization matrix
 
-Workspace roles (on the account):
+Organisation roles (on the account):
 
-| Workspace role | Can |
+| Organisation role | Can |
 |---|---|
-| Admin | Everything in every project; list users, change workspace roles, deactivate and reactivate accounts; change workspace settings |
+| Admin | Everything in every project; list users, change organisation roles, deactivate and reactivate accounts; change organisation settings |
 | Lead | Create projects (becoming their Owner), always; join open projects |
-| Member | Create projects unless the workspace setting is `leads`; join open projects; work in the projects they belong to |
+| Member | Create projects unless the organisation's setting is `leads`; join open projects; work in the projects they belong to |
 
-Project roles (per project, from `src/lib/permissions.js`). A workspace Admin can do every action in every project, but can only be assigned tasks where they are a member.
+Project roles (per project, from `src/lib/permissions.js`). An organisation Admin can do every action in every project, but can only be assigned tasks where they are a member.
 
 | Action | Owner | Manager | Member | Viewer | Non-member |
 |---|---|---|---|---|---|
@@ -597,7 +597,7 @@ server/
   tests/                  # node:test + Supertest + mongodb-memory-server (.test.mjs)
 ```
 
-Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtoken`, `cors`, `helmet`, `express-rate-limit`, `dotenv`. The API workspace currently uses Node's built-in `node:test` runner with `supertest` and `mongodb-memory-server`.
+Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtoken`, `cors`, `helmet`, `express-rate-limit`, `dotenv`. The API currently uses Node's built-in `node:test` runner with `supertest` and `mongodb-memory-server`.
 
 ---
 

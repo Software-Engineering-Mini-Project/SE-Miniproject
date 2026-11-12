@@ -53,13 +53,13 @@ Details, the migration of existing data and the security notes are in [docs/orga
 
 Two layers, defined once in [`src/lib/permissions.js`](src/lib/permissions.js) and enforced by the API (the UI uses the same module, so it never offers an action the API would refuse).
 
-**Organisation role** (per account, inside its organisation; the API and UI call it the workspace role):
+**Organisation role** (per account, inside its organisation):
 
 - **Member**: creates projects (becoming their Owner), joins open projects, and works in the projects they belong to.
 - **Lead**: the same, and can always create projects, even when an Admin limits creation to leads.
 - **Admin**: everything in every project of their organisation, plus the **Users** page to change roles, deactivate accounts and change the organisation's settings, and the invite code. The last active Admin of an organisation cannot be demoted.
 
-**Open workspace.** Like Jira's team-managed projects, anyone can start a project; an Admin can switch **Who can create projects** to *Leads and admins only*. Each project is **Private** (only people who are added can see it) or **Open** (listed under *Open projects* on the Projects page, where anyone in the organisation can join as a Member). A shared link to an open project offers a **Join project** button instead of an error. A new account starts on a getting-started screen: create a project, join an open one, or send their email to a project owner.
+**Open by default.** Like Jira's team-managed projects, anyone can start a project; an Admin can switch **Who can create projects** to *Leads and admins only*. Each project is **Private** (only people who are added can see it) or **Open** (listed under *Open projects* on the Projects page, where anyone in the organisation can join as a Member). A shared link to an open project offers a **Join project** button instead of an error. A new account starts on a getting-started screen: create a project, join an open one, or send their email to a project owner.
 
 **Project role** (per project):
 
