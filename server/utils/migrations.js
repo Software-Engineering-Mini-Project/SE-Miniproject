@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import { Organisation, Project, Task, User } from '../models/index.js';
 import { uniqueJoinCode } from '../services/organisation.js';
+import { isDuplicateKeyError, takenProjectKeys } from '../services/work-items.js';
+import { suggestProjectKey } from '../../src/lib/work-items.js';
 
 export const DEFAULT_ORGANISATION_ID = 'org-default';
 
@@ -72,10 +74,59 @@ export async function migrateOrganisations() {
   return users.modifiedCount + projects.modifiedCount;
 }
 
+/**
+ * Work-item keys: give every project without a key one suggested from its name (unique in its
+ * organisation), and every task without a number the next numbers in its project, oldest first.
+ *
+ * Numbers are reserved with an atomic $inc on the project's counter before they are written, so a
+ * task created while this runs can never get the same number. Idempotent: it only touches projects
+ * without a key and tasks without a number. Returns the number of projects and tasks updated.
+ */
+export async function migrateWorkItemKeys() {
+  let updated = 0;
+  const keyless = await Project.find({ $or: [{ key: { $exists: false } }, { key: null }] }).select('_id name organisationId').sort({ createdAt: 1, _id: 1 }).lean();
+  for (const project of keyless) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const taken = await takenProjectKeys(project.organisationId, project._id);
+      try {
+        const result = await Project.updateOne(
+          { _id: project._id, $or: [{ key: { $exists: false } }, { key: null }] },
+          { $set: { key: suggestProjectKey(project.name, taken) } },
+          { timestamps: false },
+        );
+        updated += result.modifiedCount;
+        break;
+      } catch (error) {
+        if (!isDuplicateKeyError(error)) throw error;
+      }
+    }
+  }
+
+  const projectIds = await Task.distinct('projectId', { number: { $exists: false } });
+  for (const projectId of projectIds) {
+    const tasks = await Task.find({ projectId, number: { $exists: false } }).select('_id').sort({ createdAt: 1, _id: 1 }).lean();
+    if (tasks.length === 0) continue;
+    const before = await Project.findOneAndUpdate(
+      { _id: projectId },
+      { $inc: { taskCounter: tasks.length } },
+      { returnDocument: 'before', projection: { taskCounter: 1 }, timestamps: false },
+    ).lean();
+    if (!before) continue; // tasks of a deleted project
+    const start = before.taskCounter ?? 0;
+    const result = await Task.bulkWrite(tasks.map((task, index) => ({
+      updateOne: { filter: { _id: task._id, number: { $exists: false } }, update: { $set: { number: start + index + 1 } }, timestamps: false },
+    })));
+    updated += result.modifiedCount;
+  }
+  return updated;
+}
+
 /** Runs every data migration; each is idempotent and cheap when there is nothing to do. */
 export async function runMigrations({ logger = console } = {}) {
   const moved = await migrateOrganisations();
   if (moved > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'organisations', records: moved }));
+  const keyed = await migrateWorkItemKeys();
+  if (keyed > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'work_item_keys', records: keyed }));
   const projects = await migrateProjectRoles();
   if (projects > 0) logger.info?.(JSON.stringify({ event: 'migration_applied', name: 'project_roles', projects }));
   const tasks = await migrateCompletedAt();

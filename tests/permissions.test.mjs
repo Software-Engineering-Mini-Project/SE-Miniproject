@@ -37,7 +37,7 @@ test('project roles come from the membership arrays; non-members have none', () 
 test('the permission matrix', () => {
   const expected = {
     owner: PROJECT_ACTIONS,
-    manager: PROJECT_ACTIONS.filter((action) => !['project.delete', 'project.transfer', 'members.manageManagers'].includes(action)),
+    manager: PROJECT_ACTIONS.filter((action) => !['project.delete', 'project.key', 'project.transfer', 'members.manageManagers'].includes(action)),
     member: ['project.view', 'project.export', 'task.create', 'task.edit', 'task.status', 'task.assignable', 'comment.create'],
     viewer: ['project.view', 'project.export', 'comment.create'],
     stranger: [],

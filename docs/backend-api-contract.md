@@ -148,19 +148,24 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 { id, name, email, role }
 
 // Project (visibility defaults to "private"). organisationId is set by the server from the creator.
-{ id, organisationId, name, description, visibility /* "private" | "open" */, ownerId, memberIds: [id], managerIds: [id], viewerIds: [id],
-  members: [Member], createdAt, updatedAt }
+// `key` (2 to 10 letters A to Z, unique in the organisation) prefixes its task keys; `previousKeys`
+// are keys it used before, which still resolve (§7.7).
+{ id, organisationId, name, description, key /* "ALPHA" */, previousKeys: [string], visibility /* "private" | "open" */,
+  ownerId, memberIds: [id], managerIds: [id], viewerIds: [id], members: [Member], createdAt, updatedAt }
 
 // Directory entry (GET /projects/directory)
-{ id, name, description, ownerName, memberCount }
+{ id, name, description, key, ownerName, memberCount }
 
 // Workspace settings (GET/PATCH /settings)
 { projectCreation /* "everyone" (default) | "leads" */ }
 
-// Task
-{ id, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
+// Task. `number` is given by the server when the task is created and never reused in its project;
+// `key` is the project's current key plus the number ("ALPHA-12").
+{ id, number, key, title, description, status, priority, dueDate /* "YYYY-MM-DD" | null */,
   completedAt /* ISO timestamp while Done, else null; server-set (§7.6) */,
   checklist: [{ id, text, done }] /* up to 50 items; changed only through §6.3 checklist routes */,
+  type /* "Task" (default) | "Bug" | "Story" | "Epic" */, storyPoints /* 1 | 2 | 3 | 5 | 8 | 13 | 21 | null */,
+  labels: [string] /* lower-case, up to 10 */, epicId /* id of an Epic in the same project, or null */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
 
 // Checklist change (every checklist route answers with the whole, current list)
@@ -184,8 +189,8 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 | Collection | Fields | Indexes and rules |
 |---|---|---|
 | User | `name`, `email` (as typed), `emailNormalized` (trim + lowercase), `passwordHash`, `role` enum, timestamps | **unique** `emailNormalized`. Never serialize `passwordHash`. |
-| Project | `name`, `description`, `ownerId` → User, `memberIds[]` → User, timestamps | index `memberIds`. Owner is always in `memberIds`. |
-| Task | `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`. Every assignee must be in the project's `memberIds`. |
+| Project | `name`, `description`, `key`, `previousKeys[]`, `taskCounter`, `ownerId` → User, `memberIds[]` → User, timestamps | index `memberIds`; **unique** `{organisationId, key}`; index `{organisationId, previousKeys}`. Owner is always in `memberIds`. |
+| Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`. Every assignee must be in the project's `memberIds`. |
 | Comment | `taskId` → Task, `authorId` → User, `text`, `createdAt` | index `{taskId, createdAt}` |
 | Notification | `userId`, `taskId`, `type` enum, `message`, `read`, `createdAt`, plus `dedupeKey` for reminders | index `{userId, read, createdAt}`. **Unique** `{userId, type, dedupeKey}` for due reminders. |
 
@@ -251,11 +256,12 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects of the caller's organisation where the user is in `memberIds` (Admin: all of the organisation's) | |
-| `POST /projects` | anyone signed in; only Lead and Admin when the workspace setting is `leads` | `{ name, description?, visibility? }` (`private` default, or `open`) | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` |
+| `POST /projects` | anyone signed in; only Lead and Admin when the workspace setting is `leads` | `{ name, description?, visibility?, key? }` (`private` default, or `open`). Without `key` the server picks a free one from the name. | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` (with `fields.key` for a malformed key), `409 KEY_TAKEN` with `fields.key` when the organisation already uses that key, now or before |
+| `GET /projects/key-suggestion` | any signed-in user | `name` | `200 { key }`: a key free in the caller's organisation, from the name (`Alpha Launch` → `AL`; no usable letters → `PROJ`) | |
 | `GET /projects/directory` | any signed-in user | optional `q` (name contains, case-insensitive, literal text, max 80) | `200 DirectoryEntry[]`: **open** projects of the caller's organisation that the caller is not in, by name, at most 50. Private projects never appear, and neither does anything from another organisation. | |
 | `POST /projects/:projectId/join` | any signed-in user | | `201 Project` when newly joined as a Member (audited `change: { field: 'projectRole', from: null, to: 'Member' }`); `200 Project` if already in it | `403` private project ("Ask its owner or a manager to add you."), `404` (also for another organisation's project), `400` bad id |
 | `GET /projects/:projectId` | any project role | | `200 Project` | `403 JOIN_REQUIRED` for a non-member of an **open** project (the UI offers *Join project*); `403 FORBIDDEN` for a private one; `404` (also for a project in **another organisation**, so its existence is not revealed) |
-| `PATCH /projects/:projectId` | Owner, Manager, Admin | `{ name?, description?, visibility? }`. Making a project private keeps its members. | `200 Project` | `403`, `404`, `400` |
+| `PATCH /projects/:projectId` | Owner, Manager, Admin; **`key` only Owner and Admin** | `{ name?, description?, visibility?, key? }`. Making a project private keeps its members. A new `key` renames every task key at once; the old key joins `previousKeys`. | `200 Project`. A key change is audited as `change: { field: 'projectKey', from, to }`. | `403` (also a Manager sending a different `key`), `404`, `400`, `409 KEY_TAKEN` |
 | `DELETE /projects/:projectId` | Owner, Admin | | `204`, cascades per D11 | `403`, `404` |
 | `GET /projects/:projectId/members` | any project role | | `200 Member[]`, each with `projectRole` | `403`, `404` |
 | `POST /projects/:projectId/members` | Owner, Manager, Admin | `{ email, role? }`; `role` is `Manager`, `Member` (default) or `Viewer`. Only an Owner or Admin may add a Manager. | `200 Member[]` (full updated list). Adding an existing member is a no-op. | `404` with `fields.email` if nobody **in this organisation** has that email (an account in another organisation looks unregistered), `400` with `fields.email` if the account is deactivated, `400` bad role, `403` |
@@ -279,12 +285,13 @@ Stored on the organisation document (`projectCreation`); the seed resets it. Cha
 
 | Method and path | Who | Body or query | Success | Errors |
 |---|---|---|---|---|
-| `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
-| `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer), `403` |
-| `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
+| `GET /projects/:projectId/tasks` | member | query `q, status, priority, assigneeId, type, label, epicId, page, pageSize` (all optional) | `200 Task[]` | `400` bad filter, `403`, `404` |
+| `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds?, type?, storyPoints?, labels?, epicId? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`, `type "Task"`, `storyPoints null`, `labels []`, `epicId null`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer, and the work-item rules of §7.8), `403` |
+| `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, type, label, epicId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
+| `GET /tasks/by-key/:key` | member of the task's project | `key` such as `ALPHA-12`, any case; an old project key works too | `200 Task` (the `/browse/ALPHA-12` page uses it) | `404` "No task has that key." (also a malformed key, or another organisation's), `403` / `403 JOIN_REQUIRED` as for the project |
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
-| `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11) | `403`, `404` |
+| `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11). Deleting an epic keeps its items, with `epicId` cleared. | `403`, `404` |
 | `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 | `POST /tasks/:taskId/checklist` | Owner, Manager, Admin | `{ text }` (1–200 chars, trimmed) | `201` checklist change | `400` empty, too long, not text, or the task already has 50 items; `403`, `404` |
 | `PATCH /tasks/:taskId/checklist/:itemId` | `done`: Owner, Manager, Member, Admin (**not Viewer**); `text`: Owner, Manager, Admin | `{ done?: boolean, text?: string }` | `200` checklist change | `400` neither field, `done` not boolean; `403`; `404` task or item |
@@ -293,9 +300,10 @@ Stored on the organisation document (`projectCreation`); the seed resets it. Cha
 Checklist routes update one item with a single atomic MongoDB operation (`$push` guarded by the 50-item cap, positional `$set`, `$pull`), so two people working through the same list never overwrite each other. The CSV export leaves checklists out.
 
 **Filter semantics** (identical for both list endpoints and the CSV export):
-- `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`.
+- `q`: case-insensitive substring match on `title` **or** `description`, trimmed, max 200 chars. Escape regex special characters if you use `$regex`. A `q` that is a task key (`alpha-4`, or one under an old project key) also matches that task exactly.
 - `status` and `priority` must be valid enum values (else 400).
 - `assigneeId`: the task's `assigneeIds` contains it.
+- `type`: one of the four types (else 400). `label`: normalized like a stored label (so `#Frontend` finds `frontend`), then matched exactly. `epicId`: the items of that epic.
 - All filters combine with AND. An empty result is `200 []`, not 404.
 
 For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50 with a maximum of 100. Supplying either parameter enables pagination; an omitted `page` defaults to 1. The response remains a plain array for backward compatibility. If neither parameter is supplied, the API returns the first 500 matching records at most. CSV export remains unpaginated and accepts filters only.
@@ -339,10 +347,10 @@ Store comment text **as typed**, e.g. `<script>alert('x')</script>`. Don't strip
 - Columns, in this order:
 
   ```
-  id,title,status,priority,dueDate,assignees,createdAt,updatedAt
+  id,key,type,title,status,priority,storyPoints,labels,epic,dueDate,assignees,createdAt,updatedAt
   ```
 
-  `assignees` is the assignee **names** joined with `"; "`. Use CRLF line endings, a header row, then one row per task.
+  `labels` and `assignees` (the assignee **names**) are joined with `"; "`; `epic` is the epic's key, such as `ALPHA-4`. Use CRLF line endings, a header row, then one row per task.
 - **Formula-injection protection (PRJ-SR-005, TC-REPORT-02):** if a cell starts with `=`, `+`, `-`, `@`, a tab or a CR, prefix it with `'`.
 - **Quoting:** if a cell contains `"`, `,`, CR or LF, or has leading or trailing spaces, wrap it in quotes and double the inner quotes.
 - Reference implementation (18 lines): [`src/lib/api/mock/csv.js`](../src/lib/api/mock/csv.js). Fixture `task-007` has a formula-like title. Its expected cell is `"'=HYPERLINK(""https://example.test"",""Export check"")"`.
@@ -368,14 +376,14 @@ Invite codes are 10 characters from an alphabet without look-alikes (`0 O 1 I L`
 ### 7.1 Assignment notification (TM-F-030)
 When a task is created with assignees, or a `PATCH` **adds** assignees, create one notification per new assignee:
 - `type: "assignment"`, `read: false`
-- `message: You were assigned to "<task title>".`
+- `message: You were assigned to <task key> "<task title>".`, for example `You were assigned to ALPHA-12 "Fix login".`
 
 Don't notify the person who did the assigning if they assigned themselves. Removing an assignee creates no notification.
 
 ### 7.2 Due-date reminder (TM-F-031)
 For each assignee of a task that is **not Done** and whose due date falls in the next **24 hours** (the end of the due day is within 24h and not already past), create one notification:
 - `type: "due-date"`
-- `message: "<title>" is due within 24 hours.`
+- `message: <task key> "<title>" is due within 24 hours.`
 
 **Deduplicate** on `(userId, taskId, dueDate)`. Running the job twice must not create a second reminder (TC-NOTIF-02). If the due date changes, a new reminder is allowed.
 
@@ -417,6 +425,7 @@ Project roles (per project, from `src/lib/permissions.js`). A workspace Admin ca
 | Delete tasks | ✅ | ✅ | 403 | 403 | 403 |
 | Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
 | Edit project details, including visibility | ✅ | ✅ | 403 | 403 | 403 |
+| Change the project key (`project.key`) | ✅ | 403 | 403 | 403 | 403 |
 | Join the project | already in it (200) | already in it (200) | already in it (200) | already in it (200) | open: ✅ as Member; private: 403 |
 | Add, remove, and change Members and Viewers | ✅ | ✅ | 403 | 403 | 403 |
 | Grant, revoke or remove Manager | ✅ | 403 | 403 | 403 | 403 |
@@ -431,6 +440,25 @@ Notifications: own only, for everyone (others' → 404).
 The server sets `completedAt`; clients can't write it. It is stamped when a task enters `Done` (through `PATCH /tasks/:taskId/status`, `PATCH /tasks/:taskId` or a create with `status: "Done"`), kept if a Done task is set to Done again or edited in other ways, and cleared to `null` when the task leaves `Done`. Tasks completed before the field existed are backfilled from `updatedAt` by the `completedAt` migration (`npm run db:migrate`, also run on API startup). The CSV export columns are unchanged.
 
 The web app's delivery forecast (`src/lib/forecast.js`) reads only `completedAt` and the open tasks, so it needs no endpoint of its own.
+
+### 7.7 Work-item keys
+
+Every task has a short, stable name such as `ALPHA-12`, made of its project's `key` and its `number`. The rules live in [`src/lib/work-items.js`](../src/lib/work-items.js), shared by the API, the mock API and the UI.
+- **Project keys** are 2 to 10 letters A to Z, stored upper-case, and unique within an organisation, counting every key a project used before (`previousKeys`). Another organisation may use the same key. A unique partial index on `{ organisationId, key }` backs the check, so two projects created at the same moment never get the same key: the loser of the race gets the next free suggestion, or `409 KEY_TAKEN` when the key was typed.
+- **Task numbers** come from the project's `taskCounter`, raised with a single `$inc`, so tasks created at the same moment get different numbers. A number is never reused, not even after the task is deleted. A unique partial index on `{ projectId, number }` backs it. `taskCounter` is never sent to clients.
+- **Renaming a key** (Owner or Admin) changes every task key at once, since keys are computed in the DTO, not stored on tasks. The old key moves to `previousKeys`, so `/browse/OLD-3`, `GET /tasks/by-key/OLD-3` and a search for `old-3` keep finding the task, and no other project can take the old key.
+- **Migration.** Projects without a key get one suggested from their name, and their tasks are numbered oldest first (`migrateWorkItemKeys` in `server/utils/migrations.js`, run with the other migrations). Running it twice changes nothing.
+
+### 7.8 Work-item types, story points, labels and epics
+
+Shared rules: [`src/lib/work-items.js`](../src/lib/work-items.js) (`readWorkItemFields`, `epicRuleErrors`). Each violation is `400 VALIDATION_ERROR` with the field in `fields`.
+- **`type`** is `Task`, `Bug`, `Story` or `Epic`; a task created without one is a `Task`. Records saved before types existed read as `Task` with no estimate, labels or epic.
+- **`storyPoints`** is `null` or one of `1, 2, 3, 5, 8, 13, 21` (a number; `"3"` is refused).
+- **`labels`** are free text scoped to the project: each is trimmed, lower-cased, has a leading `#` dropped and spaces turned into `-` (`" Front End "` → `front-end`), is 1 to 30 characters of letters, digits and `- _ . / +` starting with a letter or digit, and duplicates collapse. At most 10 per task. A project's labels are simply the ones its tasks use.
+- **`epicId`** names a task of type `Epic` **in the same project** (another project's epic, a non-epic or an unknown id: `fields.epicId`). An Epic never has an `epicId`, so epics don't nest, and a task can't be its own epic.
+- An Epic that still holds items can't change type (`fields.type`: "Move the 2 items out of this epic first."). Deleting an epic clears `epicId` on its items.
+- Who may change these fields is who may edit the task (`task.edit`, §7.5); Viewers get `403`.
+- Epic progress (done / total items, and story points) is computed by the web app from the project's tasks (`epicProgress`), so it needs no endpoint.
 
 ---
 

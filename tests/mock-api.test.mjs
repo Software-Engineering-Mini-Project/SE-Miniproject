@@ -123,7 +123,7 @@ test('open projects: directory, join, JOIN_REQUIRED and visibility changes mirro
   assertEnvelope(call('POST', '/projects', { token: lead, body: { name: 'Bad', visibility: 'public' } }), 400, 'VALIDATION_ERROR');
 
   assert.deepEqual(call('GET', '/projects/directory', { token: outsider }).data, [
-    { id: created.id, name: 'Design system', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 },
+    { id: created.id, name: 'Design system', key: 'DESIG', description: 'Shared components', ownerName: 'Synthetic Lead', memberCount: 1 },
   ]);
   assert.deepEqual(call('GET', '/projects/directory', { token: lead }).data, [], 'projects you are in are not listed');
   assert.equal(call('GET', '/projects/directory', { token: outsider, query: { q: 'DESIGN' } }).data.length, 1);
@@ -537,4 +537,78 @@ test('the organisation page data: invite code for Admins only, rename, rotate, a
   assert.deepEqual(mine.projects.map((project) => [project.name, project.yourRole]), [['Alpha Project', 'Member'], ['Design system', null]]);
   assert.equal(mine.totals.tasks, mine.projects.reduce((sum, project) => sum + project.total, 0));
   assert.deepEqual(call('GET', '/organisation/overview', { token: login('outsider@example.test'), query }).data.projects.map((project) => project.name), ['Design system']);
+});
+
+test('work-item keys mirror the API: numbering, key changes, old keys, search and lookup by key', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  const admin = login('admin@example.test');
+  const northwind = login('northwind-admin@example.test');
+
+  const listed = call('GET', '/projects/project-alpha/tasks', { token: lead }).data;
+  assert.equal(listed.find((t) => t.id === 'task-001').key, 'ALPHA-1');
+  assert.equal(listed.find((t) => t.id === 'task-007').key, 'ALPHA-7');
+  const created = call('POST', '/projects/project-alpha/tasks', { token: member, body: { title: 'Next one' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.key, 'ALPHA-8');
+  assert.equal(call('GET', '/projects/project-alpha', { token: lead }).data.taskCounter, undefined);
+
+  assert.deepEqual(call('GET', '/projects/key-suggestion', { token: member, query: { name: 'Alpha Launch' } }).data, { key: 'AL' });
+  assertEnvelope(call('POST', '/projects', { token: member, body: { name: 'Copy', key: 'BETA' } }), 409, 'KEY_TAKEN');
+  assertEnvelope(call('POST', '/projects', { token: member, body: { name: 'Bad', key: 'B4D' } }), 400, 'VALIDATION_ERROR');
+  assert.equal(call('POST', '/projects', { token: northwind, body: { name: 'Alpha elsewhere', key: 'ALPHA' } }).status, 201);
+
+  assertEnvelope(call('PATCH', '/projects/project-alpha', { token: member, body: { key: 'CORE' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('PATCH', '/projects/project-beta', { token: lead, body: { key: 'QUAL' } }), 403, 'FORBIDDEN');
+  const renamed = call('PATCH', '/projects/project-alpha', { token: lead, body: { key: 'core' } });
+  assert.equal(renamed.data.key, 'CORE');
+  assert.deepEqual(renamed.data.previousKeys, ['ALPHA']);
+  assert.equal(call('GET', '/tasks/task-001', { token: lead }).data.key, 'CORE-1');
+  assert.equal(call('GET', '/tasks/by-key/alpha-1', { token: member }).data.id, 'task-001');
+  assert.deepEqual(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { q: 'ALPHA-4' } }).data.map((t) => t.id), ['task-002']);
+  assert.deepEqual(call('GET', '/tasks', { token: admin, query: { q: 'beta-2' } }).data.map((t) => t.id), ['task-008']);
+  assertEnvelope(call('POST', '/projects', { token: member, body: { name: 'Thief', key: 'ALPHA' } }), 409, 'KEY_TAKEN');
+
+  assertEnvelope(call('GET', '/tasks/by-key/BETA-1', { token: member }), 403, 'FORBIDDEN');
+  assertEnvelope(call('GET', '/tasks/by-key/CORE-99', { token: lead }), 404, 'NOT_FOUND');
+  assertEnvelope(call('GET', '/tasks/by-key/CORE-1', { token: northwind }), 404, 'NOT_FOUND');
+  const csv = call('GET', '/projects/project-beta/tasks/export.csv', { token: admin }).data;
+  assert.match(csv.split('\r\n')[0], /^id,key,type,title,/);
+  assert.match(csv, /task-003,BETA-1,/);
+});
+
+test('work-item types, points, labels and epics mirror the API (issue #74)', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const viewer = login('viewer@example.test');
+  const ids = (res) => res.data.map((t) => t.id).sort();
+
+  const story = call('GET', '/tasks/task-005', { token: lead }).data;
+  assert.deepEqual([story.type, story.storyPoints, story.labels, story.epicId], ['Story', 3, ['frontend', 'accessibility'], 'task-002']);
+  const plain = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Plain' } });
+  assert.deepEqual([plain.data.type, plain.data.storyPoints, plain.data.labels, plain.data.epicId], ['Task', null, [], null]);
+  const bug = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Bug', type: 'Bug', storyPoints: 2, labels: ['#UI'], epicId: 'task-002' } });
+  assert.deepEqual([bug.status, bug.data.labels, bug.data.epicId], [201, ['ui'], 'task-002']);
+
+  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', storyPoints: 4 } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', type: 'Epic', epicId: 'task-002' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'x', epicId: 'task-001' } }), 400, 'VALIDATION_ERROR');
+  assertEnvelope(call('POST', '/projects/project-beta/tasks', { token: lead, body: { title: 'x', epicId: 'task-002' } }), 400, 'VALIDATION_ERROR');
+  const demote = call('PATCH', '/tasks/task-002', { token: lead, body: { type: 'Story' } });
+  assertEnvelope(demote, 400, 'VALIDATION_ERROR');
+  assert.match(demote.data.fields.type, /Move the 2 items out/);
+  assertEnvelope(call('PATCH', '/tasks/task-005', { token: viewer, body: { storyPoints: 5 } }), 403, 'FORBIDDEN');
+
+  assert.deepEqual(ids(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { type: 'Bug' } })), ['task-007', bug.data.id].sort());
+  assert.deepEqual(ids(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { label: 'FRONTEND' } })), ['task-002', 'task-004', 'task-005']);
+  assert.deepEqual(ids(call('GET', '/tasks', { token: lead, query: { label: 'accessibility' } })), ['task-005', 'task-009']);
+  assert.deepEqual(ids(call('GET', '/projects/project-alpha/tasks', { token: lead, query: { epicId: 'task-002' } })), ['task-005', bug.data.id].sort());
+
+  const csv = call('GET', '/projects/project-alpha/tasks/export.csv', { token: lead }).data;
+  assert.equal(csv.split('\r\n')[0], 'id,key,type,title,status,priority,storyPoints,labels,epic,dueDate,assignees,createdAt,updatedAt');
+  assert.match(csv, /task-005,ALPHA-6,Story,Keyboard support for moving board cards,To Do,Medium,3,frontend; accessibility,ALPHA-4,/);
+
+  assert.equal(call('DELETE', '/tasks/task-002', { token: lead }).status, 204);
+  assert.equal(call('GET', '/tasks/task-005', { token: lead }).data.epicId, null);
 });

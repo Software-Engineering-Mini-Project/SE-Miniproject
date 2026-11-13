@@ -1,4 +1,4 @@
-const HEADERS = ['id', 'title', 'status', 'priority', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
+const HEADERS = ['id', 'key', 'type', 'title', 'status', 'priority', 'storyPoints', 'labels', 'epic', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
 
 function csvCell(value) {
   let text = value === undefined || value === null ? '' : String(value);
@@ -7,12 +7,18 @@ function csvCell(value) {
   return text;
 }
 
-export function tasksToCsv(tasks, usersById) {
+/** `epicKeys` maps an epic's id to its key, for the `epic` column. */
+export function tasksToCsv(tasks, usersById, epicKeys = new Map()) {
   const rows = tasks.map((task) => [
     task.id,
+    task.key,
+    task.type,
     task.title,
     task.status,
     task.priority,
+    task.storyPoints,
+    task.labels.join('; '),
+    task.epicId ? epicKeys.get(task.epicId) ?? '' : '',
     task.dueDate,
     task.assigneeIds.map((id) => usersById.get(id)?.name).filter(Boolean).join('; '),
     task.createdAt.toISOString(),

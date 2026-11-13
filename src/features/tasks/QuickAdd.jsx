@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useMemo, useRef, useState } from 'react';
-import { AtSign, CalendarClock, CornerDownLeft, Flag, Plus, X } from 'lucide-react';
+import { AtSign, CalendarClock, CornerDownLeft, Flag, Gauge, Hash, Plus, Shapes, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { describeError } from '@/lib/api/errors';
@@ -10,16 +10,20 @@ import { formatDue } from '@/lib/format';
 import { parseQuickAdd } from '@/lib/quick-add';
 import { LIMITS } from '@/lib/constants';
 
-const ICONS = { priority: Flag, due: CalendarClock, assignee: AtSign };
+const ICONS = { priority: Flag, due: CalendarClock, assignee: AtSign, type: Shapes, label: Hash, points: Gauge };
 
 function partLabel(part) {
   if (part.kind === 'priority') return `${part.value} priority`;
   if (part.kind === 'due') return formatDue(part.value);
+  if (part.kind === 'type') return part.value;
+  if (part.kind === 'label') return part.value;
+  if (part.kind === 'points') return `${part.value} ${part.value === 1 ? 'point' : 'points'}`;
   return part.label;
 }
 
 /**
- * One-line task entry for a project (src/lib/quick-add.js): "Ship the release fri !high @mina".
+ * One-line task entry for a project (src/lib/quick-add.js): "Ship the release fri !high @mina",
+ * or "Fix the login redirect #bug #auth 3pts".
  * Shows what it understood before anything is created, and lets each piece be kept as text.
  */
 export function QuickAdd({ projectId, members, currentUserId, onCreated }) {
@@ -56,6 +60,9 @@ export function QuickAdd({ projectId, members, currentUserId, onCreated }) {
         priority: parsed.priority || 'Medium',
         dueDate: parsed.dueDate,
         assigneeIds: parsed.assigneeIds,
+        ...(parsed.type ? { type: parsed.type } : {}),
+        ...(parsed.storyPoints ? { storyPoints: parsed.storyPoints } : {}),
+        ...(parsed.labels.length ? { labels: parsed.labels } : {}),
       });
       setText('');
       setKeep(new Set());
@@ -133,7 +140,8 @@ export function QuickAdd({ projectId, members, currentUserId, onCreated }) {
           </>
         ) : null}
         <span id={`${id}-help`} className="quick-add-help" hidden={hasDetails}>
-          <kbd>!high</kbd> priority · <kbd>@name</kbd> assign · <kbd>tomorrow</kbd>, <kbd>fri</kbd>, <kbd>nov 20</kbd>, <kbd>in 3 days</kbd> due
+          <kbd>!high</kbd> priority · <kbd>@name</kbd> assign · <kbd>tomorrow</kbd>, <kbd>fri</kbd>, <kbd>nov 20</kbd> due · <kbd>#bug</kbd> type ·{' '}
+          <kbd>#label</kbd> · <kbd>3pts</kbd>
         </span>
       </div>
       {error ? (

@@ -46,7 +46,7 @@ test('TM-F-040..042 search, filters, dashboard summaries and CSV export use auth
   const bytes = await readFile(downloadPath);
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'CSV starts with a UTF-8 BOM for Excel');
   const csv = bytes.subarray(3).toString('utf8');
-  assert.match(csv, /^id,title,status,priority,dueDate,assignees,createdAt,updatedAt\r\n/);
+  assert.match(csv, /^id,key,type,title,status,priority,storyPoints,labels,epic,dueDate,assignees,createdAt,updatedAt\r\n/);
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.test"",""Export check""\)"/);
   assert.match(csv, /\r\n/);
 });

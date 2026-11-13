@@ -13,6 +13,44 @@
   gap: 4px;
 }
 
+.sheet-head-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The key doubles as "copy link": quiet until hovered or focused. */
+.task-key-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.task-key-copy:focus-visible {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .task-key-copy:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+}
+
+.task-key-copy .task-key {
+  color: inherit;
+}
+
 .sheet-body {
   flex: 1;
   overflow-y: auto;
@@ -393,6 +431,69 @@
   }
 }
 
+/* Labels: chips and a text box that share one bordered field. */
+.label-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.label-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.label-input[data-invalid] {
+  border-color: var(--danger);
+}
+
+.label-input-text {
+  flex: 1;
+  min-width: 8ch;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.label-chip-removable {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: none;
+  padding-right: 2px;
+}
+
+.label-chip-removable button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.label-chip-removable button:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.label-chip-removable button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .assignee-picker {
   display: grid;
   gap: 6px;
@@ -496,7 +597,7 @@
 
 .task-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px 100px 150px 90px;
+  grid-template-columns: minmax(0, 1fr) 120px 200px 150px 90px;
   align-items: center;
   gap: 16px;
   width: 100%;
@@ -538,6 +639,24 @@
   white-space: nowrap;
   font-size: var(--text-xs);
   color: var(--ink-3);
+}
+
+.task-row-project .type-icon {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+.task-row-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-row-fields .label-list {
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 @media (max-width: 760px) {
@@ -787,4 +906,79 @@
 .agenda-note {
   font-size: var(--text-xs);
   color: var(--ink-3);
+}
+
+/* ---------- Epics in the task sheet ---------- */
+.sheet-epic-link,
+.epic-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sheet-epic-link > svg {
+  flex: none;
+  color: var(--type-epic);
+}
+
+.sheet-epic-link > span:last-child,
+.epic-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sheet-epic-link:hover,
+  .epic-item:hover {
+    background: var(--surface-2);
+  }
+}
+
+.sheet-epic-link:focus-visible,
+.epic-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.epic-items {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.epic-items-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.epic-items-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.epic-item {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 8px;
+}
+
+.epic-item-title {
+  flex: 1;
 }

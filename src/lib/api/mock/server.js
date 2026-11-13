@@ -37,6 +37,21 @@ import {
   isJoinCodeShape,
   normalizeJoinCode,
 } from '../../organisation.js';
+import {
+  TASK_TYPES,
+  epicRuleErrors,
+  formatTaskKey,
+  labelError,
+  normalizeLabel,
+  normalizeProjectKey,
+  numberTasks,
+  parseTaskKey,
+  projectAnswersToKey,
+  projectKeyError,
+  readWorkItemFields,
+  suggestProjectKey,
+  withWorkItemDefaults,
+} from '../../work-items.js';
 import { toCsv } from './csv.js';
 
 export const MOCK_PASSWORD = 'Password123!';
@@ -50,6 +65,7 @@ const ROLES = ['Admin', 'Lead', 'Member'];
 const FORBIDDEN = {
   'project.edit': 'Only the project owner, a manager or an admin can edit this project.',
   'project.delete': 'Only the project owner or an admin can delete this project.',
+  'project.key': 'Only the project owner or an admin can change the project key.',
   'members.manage': 'Only the project owner, a manager or an admin can manage members.',
   'task.create': 'Viewers cannot create tasks.',
   'task.edit': 'Viewers cannot edit tasks.',
@@ -104,8 +120,13 @@ export function seedDatabase(seed) {
       emailNormalized: normalizeEmail(u.email),
       password: MOCK_PASSWORD,
     })),
-    projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], visibility: 'private', ...p })),
-    tasks: clone(seed.tasks),
+    ...(() => {
+      const { tasks, counters } = numberTasks(clone(seed.tasks));
+      return {
+        projects: clone(seed.projects).map((p) => ({ managerIds: [], viewerIds: [], visibility: 'private', previousKeys: [], ...p, taskCounter: counters[p.id] ?? 0 })),
+        tasks: tasks.map(withWorkItemDefaults),
+      };
+    })(),
     comments: clone(seed.comments),
     notifications: clone(seed.notifications),
     counter: 1000,
@@ -119,7 +140,7 @@ export function seedDatabase(seed) {
  * @param {() => Date} [options.now]
  * @param {string} [options.storageKey]
  */
-export function createMockServer({ seed, storage = null, now = () => new Date(), storageKey = 'taskline.mockdb.v3' }) {
+export function createMockServer({ seed, storage = null, now = () => new Date(), storageKey = 'taskline.mockdb.v4' }) {
   let db = load();
   const loginAttempts = new Map();
 
@@ -198,14 +219,67 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     return dto;
   };
   const findUser = (id) => db.users.find((u) => u.id === id);
-  const projectDto = (p) => ({
-    visibility: 'private',
-    ...clone(p),
-    managerIds: [...(p.managerIds ?? [])],
-    viewerIds: [...(p.viewerIds ?? [])],
-    members: p.memberIds.map(findUser).filter(Boolean).map((u) => memberDto(u, p)),
-  });
-  const taskDto = (t) => clone(t);
+  const projectDto = (p) => {
+    const dto = {
+      visibility: 'private',
+      ...clone(p),
+      key: p.key ?? null,
+      previousKeys: [...(p.previousKeys ?? [])],
+      managerIds: [...(p.managerIds ?? [])],
+      viewerIds: [...(p.viewerIds ?? [])],
+      members: p.memberIds.map(findUser).filter(Boolean).map((u) => memberDto(u, p)),
+    };
+    delete dto.taskCounter;
+    return dto;
+  };
+  const projectKeyOf = (projectId) => db.projects.find((p) => p.id === projectId)?.key ?? null;
+  const taskDto = (t) => {
+    const dto = withWorkItemDefaults(clone(t));
+    dto.number = Number.isInteger(t.number) ? t.number : null;
+    dto.key = formatTaskKey(projectKeyOf(t.projectId), dto.number);
+    return dto;
+  };
+  const taskKeyOf = (t) => formatTaskKey(projectKeyOf(t.projectId), t.number);
+
+  // ---------- work-item keys (mirrors server/services/work-items.js) ----------
+  const takenKeys = (user, exceptId) => new Set(db.projects
+    .filter((p) => sameOrg(user, p) && p.id !== exceptId)
+    .flatMap((p) => [p.key, ...(p.previousKeys ?? [])])
+    .filter(Boolean));
+  function readKey(body) {
+    const key = normalizeProjectKey(body?.key);
+    const error = projectKeyError(key);
+    if (error) badRequest(error, { key: error });
+    return key;
+  }
+  const keyTaken = () => fail(409, 'KEY_TAKEN', 'Another project in your organisation uses that key.', { key: 'This key is taken. Choose another.' });
+  /** Mirrors the API's readTaskInput for the work-item fields: 400 with the field's message. */
+  function readWorkItem(body, { create = false } = {}) {
+    const { values, errors } = readWorkItemFields(body ?? {}, { create });
+    const [field] = Object.keys(errors);
+    if (field) badRequest(errors[field], errors);
+    return values;
+  }
+  /** Mirrors checkEpicRules in server/routes/tasks.js. */
+  function checkEpicRules({ current = null, next }) {
+    const epic = next.epicId ? db.tasks.find((t) => t.id === next.epicId && t.projectId === next.projectId) : null;
+    const childCount = current?.type === 'Epic' && next.type !== 'Epic'
+      ? db.tasks.filter((t) => t.projectId === next.projectId && t.epicId === current.id).length
+      : 0;
+    const errors = epicRuleErrors({ current, next, epic, childCount });
+    const [field] = Object.keys(errors);
+    if (field) badRequest(errors[field], errors);
+  }
+  function nextTaskNumber(project) {
+    project.taskCounter = (project.taskCounter ?? 0) + 1;
+    return project.taskCounter;
+  }
+  /** Mirrors the API: a key search also matches the task with that number in a project that uses or used the key. */
+  function keyMatch(task, filters, projects) {
+    const parsed = parseTaskKey(filters.q);
+    if (!parsed || task.number !== parsed.number) return false;
+    return projects.some((p) => p.id === task.projectId && projectAnswersToKey(p, parsed.projectKey));
+  }
 
   // ---------- validation helpers ----------
   function str(body, key, { required = true, min = 1, max = 200, label = key } = {}) {
@@ -329,7 +403,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         userId,
         taskId: task.id,
         type: 'assignment',
-        message: `You were assigned to "${task.title}".`,
+        message: taskKeyOf(task) ? `You were assigned to ${taskKeyOf(task)} "${task.title}".` : `You were assigned to "${task.title}".`,
         read: false,
         createdAt: stamp(),
       });
@@ -355,7 +429,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         userId: user.id,
         taskId: task.id,
         type: 'due-date',
-        message: `"${task.title}" is due within ${REMINDER_WINDOW_HOURS} hours.`,
+        message: taskKeyOf(task) ? `${taskKeyOf(task)} "${task.title}" is due within ${REMINDER_WINDOW_HOURS} hours.` : `"${task.title}" is due within ${REMINDER_WINDOW_HOURS} hours.`,
         read: false,
         createdAt: stamp(),
         dedupeKey,
@@ -383,6 +457,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
   function removeTaskCascade(taskId) {
     // Deletion policy used by the mock (decision pending in SAD §3.5): cascade comments and notifications.
     db.tasks = db.tasks.filter((t) => t.id !== taskId);
+    // Deleting an epic keeps its items; they just no longer belong to an epic.
+    db.tasks.forEach((t) => {
+      if (t.epicId === taskId) t.epicId = null;
+    });
     db.comments = db.comments.filter((c) => c.taskId !== taskId);
     db.notifications = db.notifications.filter((n) => n.taskId !== taskId);
   }
@@ -395,6 +473,9 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (query.status && task.status !== query.status) return false;
     if (query.priority && task.priority !== query.priority) return false;
     if (query.assigneeId && !task.assigneeIds.includes(query.assigneeId)) return false;
+    if (query.type && (task.type ?? 'Task') !== query.type) return false;
+    if (query.label && !(task.labels ?? []).includes(query.label)) return false;
+    if (query.epicId && task.epicId !== query.epicId) return false;
     if (query.q) {
       const needle = query.q.toLowerCase();
       if (!task.title.toLowerCase().includes(needle) && !(task.description || '').toLowerCase().includes(needle)) return false;
@@ -412,6 +493,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     if (query.priority) filters.priority = oneOf(query, 'priority', TASK_PRIORITIES, { label: 'Priority' });
     if (query.assigneeId) filters.assigneeId = idParam(query.assigneeId, 'assignee');
     if (query.projectId) filters.projectId = idParam(query.projectId, 'project');
+    if (query.type) filters.type = oneOf(query, 'type', TASK_TYPES, { label: 'Type' });
+    if (query.label) {
+      const label = normalizeLabel(query.label);
+      const problem = labelError(label);
+      if (problem) badRequest(problem, { label: problem });
+      filters.label = label;
+    }
+    if (query.epicId) filters.epicId = idParam(query.epicId, 'epic');
     return filters;
   }
 
@@ -558,7 +647,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const open = assigned.filter((task) => task.status !== 'Done');
       const stats = { openAssigned: open.length, completed: assigned.length - open.length, overdue: open.filter((task) => isOverdue(task, today)).length, dueIn7Days: open.filter((task) => task.dueDate && task.dueDate >= today && task.dueDate <= weekEnd).length };
       const myTasks = open.sort((a, b) => Number(!a.dueDate) - Number(!b.dueDate) || (a.dueDate || '').localeCompare(b.dueDate || '') || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(0, 500);
-      return [200, { projects: summaries, myTasks, stats }];
+      return [200, { projects: summaries, myTasks: myTasks.map(taskDto), stats }];
     }],
 
     // Workspace settings: everyone reads them; only Admins change them.
@@ -636,8 +725,14 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
         .filter((p) => !needle || p.name.toLowerCase().includes(needle))
         .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
         .slice(0, 50)
-        .map((p) => ({ id: p.id, name: p.name, description: p.description, ownerName: findUser(p.ownerId)?.name ?? null, memberCount: p.memberIds.length }));
+        .map((p) => ({ id: p.id, name: p.name, key: p.key ?? null, description: p.description, ownerName: findUser(p.ownerId)?.name ?? null, memberCount: p.memberIds.length }));
       return [200, list];
+    }],
+
+    // A free key for a new project, suggested from its name.
+    ['GET', '/projects/key-suggestion', ({ user, query }) => {
+      const name = typeof query.name === 'string' ? query.name.slice(0, 80) : '';
+      return [200, { key: suggestProjectKey(name, takenKeys(user)) }];
     }],
 
     ['POST', '/projects', ({ user, body }) => {
@@ -645,8 +740,12 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const name = str(body, 'name', { max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, max: LIMITS.descriptionMax, label: 'Description' }) || '';
       const visibility = oneOf(body, 'visibility', PROJECT_VISIBILITIES, { required: false, label: 'Visibility' }) ?? 'private';
+      const requested = body?.key === undefined || body?.key === null || body?.key === '' ? undefined : readKey(body);
+      const taken = takenKeys(user);
+      if (requested && taken.has(requested)) keyTaken();
+      const key = requested ?? suggestProjectKey(name, taken);
       const at = stamp();
-      const project = { id: nextId('project'), organisationId: user.organisationId, name, description, visibility, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
+      const project = { id: nextId('project'), organisationId: user.organisationId, name, description, key, previousKeys: [], taskCounter: 0, visibility, ownerId: user.id, memberIds: [user.id], managerIds: [], viewerIds: [], createdAt: at, updatedAt: at };
       db.projects.push(project);
       return [201, projectDto(project)];
     }],
@@ -672,6 +771,17 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const name = str(body, 'name', { required: false, max: LIMITS.projectNameMax, label: 'Project name' });
       const description = str(body, 'description', { required: false, min: 0, max: LIMITS.descriptionMax, label: 'Description' });
       const visibility = oneOf(body, 'visibility', PROJECT_VISIBILITIES, { required: false, label: 'Visibility' });
+      const key = body?.key === undefined ? undefined : readKey(body);
+      if (!['name', 'description', 'visibility', 'key'].some((field) => body?.[field] !== undefined)) badRequest('Provide a project field to update.');
+      if (key !== undefined && key !== project.key) {
+        if (!can(user, 'project.key', project)) forbidden(FORBIDDEN['project.key']);
+        if (takenKeys(user, project.id).has(key)) keyTaken();
+        const previous = new Set(project.previousKeys ?? []);
+        if (project.key) previous.add(project.key);
+        previous.delete(key);
+        project.key = key;
+        project.previousKeys = [...previous];
+      }
       if (name) project.name = name;
       if (description !== undefined) project.description = description;
       if (visibility) project.visibility = visibility;
@@ -750,7 +860,7 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
     ['GET', '/projects/:projectId/tasks', ({ user, params, query }) => {
       const project = projectFor(user, params.projectId);
       const filters = readFilters(query);
-      return [200, db.tasks.filter((t) => t.projectId === project.id && matchesFilters(t, filters)).map(taskDto)];
+      return [200, db.tasks.filter((t) => t.projectId === project.id && (matchesFilters(t, filters) || (matchesFilters(t, { ...filters, q: '' }) && keyMatch(t, filters, [project])))).map(taskDto)];
     }],
 
     ['POST', '/projects/:projectId/tasks', ({ user, params, body }) => {
@@ -761,8 +871,10 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const priority = oneOf(body, 'priority', TASK_PRIORITIES, { required: false, label: 'Priority' }) || 'Medium';
       const dueDate = dateOnly(body, 'dueDate', { label: 'Due date' });
       const assigneeIds = validateAssignees(body, project) || [];
+      const workItem = readWorkItem(body, { create: true });
+      checkEpicRules({ next: { ...workItem, projectId: project.id } });
       const at = stamp();
-      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
+      const task = { id: nextId('task'), title, description, status, priority, dueDate, projectId: project.id, number: nextTaskNumber(project), ...workItem, assigneeIds, completedAt: status === 'Done' ? at : null, checklist: [], createdAt: at, updatedAt: at };
       db.tasks.push(task);
       notifyAssignment(task, assigneeIds, user);
       return [201, taskDto(task)];
@@ -770,13 +882,25 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
 
     ['GET', '/tasks', ({ user, query }) => {
       const filters = readFilters(query);
+      const projects = db.projects.filter((p) => sameOrg(user, p) && isMember(user, p));
       const visible = db.tasks.filter((t) => {
-        const project = db.projects.find((p) => p.id === t.projectId);
-        if (!project || !sameOrg(user, project) || !isMember(user, project)) return false;
+        if (!projects.some((p) => p.id === t.projectId)) return false;
         if (filters.projectId && t.projectId !== filters.projectId) return false;
-        return matchesFilters(t, filters);
+        return matchesFilters(t, filters) || (matchesFilters(t, { ...filters, q: '' }) && keyMatch(t, filters, projects));
       });
       return [200, visible.map(taskDto)];
+    }],
+
+    // Opens a task by its key; a key the project used before still resolves.
+    ['GET', '/tasks/by-key/:key', ({ user, params }) => {
+      const parsed = parseTaskKey(params.key);
+      if (!parsed) fail(404, 'NOT_FOUND', 'No task has that key.');
+      const candidates = db.projects.filter((p) => sameOrg(user, p) && projectAnswersToKey(p, parsed.projectKey));
+      const match = candidates.find((p) => p.key === parsed.projectKey) ?? candidates[0];
+      const task = match && db.tasks.find((t) => t.projectId === match.id && t.number === parsed.number);
+      if (!task) fail(404, 'NOT_FOUND', 'No task has that key.');
+      projectFor(user, match.id);
+      return [200, taskDto(task)];
     }],
 
     ['GET', '/tasks/:taskId', ({ user, params }) => [200, taskDto(taskFor(user, params.taskId).task)]],
@@ -789,6 +913,15 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const priority = oneOf(body, 'priority', TASK_PRIORITIES, { required: false, label: 'Priority' });
       const dueDate = body && 'dueDate' in body ? dateOnly(body, 'dueDate', { label: 'Due date' }) : undefined;
       const assigneeIds = validateAssignees(body, project);
+      const workItem = readWorkItem(body);
+      if (workItem.type !== undefined || workItem.epicId !== undefined) {
+        const current = { id: task.id, type: task.type ?? 'Task', epicId: task.epicId ?? null };
+        checkEpicRules({
+          current,
+          next: { id: task.id, projectId: project.id, type: workItem.type ?? current.type, epicId: workItem.epicId !== undefined ? workItem.epicId : current.epicId },
+        });
+      }
+      Object.assign(task, workItem);
       if (title) task.title = title;
       if (description !== undefined) task.description = description;
       if (status) applyStatus(task, status);
@@ -931,18 +1064,23 @@ export function createMockServer({ seed, storage = null, now = () => new Date(),
       const project = projectFor(user, params.projectId);
       const filters = readFilters(query);
       const rows = db.tasks
-        .filter((t) => t.projectId === project.id && matchesFilters(t, filters))
+        .filter((t) => t.projectId === project.id && (matchesFilters(t, filters) || (matchesFilters(t, { ...filters, q: '' }) && keyMatch(t, filters, [project]))))
         .map((t) => ({
           id: t.id,
+          key: taskKeyOf(t) ?? '',
+          type: t.type ?? 'Task',
           title: t.title,
           status: t.status,
           priority: t.priority,
+          storyPoints: t.storyPoints ?? '',
+          labels: (t.labels ?? []).join('; '),
+          epic: t.epicId ? taskKeyOf(db.tasks.find((e) => e.id === t.epicId) ?? {}) ?? '' : '',
           dueDate: t.dueDate || '',
           assignees: t.assigneeIds.map((id) => findUser(id)?.name || id).join('; '),
           createdAt: t.createdAt,
           updatedAt: t.updatedAt,
         }));
-      const headers = ['id', 'title', 'status', 'priority', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
+      const headers = ['id', 'key', 'type', 'title', 'status', 'priority', 'storyPoints', 'labels', 'epic', 'dueDate', 'assignees', 'createdAt', 'updatedAt'];
       return [200, toCsv(headers, rows), { 'content-type': 'text/csv; charset=utf-8' }];
     }],
   ];

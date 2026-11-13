@@ -19,10 +19,10 @@ it('invalidates the dashboard only after successful project, member, and task mu
     await mutate();
     expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:']);
   }
-  // Editing a project can change its visibility, and joining changes what the project and its tasks return.
+  // Editing a project can change its visibility and its key (and so every task key), and joining changes what the project and its tasks return.
   vi.mocked(invalidateQuery).mockClear();
   await api.projects.update('p', {});
-  expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:', 'directory:']);
+  expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:', 'directory:', 'tasks:p', 'search:']);
   vi.mocked(invalidateQuery).mockClear();
   await api.projects.join('p');
   expect(vi.mocked(invalidateQuery).mock.calls.flat()).toEqual(['dashboard:', 'organisation:', 'directory:', 'project:p', 'tasks:p']);
