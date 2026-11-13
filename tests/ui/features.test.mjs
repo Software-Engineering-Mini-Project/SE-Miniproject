@@ -25,6 +25,7 @@ const state = vi.hoisted(() => {
       dashboard: { get: fn() },
     },
     toast: { success: fn(), error: fn(), info: fn() },
+    invalidateQuery: fn(),
   };
 });
 
@@ -42,6 +43,7 @@ vi.mock('@/lib/api/client', () => ({ api: state.api, apiConfig: { mode: 'http' }
 vi.mock('@/lib/session', () => ({ useSession: (selector) => (selector ? selector(state.session) : state.session) }));
 vi.mock('@/lib/workspace', () => ({ useWorkspace: (selector) => (selector ? selector(state.workspace) : state.workspace) }));
 vi.mock('@/lib/hooks/useQuery', () => ({
+  invalidateQuery: (...args) => state.invalidateQuery(...args),
   useQuery: (key) => state.queries.get(key) || { data: undefined, error: null, loading: Boolean(key), setData: vi.fn(), reload: vi.fn() },
 }));
 vi.mock('sonner', () => ({ toast: state.toast }));
@@ -902,6 +904,27 @@ describe('member removal, admin users, and insights', () => {
     await waitFor(() => expect(state.api.users.setActive).toHaveBeenCalledWith(member.id, false));
     expect(query.setData).toHaveBeenCalled();
     expect(state.toast.success).toHaveBeenCalledWith('Mina Member was deactivated and signed out everywhere.');
+  });
+
+  it('survives a search replacing the list while a deactivation is saving, and reloads the lists', async () => {
+    const user = userEvent.setup();
+    state.invalidateQuery.mockClear();
+    state.session.user = { id: 'user-admin-001', name: 'Ada Admin', email: 'ada@example.test', role: 'Admin' };
+    const query = setupQuery('admin-users:::', {
+      items: [{ ...member, projectCount: 2, active: true }],
+      page: 1, pageSize: 50, total: 1, roleCounts: { Admin: 1, Lead: 0, Member: 1 }, deactivatedCount: 0,
+    });
+    state.api.users.setActive.mockResolvedValue({ ...member, active: false });
+    render(h(UsersAdmin));
+
+    await user.click(screen.getByRole('button', { name: 'Deactivate Mina Member' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirm deactivating Mina Member' })).getByRole('button', { name: 'Deactivate' }));
+    await waitFor(() => expect(query.setData).toHaveBeenCalled());
+    // The new search's list has not loaded yet: the update leaves it alone instead of throwing.
+    const update = query.setData.mock.calls[0][0];
+    expect(update(undefined)).toBeUndefined();
+    expect(update({ items: [{ ...member, active: true }], deactivatedCount: 0 })).toMatchObject({ items: [{ id: member.id, active: false }], deactivatedCount: 1 });
+    expect(state.invalidateQuery).toHaveBeenCalledWith('admin-users:');
   });
 
   it('shows project workload, due dates and priorities as text-backed charts with a table view', async () => {

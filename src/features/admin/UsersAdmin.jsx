@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { describeError } from '@/lib/api/errors';
 import { formatDate, plural } from '@/lib/format';
-import { useQuery } from '@/lib/hooks/useQuery';
+import { invalidateQuery, useQuery } from '@/lib/hooks/useQuery';
 import { useSession } from '@/lib/session';
 import { DEFAULT_WORKSPACE_SETTINGS, PROJECT_CREATION, PROJECT_CREATION_LABELS, WORKSPACE_ROLE_SUMMARY } from '@/lib/permissions';
 import { useWorkspace } from '@/lib/workspace';
@@ -102,11 +102,20 @@ export function UsersAdmin() {
   const items = data?.items || [];
   const hasMore = Boolean(data && items.length < data.total);
 
+  // Apply a saved change to the list on screen. A search typed while the request was out can
+  // replace that list with one still loading, so there may be nothing to patch: load the lists
+  // again instead, so none of them keeps the old value.
+  function patchUsers(update) {
+    users.setData((current) => (current ? update(current) : current));
+    invalidateQuery('admin-users:');
+  }
+
   async function loadMore() {
     setLoadingMore(true);
     try {
       const next = await api.users.list({ q, role, status, page: data.page + 1 });
       users.setData((current) => {
+        if (!current) return current;
         const seen = new Set(current.items.map((u) => u.id));
         return { ...next, items: [...current.items, ...next.items.filter((u) => !seen.has(u.id))] };
       });
@@ -122,7 +131,7 @@ export function UsersAdmin() {
     setSavingId(user.id);
     try {
       const updated = await api.users.setRole(user.id, nextRole);
-      users.setData((current) => {
+      patchUsers((current) => {
         const roleCounts = { ...current.roleCounts };
         roleCounts[user.role] = Math.max(0, (roleCounts[user.role] ?? 0) - 1);
         roleCounts[updated.role] = (roleCounts[updated.role] ?? 0) + 1;
@@ -148,7 +157,7 @@ export function UsersAdmin() {
     setSavingId(user.id);
     try {
       const updated = await api.users.setActive(user.id, active);
-      users.setData((current) => ({
+      patchUsers((current) => ({
         ...current,
         deactivatedCount: Math.max(0, (current.deactivatedCount ?? 0) + (active ? -1 : 1)),
         items: current.items.map((u) => (u.id === user.id ? { ...u, ...updated } : u)),
