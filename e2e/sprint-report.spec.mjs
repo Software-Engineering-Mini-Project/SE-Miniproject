@@ -34,7 +34,11 @@ test('the sprint report shows the burndown, reads by keyboard and as a table, an
   await expect(stats).toContainText('Committed10 points3 items');
 
   // The plot is one focusable group; arrows step through the days and a live readout says each one.
+  // Hovering a day also selects it, so park the pointer off the chart first: otherwise scrolling
+  // the plot into view can leave the pointer over a day and its hover overrides the keys.
   const plot = report.getByRole('group', { name: /Burndown in points/ });
+  await plot.scrollIntoViewIfNeeded();
+  await page.mouse.move(0, 0);
   await plot.focus();
   await page.keyboard.press('Home');
   await expect(report.getByText(/^\d{1,2} \w{3}: 10 points remaining, ideal 10$/)).toBeVisible();
