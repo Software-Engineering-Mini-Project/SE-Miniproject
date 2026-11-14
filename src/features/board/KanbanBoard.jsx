@@ -16,6 +16,7 @@ import {
 import { Plus } from 'lucide-react';
 import { STATUS_META, TASK_STATUSES } from '@/lib/constants';
 import { isOverdue } from '@/lib/format';
+import { columnCollision } from './collision';
 import { TaskCard } from './TaskCard';
 import './board.css';
 
@@ -155,7 +156,7 @@ export function KanbanBoard({ tasks, members, risk, onMove, onOpen, canCreate, o
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={columnCollision}
       accessibility={{ announcements, screenReaderInstructions: { draggable: '' } }}
       onDragStart={({ active }) => setActiveId(active.id)}
       onDragCancel={() => setActiveId(null)}
