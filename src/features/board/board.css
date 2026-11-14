@@ -4,7 +4,7 @@
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(260px, 1fr));
-  gap: 14px;
+  gap: var(--space-3);
   align-items: start;
 }
 
@@ -25,17 +25,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 52px;
-  padding: 8px 8px 4px 14px;
+  padding: var(--space-2) var(--space-2) var(--space-1) var(--space-3);
 }
 
 .board-column-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
   letter-spacing: 0;
 }
 
@@ -56,25 +56,25 @@
 
 .board-column-count {
   min-width: 22px;
-  padding: 1px 7px;
+  padding: 1px var(--space-2);
   border-radius: var(--radius-full);
   background: var(--surface);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--ink-2);
   text-align: center;
 }
 
 .board-column-body {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   align-content: start;
   flex: 1;
-  padding: 4px 8px 10px;
+  padding: var(--space-1) var(--space-2) 10px;
 }
 
 .board-column-empty {
-  padding: 28px 8px;
+  padding: var(--space-7) var(--space-2);
   border-radius: var(--radius);
   font-size: var(--text-sm);
   color: var(--ink-3);
@@ -89,8 +89,8 @@
 /* ---------- Card ---------- */
 .task-card {
   display: grid;
-  gap: 8px;
-  padding: 12px 12px 10px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) 10px;
   border-radius: var(--radius);
   background: var(--surface);
   cursor: grab;
@@ -109,7 +109,7 @@
 
 @media (hover: hover) and (pointer: fine) {
   .task-card:hover {
-    box-shadow: 0 0 0 1px var(--line);
+    box-shadow: 0 0 0 1px var(--line-strong);
   }
 }
 
@@ -130,7 +130,7 @@
 .task-card-top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .task-card-top .risk-tag {
@@ -141,7 +141,7 @@
   display: -webkit-box;
   overflow: hidden;
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.35;
   letter-spacing: -0.005em;
   overflow-wrap: anywhere;
@@ -167,11 +167,11 @@
 .task-card-epic {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
   color: var(--type-epic);
   font-size: var(--text-xs);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .task-card-epic-name {
@@ -184,7 +184,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 24px;
 }
 
@@ -214,14 +214,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
+  gap: var(--space-1) 10px;
   min-width: 0;
 }
 
 .checklist-count {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   font-size: var(--text-xs);
   color: var(--ink-3);
   white-space: nowrap;

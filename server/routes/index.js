@@ -6,6 +6,7 @@ import { createNotificationsRouter } from './notifications.js';
 import { createOrganisationRouter } from './organisation.js';
 import { createProjectsRouter } from './projects.js';
 import { createSettingsRouter } from './settings.js';
+import { createSprintsRouter } from './sprints.js';
 import { createTasksRouter } from './tasks.js';
 import { createUsersRouter } from './users.js';
 
@@ -18,6 +19,7 @@ export function createApiRouter({ jwtSecret, jwtExpiresIn, now } = {}) {
   router.use(createDashboardRouter({ jwtSecret, now }));
   router.use(createProjectsRouter({ jwtSecret, now }));
   router.use(createTasksRouter({ jwtSecret, now }));
+  router.use(createSprintsRouter({ jwtSecret, now }));
   router.use(createCommentsRouter({ jwtSecret, now }));
   router.use(createNotificationsRouter({ jwtSecret, now }));
   return router;

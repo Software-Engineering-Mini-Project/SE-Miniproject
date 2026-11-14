@@ -207,5 +207,7 @@ export function withWorkItemDefaults(task) {
     storyPoints: STORY_POINTS.includes(task.storyPoints) ? task.storyPoints : null,
     labels: Array.isArray(task.labels) ? task.labels : [],
     epicId: task.epicId ?? null,
+    sprintId: task.sprintId ?? null,
+    rank: typeof task.rank === 'number' ? task.rank : null,
   };
 }

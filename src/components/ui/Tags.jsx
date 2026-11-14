@@ -138,7 +138,7 @@ export function EpicProgress({ progress, compact = false }) {
   );
 }
 
-/** Private (invite only) or Open (anyone in the workspace can join). */
+/** Private (invite only) or Open (anyone in the organisation can join). */
 export function VisibilityBadge({ visibility }) {
   const open = visibility === 'open';
   const Icon = open ? Globe : Lock;

@@ -126,13 +126,7 @@ export function MyTasks() {
       <PageHeader title="My tasks" description="Search and filter tasks across every project you belong to." />
 
       <div className="project-toolbar">
-        <TaskFilters
-          filters={filters}
-          onChange={setFilters}
-          members={scope === 'all' ? allMembers : []}
-          resultCount={results.data ? results.data.length : undefined}
-        />
-        <div className="toolbar-toggles">
+        <div className="toolbar-row">
           <div className="view-toggle" role="group" aria-label="Whose tasks">
             <button type="button" aria-pressed={scope === 'mine'} onClick={() => changeScope('mine')}>
               Assigned to me
@@ -150,26 +144,34 @@ export function MyTasks() {
             </button>
           </div>
         </div>
+        <TaskFilters
+          filters={filters}
+          onChange={setFilters}
+          members={scope === 'all' ? allMembers : []}
+          resultCount={results.data ? results.data.length : undefined}
+        />
       </div>
 
       {results.error && results.data && <RefreshNotice onRetry={results.reload} />}
-      {results.error && !results.data ? (
-        <ErrorState error={results.error} onRetry={results.reload} />
-      ) : !results.data ? (
-        <div style={{ display: 'grid', gap: 8 }}>
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} height={56} />
-          ))}
-        </div>
-      ) : sorted.length === 0 ? (
-        <EmptyState icon={SearchX} title={hasActiveFilters(filters) ? 'No tasks match' : scope === 'mine' ? 'Nothing assigned to you' : 'No tasks yet'}>
-          {hasActiveFilters(filters) ? 'Try fewer filters or a different search.' : 'Tasks show up here as soon as someone creates them.'}
-        </EmptyState>
-      ) : view === 'upcoming' ? (
-        <UpcomingView tasks={sorted} membersById={membersById} projectsById={projectsById} onOpen={openTask} />
-      ) : (
-        <TaskList tasks={sorted} membersById={membersById} projectsById={projectsById} onOpen={openTask} />
-      )}
+      <div className="view-pane" key={view}>
+        {results.error && !results.data ? (
+          <ErrorState error={results.error} onRetry={results.reload} />
+        ) : !results.data ? (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} height={56} />
+            ))}
+          </div>
+        ) : sorted.length === 0 ? (
+          <EmptyState icon={SearchX} title={hasActiveFilters(filters) ? 'No tasks match' : scope === 'mine' ? 'Nothing assigned to you' : 'No tasks yet'}>
+            {hasActiveFilters(filters) ? 'Try fewer filters or a different search.' : 'Tasks show up here as soon as someone creates them.'}
+          </EmptyState>
+        ) : view === 'upcoming' ? (
+          <UpcomingView tasks={sorted} membersById={membersById} projectsById={projectsById} onOpen={openTask} />
+        ) : (
+          <TaskList tasks={sorted} membersById={membersById} projectsById={projectsById} onOpen={openTask} />
+        )}
+      </div>
     </>
   );
 }

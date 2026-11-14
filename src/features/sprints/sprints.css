@@ -1,0 +1,572 @@
+/* ---------- Backlog and sprints (issue #76) ---------- */
+.backlog {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.backlog-note {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.backlog-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.backlog-section[data-state='active'] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.backlog-section[data-state='backlog'] {
+  background: var(--surface);
+}
+
+.backlog-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.backlog-section-title {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.backlog-section-title h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.backlog-section-meta {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.backlog-goal {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.backlog-goal svg {
+  flex: none;
+  margin-top: var(--space-1);
+  color: var(--ink-3);
+}
+
+.backlog-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sprint-state {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.sprint-state[data-state='active'] {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.backlog-list {
+  display: grid;
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+  min-height: 52px;
+  transition: background-color var(--dur-fast) ease;
+}
+
+.backlog-list[data-over] {
+  background: var(--accent-soft);
+}
+
+.backlog-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
+  background: var(--surface);
+}
+
+.backlog-row + .backlog-row {
+  box-shadow: inset 0 1px 0 var(--surface-2);
+}
+
+.backlog-row[data-dragging] {
+  opacity: 0.4;
+}
+
+.backlog-overlay {
+  padding: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-drag);
+  overflow: hidden;
+}
+
+.backlog-handle {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+}
+
+.backlog-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.backlog-row[data-overlay] .backlog-handle {
+  cursor: grabbing;
+}
+
+.backlog-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.backlog-title:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.backlog-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.backlog-row-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.backlog-empty {
+  padding: var(--space-3) var(--space-4);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.backlog-empty-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .backlog-row:hover {
+    background: var(--surface-2);
+  }
+
+  .backlog-handle:hover {
+    background: var(--surface-3);
+    color: var(--ink-2);
+  }
+}
+
+@media (max-width: 720px) {
+  .backlog-row {
+    flex-wrap: wrap;
+  }
+
+  .backlog-title {
+    flex-basis: calc(100% - 140px);
+    white-space: normal;
+  }
+
+  .backlog-row-meta {
+    order: 3;
+    flex-wrap: wrap;
+    width: 100%;
+    padding-left: var(--space-10);
+  }
+}
+
+/* ---------- Completed sprints ---------- */
+.backlog-completed {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.backlog-completed h2 {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.sprint-record {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.sprint-record summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  cursor: pointer;
+}
+
+.sprint-record summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+}
+
+.sprint-record-name {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.sprint-record-meta {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.sprint-record-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 var(--space-3) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.sprint-record-body p {
+  margin: 0;
+}
+
+.sprint-record-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sprint-record-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-2);
+}
+
+.sprint-record-list svg {
+  flex: none;
+  color: var(--status-done);
+}
+
+/* ---------- Sprint dialogs and the board's sprint switch ---------- */
+.sprint-form-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.sprint-complete-summary {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.sprint-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* ---------- Sprint report (issue #77): burndown, stats, velocity ---------- */
+.sprint-report-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.sprint-report-controls .select {
+  width: auto;
+  min-width: 11rem;
+}
+
+.sprint-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.sprint-stat {
+  display: grid;
+  gap: 2px;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.sprint-stat dt {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.sprint-stat dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  margin: 0;
+}
+
+.sprint-stat-value {
+  color: var(--ink);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.sprint-stat-detail {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.burndown {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.burndown-plot {
+  border-radius: var(--radius);
+}
+
+.burndown-plot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.burndown-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart-axis-text {
+  fill: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-direct-label {
+  fill: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.chart-direct-label[data-series='ideal'] {
+  fill: var(--ink-3);
+  font-weight: var(--weight-medium);
+}
+
+.burndown-ideal {
+  fill: none;
+  stroke: var(--chart-reference);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+
+.burndown-remaining {
+  fill: none;
+  stroke: var(--chart-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.burndown-dot {
+  fill: var(--chart-series);
+  stroke: var(--surface);
+  stroke-width: 2;
+  transition: r var(--dur-fast) ease;
+}
+
+.chart-hit {
+  fill: transparent;
+}
+
+.chart-crosshair {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.burndown-readout {
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.line-swatch {
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--chart-series);
+}
+
+.line-swatch[data-series='ideal'] {
+  border-top: 1.5px dashed var(--chart-reference);
+}
+
+.sprint-added {
+  margin-top: var(--space-2);
+}
+
+.sprint-added-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-family: var(--font-mono);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.sprint-velocity {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.sprint-velocity h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-base);
+}
+
+.chart-swatch[data-series='committed'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--chart-reference);
+}
+
+.chart-swatch[data-series='completed'] {
+  background: var(--chart-series);
+}
+
+.velocity {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.velocity-row {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 30%) minmax(0, 1fr) 3.5rem;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.velocity-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Committed is the outline, completed the fill on the same baseline (a bullet bar). */
+.velocity-bars {
+  display: grid;
+  height: 14px;
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.velocity-bar {
+  grid-area: 1 / 1;
+  height: 14px;
+  min-width: 4px;
+  border-radius: 0 4px 4px 0;
+}
+
+.velocity-bar[data-series='committed'] {
+  box-shadow: inset 0 0 0 1.5px var(--chart-reference);
+}
+
+.velocity-bar[data-series='completed'] {
+  height: 8px;
+  margin-top: var(--space-1);
+  background: var(--chart-series);
+}
+
+.velocity-values {
+  color: var(--ink-2);
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .burndown-dot {
+    transition: none;
+  }
+}

@@ -45,7 +45,7 @@ test('the permission matrix', () => {
   for (const [id, actions] of Object.entries(expected)) {
     assert.deepEqual(PROJECT_ACTIONS.filter((action) => can(user(id), action, project)), actions, id);
   }
-  // A workspace Lead gets nothing extra inside a project; an Admin gets everything except assignment.
+  // An organisation Lead gets nothing extra inside a project; an Admin gets everything except assignment.
   assert.equal(can(user('stranger', 'Lead'), 'project.view', project), false);
   assert.deepEqual(PROJECT_ACTIONS.filter((action) => !can(user('admin', 'Admin'), action, project)), ['task.assignable']);
   assert.equal(can(user('owner'), 'no.such.action', project), false);
@@ -53,7 +53,7 @@ test('the permission matrix', () => {
   assert.ok(PROJECT_ACTIONS.every((action) => PROJECT_ACTION_LABELS[action]));
 });
 
-test('project creation follows the workspace setting; Leads and Admins can always create', () => {
+test('project creation follows the organisation setting; Leads and Admins can always create', () => {
   for (const role of ['Admin', 'Lead', 'Member']) assert.equal(canCreateProject(user('a', role)), true, `${role}, default setting`);
   const leadsOnly = { projectCreation: 'leads' };
   assert.equal(canCreateProject(user('a', 'Admin'), leadsOnly), true);

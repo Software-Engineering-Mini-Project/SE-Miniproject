@@ -32,6 +32,29 @@ Environment: production build (`npm run build`, `node server/main.js`), single N
 
 Slowest endpoint at 100 users: `PATCH /tasks/:id/status` at p95 700 ms, then `GET /dashboard` at p95 671 ms. No request failed and none exceeded 1 s at p99.
 
+## Interface redesign (issue #80)
+
+The redesign must leave pages no slower than before. Both builds were measured on the same machine at the same time: the commit before the redesign (`f4fcf86`) and the redesign, each a production build in mock mode (`NEXT_PUBLIC_API_MODE=mock`, so no database or network time is included), served by `next start`. For each page, 9 cold loads per build in a fresh signed-in browser context (Playwright Chromium, 1280×800), alternating before/after so machine noise hits both equally. Medians:
+
+| Page | Build | DOMContentLoaded | Load | Largest contentful paint | Script | CSS |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Dashboard | before | 118 ms | 118 ms | 452 ms | 335 KB | 17 KB |
+| | after | 106 ms | 109 ms | 388 ms | 334 KB | 17 KB |
+| Project board | before | 151 ms | 177 ms | 828 ms | 384 KB | 21 KB |
+| | after | 143 ms | 166 ms | 784 ms | 384 KB | 21 KB |
+| My tasks | before | 102 ms | 122 ms | 320 ms | 335 KB | 17 KB |
+| | after | 103 ms | 126 ms | 408 ms | 334 KB | 17 KB |
+
+My tasks' LCP was checked further because it came out higher after:
+
+- 21 more interleaved loads of each build: before 400 ms, after 440 ms (DOMContentLoaded 106 vs 108 ms, load 128 vs 130 ms).
+- An earlier 9-load run of both builds had before 384 ms, after 380 ms.
+- The redesign's only runtime addition on that page is the 220 ms rise-in. Loading the redesigned build 15 times each with motion and with `prefers-reduced-motion` (which removes it) gave 364 ms with motion and 416 ms without, so the animation does not delay the paint.
+
+Result: script and CSS sizes are unchanged (the redesign is CSS tokens, layout and a few `transform` animations, with no new dependencies). Dashboard and board loaded faster after the redesign in both A/B runs. For My tasks, DOMContentLoaded and load are unchanged; the LCP difference ranged from −4 to +88 ms across three runs, and the same build differed by 52 ms with and without the animation, with the animated version faster (above), so the spread is mostly noise. No cause was found in the change, but a small LCP regression on My tasks can't be ruled out from these local runs. Environment: Windows 11, Intel Core i5-12450H, 16 GB RAM, Node.js v24.14.1, 2026-11-12. A run on staging hardware would settle the My tasks figure.
+
+Before-and-after screenshots of the same screens are in [`docs/redesign/`](redesign/).
+
 ## Still to do for release
 
 - Run both profiles against staging (Vercel `bom1` + Atlas `ap-south-1`) and record the results here.

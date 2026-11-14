@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Comment, Notification, Project, Task, User } from '../models/index.js';
+import { Activity, Comment, Notification, Project, Sprint, Task, User } from '../models/index.js';
 import {
   GRANTABLE_PROJECT_ROLES,
   PROJECT_ROLES,
@@ -20,11 +20,26 @@ import { readListOptions } from '../utils/pagination.js';
 import { getProjectSummaries } from '../services/task-aggregates.js';
 import { changeProjectKey, createProjectWithKey, readProjectKey, takenProjectKeys } from '../services/work-items.js';
 import { suggestProjectKey } from '../../src/lib/work-items.js';
+import { recordActivity } from '../services/activity.js';
 import { escapeRegex, normalizeEmail, readEmail, readEnum, readId, readString, requireObject } from '../utils/validation.js';
 
 export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {}) {
   const router = Router();
   const requireAuth = authenticate({ jwtSecret });
+
+  /**
+   * Takes someone off every task of the project they were on (they left, were removed or became
+   * a Viewer). Only those tasks change, and each records who unassigned them (issue #75).
+   */
+  async function unassignEverywhere(project, userId, actorId) {
+    const tasks = await Task.find({ projectId: project.id, assigneeIds: userId }).select('_id projectId').lean();
+    if (!tasks.length) return;
+    await Task.updateMany({ _id: { $in: tasks.map((task) => task._id) } }, { $pull: { assigneeIds: userId } });
+    const at = now();
+    await Promise.all(tasks.map((task) => recordActivity({
+      task, actorId, at, entries: [{ action: 'assignees', details: { added: [], removed: [userId] } }],
+    })));
+  }
 
   router.get('/projects', requireAuth, async (request, response) => {
     const filter = isAdmin(request.user)
@@ -145,6 +160,8 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
       Comment.deleteMany({ taskId: { $in: taskIds } }),
       Notification.deleteMany({ $or: [{ projectId: project.id }, { taskId: { $in: taskIds } }] }),
       Task.deleteMany({ projectId: project.id }),
+      Activity.deleteMany({ projectId: project.id }),
+      Sprint.deleteMany({ projectId: project.id }),
     ]);
     await project.deleteOne();
     response.status(204).end();
@@ -195,9 +212,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     Object.assign(project, withMemberRole(project, userId, role));
     await project.save();
     // Viewers can't be assigned work, so a change to Viewer unassigns them.
-    if (role === 'Viewer') {
-      await Task.updateMany({ projectId: project.id, assigneeIds: userId }, { $pull: { assigneeIds: userId } });
-    }
+    if (role === 'Viewer') await unassignEverywhere(project, userId, request.user.id);
     response.locals.auditChange = { field: 'projectRole', from: current, to: role };
     response.json(await projectMembers(project));
   });
@@ -215,7 +230,7 @@ export function createProjectsRouter({ jwtSecret, now = () => new Date() } = {})
     // Only touch tasks the user was assigned to (others keep their updatedAt), and drop the
     // user's notifications for this project: they name tasks the user can no longer open.
     await Promise.all([
-      Task.updateMany({ projectId: project.id, assigneeIds: userId }, { $pull: { assigneeIds: userId } }),
+      unassignEverywhere(project, userId, request.user.id),
       Notification.deleteMany({ projectId: project.id, userId }),
     ]);
     response.json(await projectMembers(project));

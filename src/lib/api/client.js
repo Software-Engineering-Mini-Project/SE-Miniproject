@@ -18,12 +18,18 @@ export const apiConfig = { baseUrl: API_BASE_URL, mode: API_MODE };
  * @typedef {{ id: string, name: string, email: string, role: string, active?: boolean, projectRole?: 'Owner' | 'Manager' | 'Member' | 'Viewer' }} Member
  * @typedef {{ id: string, name: string, description: string, key: string | null, previousKeys?: string[], visibility: 'private' | 'open', ownerId: string, memberIds: string[], managerIds?: string[], viewerIds?: string[], members: Member[], createdAt: string, updatedAt: string }} Project
  * @typedef {{ id: string, name: string, key?: string | null, description: string, ownerName: string | null, memberCount: number }} DirectoryProject
- * @typedef {{ projectCreation: 'everyone' | 'leads' }} WorkspaceSettings
+ * @typedef {{ projectCreation: 'everyone' | 'leads' }} OrganisationSettings
  * @typedef {{ id: string, name: string, projectCreation: 'everyone' | 'leads', createdAt: string, memberCount: number, projectCount?: number, joinCode?: string }} Organisation  (projectCount and joinCode: Admins only)
  * @typedef {{ id: string, name: string, description: string, visibility: 'private' | 'open', ownerName: string | null, memberCount: number, yourRole: string | null, updatedAt: string, total: number, counts: Record<string, number>, overdue: number }} OrganisationProject
+ * @typedef {{ id: string, email: string, state: 'pending' | 'accepted' | 'revoked' | 'expired', createdAt: string, expiresAt: string, acceptedAt: string | null, revokedAt: string | null, createdBy: { id: string, name: string | null } | null }} Invitation
+ * @typedef {{ email: string, expiresAt: string, organisation: { id: string, name: string } }} InvitationPreview
  * @typedef {{ projects: OrganisationProject[], totals: { people: number, projects: number, tasks: number, done: number, overdue: number } }} OrganisationOverview
  * @typedef {{ id: string, title: string, description: string, status: import('../constants.js').TaskStatus, priority: import('../constants.js').TaskPriority, dueDate: string | null, completedAt?: string | null, checklist?: ChecklistItem[], projectId: string, number?: number | null, key?: string | null, assigneeIds: string[], createdAt: string, updatedAt: string }} Task  (key: work-item key such as ALPHA-12)
  * @typedef {{ id: string, text: string, done: boolean }} ChecklistItem
+ * @typedef {{ taskIds: string[], count: number, points: number }} SprintPart
+ * @typedef {{ sprintId: string, unit: 'points' | 'items', days: { date: string, remaining: number | null, ideal: number }[], committed: SprintPart, added: SprintPart, removed: SprintPart, completed: SprintPart, carriedOver: SprintPart & { movedTo: string | null } }} SprintReport  (src/lib/sprint-report.js)
+ * @typedef {{ id: string, projectId: string, number: number, name: string, goal: string, startDate: string, endDate: string, state: 'planned' | 'active' | 'completed', startedAt: string | null, completedAt: string | null, committed: { taskIds: string[], points: number } | null, report: { completed: SprintPart, unfinished: SprintPart, movedTo: string | null } | null }} Sprint  (src/lib/sprints.js)
+ * @typedef {{ id: string, taskId: string, projectId: string, actorId: string | null, action: string, details: object, createdAt: string, actor: { id: string, name: string } | null }} Activity  (src/lib/activity.js)
  * @typedef {{ id: string, taskId: string, authorId: string, text: string, createdAt: string, author: Member | null }} Comment
  * @typedef {{ id: string, userId: string, taskId: string, projectId: string | null, type: 'assignment' | 'due-date', message: string, read: boolean, createdAt: string }} Notification
  * @typedef {{ items: Notification[], page: number, pageSize: number, total: number, unreadCount: number }} NotificationPage
@@ -111,7 +117,9 @@ async function request(method, path, { body, query, accept, auth = true, invalid
 const enc = encodeURIComponent;
 export const api = {
   auth: {
-    /** Body adds exactly one of `joinCode` (join as a Member) or `organisationName` (start one, as its Admin). @returns {Promise<{ userId: string, email: string, role: string, organisation: { id: string, name: string } }>} TM-F-001 */
+    /** Who a personal invitation link is for and which organisation it joins. Public. @returns {Promise<InvitationPreview>} Issue #78 */
+    invitation: (token) => request('GET', `/auth/invitations/${enc(token)}`, { auth: false }),
+    /** Body adds exactly one of `inviteToken` (a personal link), `joinCode` (both join as a Member) or `organisationName` (start one, as its Admin). @returns {Promise<{ userId: string, email: string, role: string, organisation: { id: string, name: string } }>} TM-F-001 */
     register: (input) => request('POST', '/auth/register', { body: input, auth: false }),
     /** @returns {Promise<{ token: string, expiresIn: number }>} TM-F-002 */
     login: (input) => request('POST', '/auth/login', { body: input, auth: false }),
@@ -136,13 +144,22 @@ export const api = {
     update: (name) => request('PATCH', '/organisation', { invalidates: ['organisation:'], body: { name } }),
     /** Admin only. The old invite code stops working at once. @returns {Promise<Organisation>} */
     rotateJoinCode: () => request('POST', '/organisation/join-code', { invalidates: ['organisation:'] }),
+    /** Personal invitation links, Admins only (issue #78). */
+    invitations: {
+      /** Newest first. @returns {Promise<Invitation[]>} */
+      list: () => request('GET', '/organisation/invitations'),
+      /** The response carries `token` and `path`: the only time the link is available. @returns {Promise<Invitation & { token: string, path: string }>} */
+      create: (email) => request('POST', '/organisation/invitations', { invalidates: ['organisation:invitations:'], body: { email } }),
+      /** The link stops working at once. @returns {Promise<Invitation>} */
+      revoke: (invitationId) => request('DELETE', `/organisation/invitations/${enc(invitationId)}`, { invalidates: ['organisation:invitations:'] }),
+    },
     /** Projects you are in plus open ones (Admins: all), with task counts. @returns {Promise<OrganisationOverview>} */
     overview: (today = localToday()) => request('GET', '/organisation/overview', { query: { today } }),
   },
   settings: {
-    /** Everyone signed in. @returns {Promise<WorkspaceSettings>} */
+    /** Everyone signed in. @returns {Promise<OrganisationSettings>} */
     get: () => request('GET', '/settings'),
-    /** Admin only. @returns {Promise<WorkspaceSettings>} */
+    /** Admin only. @returns {Promise<OrganisationSettings>} */
     update: (input) => request('PATCH', '/settings', { body: input }),
   },
   projects: {
@@ -178,7 +195,7 @@ export const api = {
     add: (projectId, email, role) => request('POST', `/projects/${enc(projectId)}/members`, { invalidates: ['dashboard:', 'organisation:'], body: role ? { email, role } : { email } }),
     /** Changes a project role; 'Owner' transfers ownership. @returns {Promise<Member[]>} */
     setRole: (projectId, userId, role) => request('PATCH', `/projects/${enc(projectId)}/members/${enc(userId)}`, { body: { role } }),
-    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
+    remove: (projectId, userId) => request('DELETE', `/projects/${enc(projectId)}/members/${enc(userId)}`, { invalidates: ['dashboard:', 'organisation:', 'activity:'] }),
   },
   tasks: {
     /** @returns {Promise<Task[]>} */
@@ -192,23 +209,47 @@ export const api = {
     /** Opens a task by its key (ALPHA-12); old keys of a renamed project still resolve. @returns {Promise<Task>} */
     getByKey: (key) => request('GET', `/tasks/by-key/${enc(key)}`),
     /** @returns {Promise<Task>} TM-F-011 */
-    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'], body: input }),
+    update: (taskId, input) => request('PATCH', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`, 'sprints:report:'], body: input }),
     remove: (taskId) => request('DELETE', `/tasks/${enc(taskId)}`, { invalidates: ['dashboard:', 'organisation:'] }),
     /** @returns {Promise<{ taskId: string, status: string, updatedAt?: string }>} TM-F-012 */
-    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:'], body: { status } }),
+    setStatus: (taskId, status) => request('PATCH', `/tasks/${enc(taskId)}/status`, { invalidates: ['dashboard:', 'organisation:', `activity:${taskId}`, 'sprints:report:'], body: { status } }),
+    /** Who changed what on the task, newest first (issue #75). @returns {Promise<{ items: Activity[], page: number, pageSize: number, total: number }>} */
+    activity: (taskId, { page = 1, pageSize = 50 } = {}) => request('GET', `/tasks/${enc(taskId)}/activity`, { query: { page, pageSize } }),
+    /**
+     * Plans a task (issue #76): into a sprint or the backlog (`sprintId`, null for the backlog)
+     * and/or between two tasks in the ranked order (`previousId` above it, `nextId` below it).
+     * @returns {Promise<Task>}
+     */
+    move: (taskId, { sprintId, previousId, nextId } = {}) => request('POST', `/tasks/${enc(taskId)}/move`, { invalidates: [`activity:${taskId}`, 'sprints:report:'], body: { sprintId, previousId, nextId } }),
+  },
+  // Sprints change which tasks are where, so they refresh task lists and histories too.
+  sprints: {
+    /** @returns {Promise<Sprint[]>} */
+    list: (projectId) => request('GET', `/projects/${enc(projectId)}/sprints`),
+    /** Burndown and report, from the activity history (issue #77). @returns {Promise<SprintReport>} */
+    report: (sprintId) => request('GET', `/sprints/${enc(sprintId)}/report`),
+    /** Owners and Managers. @returns {Promise<Sprint>} */
+    create: (projectId, input) => request('POST', `/projects/${enc(projectId)}/sprints`, { invalidates: [`sprints:${projectId}`], body: input }),
+    update: (sprintId, input) => request('PATCH', `/sprints/${enc(sprintId)}`, { invalidates: ['sprints:'], body: input }),
+    /** Planned sprints only; their tasks go back to the backlog. */
+    remove: (sprintId) => request('DELETE', `/sprints/${enc(sprintId)}`, { invalidates: ['sprints:', 'tasks:', 'activity:'] }),
+    /** 409 ACTIVE_SPRINT_EXISTS while another sprint in the project is active. */
+    start: (sprintId) => request('POST', `/sprints/${enc(sprintId)}/start`, { invalidates: ['sprints:'] }),
+    /** Unfinished tasks go to `moveTo`: 'backlog' or a planned sprint's id. */
+    complete: (sprintId, moveTo = 'backlog') => request('POST', `/sprints/${enc(sprintId)}/complete`, { invalidates: ['sprints:', 'tasks:', 'activity:', 'dashboard:'], body: { moveTo } }),
   },
   checklist: {
     /** @returns {Promise<{ taskId: string, checklist: ChecklistItem[], updatedAt: string }>} */
-    add: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/checklist`, { body: { text } }),
+    add: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/checklist`, { invalidates: [`activity:${taskId}`], body: { text } }),
     /** `changes`: { done } and/or { text }. Owners, managers and members; viewers cannot. */
-    update: (taskId, itemId, changes) => request('PATCH', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { body: changes }),
-    remove: (taskId, itemId) => request('DELETE', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`),
+    update: (taskId, itemId, changes) => request('PATCH', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { invalidates: [`activity:${taskId}`], body: changes }),
+    remove: (taskId, itemId) => request('DELETE', `/tasks/${enc(taskId)}/checklist/${enc(itemId)}`, { invalidates: [`activity:${taskId}`] }),
   },
   comments: {
     /** @returns {Promise<Comment[]>} TM-F-032. DECISION: each comment embeds `author`. */
     list: (taskId) => request('GET', `/tasks/${enc(taskId)}/comments`),
-    create: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/comments`, { body: { text } }),
-    remove: (taskId, commentId) => request('DELETE', `/tasks/${enc(taskId)}/comments/${enc(commentId)}`),
+    create: (taskId, text) => request('POST', `/tasks/${enc(taskId)}/comments`, { invalidates: [`activity:${taskId}`], body: { text } }),
+    remove: (taskId, commentId) => request('DELETE', `/tasks/${enc(taskId)}/comments/${enc(commentId)}`, { invalidates: [`activity:${taskId}`] }),
   },
   notifications: {
     /** @returns {Promise<NotificationPage>} TM-F-030 / TM-F-031. DECISION: page shape incl. `unreadCount`. */

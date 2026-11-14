@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Comment } from '../models/index.js';
+import { Activity, Comment } from '../models/index.js';
 import { can } from '../../src/lib/permissions.js';
 import { getTaskForUser } from '../services/access.js';
+import { recordActivity } from '../services/activity.js';
+import { commentExcerpt } from '../../src/lib/activity.js';
 import { HttpError } from '../utils/http-error.js';
 import { commentDto, commentDtos } from '../utils/dto.js';
 import { readId, readString, requireObject, invalid } from '../utils/validation.js';
@@ -25,7 +27,9 @@ export function createCommentsRouter({ jwtSecret, now = () => new Date() } = {})
     const body = requireObject(request.body);
     const text = readString(body, 'text', { max: 1000, trim: false, label: 'Comment' });
     if (!text.trim()) invalid('Comment is required.', { text: 'Enter a comment.' });
-    const comment = await Comment.create({ taskId: task.id, authorId: request.user.id, text, createdAt: now() });
+    const at = now();
+    const comment = await Comment.create({ taskId: task.id, authorId: request.user.id, text, createdAt: at });
+    await recordActivity({ task, actorId: request.user.id, at, entries: [{ action: 'comment.add', details: { commentId: comment.id, excerpt: commentExcerpt(text) } }] });
     response.status(201).json(await commentDto(comment));
   });
 
@@ -37,6 +41,9 @@ export function createCommentsRouter({ jwtSecret, now = () => new Date() } = {})
     const canDelete = comment.authorId === request.user.id || can(request.user, 'comment.moderate', project);
     if (!canDelete) throw new HttpError(403, 'FORBIDDEN', 'You cannot delete this comment.');
     await comment.deleteOne();
+    // The history keeps that a comment was made, but not the text of one that was deleted.
+    await Activity.updateMany({ taskId: task.id, action: 'comment.add', 'details.commentId': comment.id }, { $set: { 'details.excerpt': null } });
+    await recordActivity({ task, actorId: request.user.id, at: now(), entries: [{ action: 'comment.delete', details: { commentId: comment.id } }] });
     response.status(204).end();
   });
 

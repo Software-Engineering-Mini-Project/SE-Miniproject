@@ -5,7 +5,7 @@ import { RefreshNotice } from '@/components/ui/RefreshNotice';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NumberFlow from '@number-flow/react';
-import { BarChart3, Download, FolderX, Globe, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { BarChart3, Download, FolderX, Globe, KanbanSquare, List, MoreHorizontal, Pencil, Plus, Rows3, Trash2, Users } from 'lucide-react';
 import { statusKey } from '@/components/charts/Charts';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
@@ -18,6 +18,7 @@ import { useWorkspace } from '@/lib/workspace';
 import { can, projectRoleOf } from '@/lib/permissions';
 import { forecastProject } from '@/lib/forecast';
 import { localToday } from '@/lib/dates';
+import { rankBetween } from '@/lib/sprints';
 import { AvatarStack } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Dialog';
@@ -31,6 +32,7 @@ import { TaskList } from '@/features/tasks/TaskList';
 import { QuickAdd } from '@/features/tasks/QuickAdd';
 import { TaskSheet } from '@/features/tasks/TaskSheet';
 import { WorkItemContext, buildWorkItemIndex } from '@/features/tasks/work-item-context';
+import { BacklogView } from '@/features/sprints/BacklogView';
 import { MembersDialog } from './MembersDialog';
 import { ProjectInsights } from './ProjectInsights';
 import { ProjectFormDialog } from './ProjectFormDialog';
@@ -44,7 +46,7 @@ let memoryView = null;
 function readView() {
   try {
     const saved = window.localStorage.getItem(VIEW_KEY);
-    return saved === 'list' || saved === 'insights' ? saved : 'board';
+    return saved === 'list' || saved === 'insights' || saved === 'backlog' ? saved : 'board';
   } catch {
     return memoryView || 'board';
   }
@@ -155,7 +157,10 @@ export function ProjectView({ projectId }) {
   const { upsertProject, removeProject, loadUnread } = useWorkspace();
   const project = useQuery(`project:${projectId}`, () => api.projects.get(projectId));
   const tasks = useQuery(`tasks:${projectId}`, () => api.tasks.listByProject(projectId));
+  const sprints = useQuery(`sprints:${projectId}`, () => api.sprints.list(projectId));
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  // Board and list can show only the active sprint's work (issue #76).
+  const [sprintOnly, setSprintOnly] = useState(false);
   const view = useSyncExternalStore(subscribeToView, readView, () => 'board');
   const [createStatus, setCreateStatus] = useState(null);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -214,12 +219,46 @@ export function ProjectView({ projectId }) {
     window.dispatchEvent(new Event('taskline:project-view-change'));
   };
 
-  const visibleTasks = useMemo(() => applyFilters(tasks.data || [], filters, project.data), [tasks.data, filters, project.data]);
+  const activeSprint = sprints.data?.find((sprint) => sprint.state === 'active') ?? null;
+  const filteredTasks = useMemo(() => applyFilters(tasks.data || [], filters, project.data), [tasks.data, filters, project.data]);
+  const scoped = Boolean(activeSprint && sprintOnly);
+  const visibleTasks = useMemo(
+    () => (scoped ? filteredTasks.filter((task) => task.sprintId === activeSprint.id) : filteredTasks),
+    [filteredTasks, scoped, activeSprint],
+  );
   // The forecast always uses every task in the project (filters only change what is shown).
   const forecast = useMemo(() => (tasks.data ? forecastProject(tasks.data, { today: localToday() }) : null), [tasks.data]);
   const membersById = useMemo(() => new Map((project.data?.members || []).map((m) => [m.id, m])), [project.data]);
   // Epics, their items and the project's labels, for cards, rows, the form and the sheet.
-  const workItems = useMemo(() => buildWorkItemIndex(tasks.data || []), [tasks.data]);
+  const workItems = useMemo(() => buildWorkItemIndex(tasks.data || [], sprints.data || []), [tasks.data, sprints.data]);
+
+  // Optimistic planning (backlog order and sprints) with rollback, like moveTask below.
+  const planTask = useCallback(
+    async (taskId, placement) => {
+      const list = tasks.data || [];
+      const previous = list.find((t) => t.id === taskId);
+      if (!previous) return;
+      const rankOf = (id) => list.find((t) => t.id === id)?.rank ?? null;
+      const placing = Boolean(placement.previousId || placement.nextId);
+      const guess = placing ? rankBetween(rankOf(placement.previousId), rankOf(placement.nextId)) : null;
+      const optimistic = {
+        ...previous,
+        ...(placement.sprintId !== undefined ? { sprintId: placement.sprintId } : {}),
+        ...(guess ? { rank: guess.rank } : {}),
+      };
+      tasks.setData((current) => current.map((t) => (t.id === taskId ? optimistic : t)));
+      try {
+        const saved = await api.tasks.move(taskId, placement);
+        tasks.setData((current) => current.map((t) => (t.id === taskId ? saved : t)));
+        // A crowded gap makes the server renumber the project: fetch the new ranks.
+        if (guess?.crowded) tasks.reload();
+      } catch (error) {
+        tasks.setData((current) => current.map((t) => (t.id === taskId ? previous : t)));
+        toast.error(`Could not move the task. ${describeError(error)}`);
+      }
+    },
+    [tasks],
+  );
 
   // Optimistic status change with rollback (TM-F-012, TM-F-023).
   const moveTask = useCallback(
@@ -231,7 +270,7 @@ export function ProjectView({ projectId }) {
       try {
         const result = await api.tasks.setStatus(taskId, status);
         tasks.setData((list) => list.map((t) => (t.id === taskId
-          ? { ...t, status: result.status, completedAt: result.completedAt === undefined ? optimisticCompletedAt : result.completedAt, updatedAt: result.updatedAt || t.updatedAt }
+          ? { ...t, status: result.status, completedAt: result.completedAt === undefined ? optimisticCompletedAt : result.completedAt, sprintId: result.sprintId === undefined ? t.sprintId : result.sprintId, updatedAt: result.updatedAt || t.updatedAt }
           : t)));
       } catch (error) {
         tasks.setData((list) => list.map((t) => (t.id === taskId ? { ...t, status: previous.status, completedAt: previous.completedAt ?? null } : t)));
@@ -376,18 +415,33 @@ export function ProjectView({ projectId }) {
         {tasks.data ? <SummaryStrip tasks={tasks.data} /> : null}
 
         <div className="project-toolbar">
-          <TaskFilters filters={filters} onChange={setFilters} members={p.members} labels={workItems.labels} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
-          <div className="view-toggle" role="group" aria-label="View">
-            <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
-              <KanbanSquare size={16} aria-hidden="true" /> Board
-            </button>
-            <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
-              <List size={16} aria-hidden="true" /> List
-            </button>
-            <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
-              <BarChart3 size={16} aria-hidden="true" /> Insights
-            </button>
+          <div className="toolbar-row">
+            <div className="view-toggle" role="group" aria-label="View">
+              <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}>
+                <KanbanSquare size={16} aria-hidden="true" /> Board
+              </button>
+              <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}>
+                <List size={16} aria-hidden="true" /> List
+              </button>
+              <button type="button" aria-pressed={view === 'backlog'} onClick={() => changeView('backlog')}>
+                <Rows3 size={16} aria-hidden="true" /> Backlog
+              </button>
+              <button type="button" aria-pressed={view === 'insights'} onClick={() => changeView('insights')}>
+                <BarChart3 size={16} aria-hidden="true" /> Insights
+              </button>
+            </div>
+            {activeSprint && (view === 'board' || view === 'list') ? (
+              <div className="view-toggle" role="group" aria-label="Show">
+                <button type="button" aria-pressed={!sprintOnly} onClick={() => setSprintOnly(false)}>
+                  All tasks
+                </button>
+                <button type="button" aria-pressed={sprintOnly} onClick={() => setSprintOnly(true)} title={activeSprint.name}>
+                  Active sprint
+                </button>
+              </div>
+            ) : null}
           </div>
+          <TaskFilters filters={filters} onChange={setFilters} members={p.members} labels={workItems.labels} showStatus={view !== 'board'} resultCount={hasActiveFilters(filters) ? visibleTasks.length : undefined} />
         </div>
 
         {canCreateTask && tasks.data && view !== 'insights' ? (
@@ -404,36 +458,60 @@ export function ProjectView({ projectId }) {
 
         {project.error && project.data && <RefreshNotice onRetry={project.reload} />}
         {tasks.error && tasks.data && <RefreshNotice onRetry={tasks.reload} />}
-        {tasks.error && !tasks.data ? (
-          <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
-        ) : !tasks.data ? (
-          <div className="board">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} height={360} radius="var(--radius-lg)" />
-            ))}
-          </div>
-        ) : tasks.data.length === 0 ? (
-          <EmptyState
-            title="No tasks yet"
-            action={
-              canCreateTask ? (
-                <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
-                  <Plus size={16} /> Create the first task
-                </Button>
-              ) : null
-            }
-          >
-            {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
-          </EmptyState>
-        ) : view === 'insights' ? (
-          <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} onOpenTask={openTask} />
-        ) : view === 'board' ? (
-          <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
-        ) : visibleTasks.length ? (
-          <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
-        ) : (
-          <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
-        )}
+        {/* Keyed by the view so switching views replays the short rise-in (globals.css). */}
+        <div className="view-pane" key={view}>
+          {tasks.error && !tasks.data ? (
+            <ErrorState error={tasks.error} title="Tasks did not load" onRetry={tasks.reload} />
+          ) : !tasks.data ? (
+            <div className="board">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} height={360} radius="var(--radius-lg)" />
+              ))}
+            </div>
+          ) : tasks.data.length === 0 ? (
+            <EmptyState
+              title="No tasks yet"
+              action={
+                canCreateTask ? (
+                  <Button variant="primary" onClick={() => setCreateStatus('To Do')}>
+                    <Plus size={16} /> Create the first task
+                  </Button>
+                ) : null
+              }
+            >
+              {canCreateTask ? 'Break the work into tasks and assign them to members.' : 'You can view this project. Members add tasks here.'}
+            </EmptyState>
+          ) : view === 'backlog' ? (
+            sprints.error && !sprints.data ? (
+              <ErrorState error={sprints.error} title="Sprints did not load" onRetry={sprints.reload} />
+            ) : !sprints.data ? (
+              <Skeleton height={240} radius="var(--radius-lg)" />
+            ) : (
+              <BacklogView
+                project={p}
+                tasks={filteredTasks}
+                allTasks={tasks.data}
+                sprints={sprints.data}
+                members={p.members}
+                today={localToday()}
+                canPlan={allowed('task.edit')}
+                canManage={allowed('sprint.manage')}
+                onPlan={planTask}
+                onOpen={openTask}
+                onSprintsChange={sprints.setData}
+                filtered={hasActiveFilters(filters)}
+              />
+            )
+          ) : view === 'insights' ? (
+            <ProjectInsights tasks={visibleTasks} allTasks={tasks.data} forecast={forecast} members={p.members} sprints={sprints.data ?? []} onOpenTask={openTask} />
+          ) : view === 'board' ? (
+            <KanbanBoard tasks={visibleTasks} members={p.members} risk={forecast?.risk} onMove={moveTask} onOpen={openTask} canCreate={canCreateTask} canDrag={allowed('task.status')} onCreate={setCreateStatus} />
+          ) : visibleTasks.length ? (
+            <TaskList tasks={visibleTasks} membersById={membersById} risk={forecast?.risk} onOpen={(t) => openTask(t.id)} />
+          ) : (
+            <EmptyState title="No tasks match these filters" tone="quiet" action={<Button size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
+          )}
+        </div>
 
         <TaskSheet
           key={selectedTask?.id || 'no-task'}

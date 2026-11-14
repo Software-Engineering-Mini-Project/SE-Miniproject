@@ -3,15 +3,18 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, Building2, Users } from 'lucide-react';
+import { AlertCircle, Building2, MailCheck, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
 import { ApiError, describeError } from '@/lib/api/errors';
 import { LIMITS } from '@/lib/constants';
+import { formatDate } from '@/lib/format';
+import { useQuery } from '@/lib/hooks/useQuery';
 import { ORGANISATION_NAME_MAX, isJoinCodeShape, normalizeJoinCode } from '@/lib/organisation';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
+import { Skeleton } from '@/components/ui/States';
 import { PasswordInput } from './PasswordInput';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -25,6 +28,7 @@ function validate({ name, email, password, mode, joinCode, organisationName }) {
   if (password.length < LIMITS.passwordMin || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
     errors.password = 'Use 8+ characters with a letter and a number.';
   }
+  if (mode === 'invite') return errors;
   if (mode === 'join') {
     if (!isJoinCodeShape(normalizeJoinCode(joinCode))) errors.joinCode = "Enter your organisation's invite code.";
   } else if (!organisationName.trim()) errors.organisationName = 'Name your organisation.';
@@ -32,10 +36,44 @@ function validate({ name, email, password, mode, joinCode, organisationName }) {
   return errors;
 }
 
-export function RegisterForm() {
+/**
+ * Registration. With `inviteToken` (a personal invitation link, issue #78) the organisation and
+ * email are fixed by the invitation; otherwise people join with an invite code or start their own.
+ */
+export function RegisterForm({ inviteToken = null }) {
+  const invitation = useQuery(inviteToken ? `invitation:${inviteToken}` : null, () => api.auth.invitation(inviteToken));
+  if (!inviteToken) return <RegisterFields />;
+  if (invitation.error) return <InvitationProblem error={invitation.error} />;
+  if (!invitation.data) {
+    return (
+      <div aria-busy="true" aria-label="Checking your invitation">
+        <Skeleton height={28} width="60%" />
+        <Skeleton height={220} radius="var(--radius-lg)" />
+      </div>
+    );
+  }
+  return <RegisterFields invitation={{ ...invitation.data, token: inviteToken }} />;
+}
+
+function InvitationProblem({ error }) {
+  return (
+    <>
+      <h1 className="auth-title">This invitation can&apos;t be used</h1>
+      <p className="form-alert" role="alert">
+        <AlertCircle size={16} aria-hidden="true" />
+        {describeError(error)}
+      </p>
+      <p className="auth-alt">
+        Already joined? <Link href="/login">Sign in</Link>. Have an invite code? <Link href="/register">Create an account with it</Link>.
+      </p>
+    </>
+  );
+}
+
+function RegisterFields({ invitation = null }) {
   const router = useRouter();
   const signIn = useSession((s) => s.signIn);
-  const [values, setValues] = useState({ name: '', email: '', password: '', mode: 'join', joinCode: '', organisationName: '' });
+  const [values, setValues] = useState({ name: '', email: invitation?.email ?? '', password: '', mode: invitation ? 'invite' : 'join', joinCode: '', organisationName: '' });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -55,11 +93,16 @@ export function RegisterForm() {
     setSubmitting(true);
     try {
       const base = { name: values.name.trim(), email: values.email.trim(), password: values.password };
-      await api.auth.register(values.mode === 'join'
-        ? { ...base, joinCode: normalizeJoinCode(values.joinCode) }
-        : { ...base, organisationName: values.organisationName.trim() });
+      await api.auth.register(values.mode === 'invite'
+        ? { ...base, inviteToken: invitation.token }
+        : values.mode === 'join'
+          ? { ...base, joinCode: normalizeJoinCode(values.joinCode) }
+          : { ...base, organisationName: values.organisationName.trim() });
       await signIn(values.email.trim(), values.password);
-      if (values.mode === 'join') {
+      if (values.mode === 'invite') {
+        toast.success(`Account created. Welcome to ${invitation.organisation.name}.`);
+        router.replace('/dashboard');
+      } else if (values.mode === 'join') {
         toast.success('Account created. Welcome aboard.');
         router.replace('/dashboard');
       } else {
@@ -76,8 +119,19 @@ export function RegisterForm() {
 
   return (
     <>
-      <h1 className="auth-title">Create your account</h1>
-      <p className="auth-lede">Join your organisation with its invite code, or start a new one for your team.</p>
+      {invitation ? (
+        <>
+          <h1 className="auth-title">Join {invitation.organisation.name}</h1>
+          <p className="auth-lede">
+            <MailCheck size={16} aria-hidden="true" /> You were invited as <strong>{invitation.email}</strong>. Create your account to join as a member. The invitation expires {formatDate(invitation.expiresAt)}.
+          </p>
+        </>
+      ) : (
+        <>
+          <h1 className="auth-title">Create your account</h1>
+          <p className="auth-lede">Join your organisation with its invite code, or start a new one for your team.</p>
+        </>
+      )}
 
       <form className="auth-form" noValidate onSubmit={handleSubmit}>
         {formError ? (
@@ -86,6 +140,7 @@ export function RegisterForm() {
             {formError}
           </p>
         ) : null}
+        {invitation ? null : (
         <fieldset className="auth-choice">
           <legend>Your organisation</legend>
           {[
@@ -108,7 +163,8 @@ export function RegisterForm() {
             </label>
           ))}
         </fieldset>
-        {values.mode === 'join' ? (
+        )}
+        {values.mode === 'invite' ? null : values.mode === 'join' ? (
           <Field label="Invite code" error={errors.joinCode} hint="Ask an admin of your organisation. Capitals and dashes don't matter.">
             <input className="input" name="joinCode" autoComplete="off" autoCapitalize="characters" spellCheck={false} value={values.joinCode} onChange={update('joinCode')} />
           </Field>
@@ -121,7 +177,7 @@ export function RegisterForm() {
           <input className="input" name="name" autoComplete="name" value={values.name} onChange={update('name')} />
         </Field>
         <Field label="Email" error={errors.email}>
-          <input className="input" type="email" name="email" autoComplete="email" inputMode="email" value={values.email} onChange={update('email')} />
+          <input className="input" type="email" name="email" autoComplete="email" inputMode="email" value={values.email} onChange={update('email')} readOnly={Boolean(invitation)} />
         </Field>
         <Field label="Password" error={errors.password} hint="At least 8 characters, with a letter and a number.">
           <PasswordInput name="password" autoComplete="new-password" value={values.password} onChange={update('password')} />

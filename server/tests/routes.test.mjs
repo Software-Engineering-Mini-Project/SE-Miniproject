@@ -354,7 +354,7 @@ test('project and member endpoints enforce roles, membership, and cascades', asy
   assert.equal(created.status, 201, created.text);
   const projectId = created.body.id;
   assert.deepEqual(created.body.memberIds, ['user-lead-001']);
-  // Anyone may create a project by default (workspace setting projectCreation: 'everyone').
+  // Anyone may create a project by default (organisation setting projectCreation: 'everyone').
   const memberCreate = await request(app).post('/api/projects').set(auth(memberToken)).send({ name: 'Member Project' });
   assert.equal(memberCreate.status, 201, memberCreate.text);
   assert.equal(memberCreate.body.ownerId, 'user-member-001');

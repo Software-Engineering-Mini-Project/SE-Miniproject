@@ -44,49 +44,52 @@ export function TaskFilters({ filters, onChange, members = [], labels = [], show
         </label>
         <input id="task-search" className="input" type="search" placeholder="Search tasks or keys" value={filters.q} onChange={set('q')} />
       </div>
-      {showStatus ? (
-        <select className="select" value={filters.status} onChange={set('status')} aria-label="Status">
-          <option value="">Any status</option>
-          {TASK_STATUSES.map((s) => (
-            <option key={s}>{s}</option>
+      {/* One row; on a phone it scrolls sideways so every select keeps its full label. */}
+      <div className="filters-fields">
+        {showStatus ? (
+          <select className="select" value={filters.status} onChange={set('status')} aria-label="Status">
+            <option value="">Any status</option>
+            {TASK_STATUSES.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        ) : null}
+        <select className="select" value={filters.priority} onChange={set('priority')} aria-label="Priority">
+          <option value="">Any priority</option>
+          {TASK_PRIORITIES.map((p) => (
+            <option key={p}>{p}</option>
           ))}
         </select>
-      ) : null}
-      <select className="select" value={filters.priority} onChange={set('priority')} aria-label="Priority">
-        <option value="">Any priority</option>
-        {TASK_PRIORITIES.map((p) => (
-          <option key={p}>{p}</option>
-        ))}
-      </select>
-      <select className="select" value={filters.type} onChange={set('type')} aria-label="Type">
-        <option value="">Any type</option>
-        {TASK_TYPES.map((type) => (
-          <option key={type}>{type}</option>
-        ))}
-      </select>
-      {labels.length || filters.label ? (
-        <select className="select" value={filters.label} onChange={set('label')} aria-label="Label">
-          <option value="">Any label</option>
-          {[...new Set([...labels, ...(filters.label ? [filters.label] : [])])].map((label) => (
-            <option key={label}>{label}</option>
+        <select className="select" value={filters.type} onChange={set('type')} aria-label="Type">
+          <option value="">Any type</option>
+          {TASK_TYPES.map((type) => (
+            <option key={type}>{type}</option>
           ))}
         </select>
-      ) : null}
-      {members.length ? (
-        <select className="select" value={filters.assigneeId} onChange={set('assigneeId')} aria-label="Assignee">
-          <option value="">Anyone</option>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-      ) : null}
-      {hasActiveFilters(filters) ? (
-        <Button variant="ghost" size="sm" className="filters-clear" onClick={() => onChange(EMPTY_FILTERS)}>
-          <X size={14} /> Clear
-        </Button>
-      ) : null}
+        {labels.length || filters.label ? (
+          <select className="select" value={filters.label} onChange={set('label')} aria-label="Label">
+            <option value="">Any label</option>
+            {[...new Set([...labels, ...(filters.label ? [filters.label] : [])])].map((label) => (
+              <option key={label}>{label}</option>
+            ))}
+          </select>
+        ) : null}
+        {members.length ? (
+          <select className="select" value={filters.assigneeId} onChange={set('assigneeId')} aria-label="Assignee">
+            <option value="">Anyone</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {hasActiveFilters(filters) ? (
+          <Button variant="ghost" size="sm" className="filters-clear" onClick={() => onChange(EMPTY_FILTERS)}>
+            <X size={14} /> Clear
+          </Button>
+        ) : null}
+      </div>
       {typeof resultCount === 'number' ? (
         <p className="filters-count" aria-live="polite">
           {resultCount} {resultCount === 1 ? 'task' : 'tasks'}

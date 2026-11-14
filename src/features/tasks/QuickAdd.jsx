@@ -140,8 +140,7 @@ export function QuickAdd({ projectId, members, currentUserId, onCreated }) {
           </>
         ) : null}
         <span id={`${id}-help`} className="quick-add-help" hidden={hasDetails}>
-          <kbd>!high</kbd> priority · <kbd>@name</kbd> assign · <kbd>tomorrow</kbd>, <kbd>fri</kbd>, <kbd>nov 20</kbd> due · <kbd>#bug</kbd> type ·{' '}
-          <kbd>#label</kbd> · <kbd>3pts</kbd>
+          <kbd>!high</kbd> priority · <kbd>@name</kbd> assignee · <kbd>fri</kbd> or <kbd>nov 20</kbd> due · <kbd>#bug</kbd> type or label · <kbd>3pts</kbd> estimate
         </span>
       </div>
       {error ? (

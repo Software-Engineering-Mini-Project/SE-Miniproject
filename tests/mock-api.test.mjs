@@ -8,11 +8,12 @@ import projects from '../fixtures/projects.json' with { type: 'json' };
 import tasks from '../fixtures/tasks.json' with { type: 'json' };
 import comments from '../fixtures/comments.json' with { type: 'json' };
 import notifications from '../fixtures/notifications.json' with { type: 'json' };
+import sprints from '../fixtures/sprints.json' with { type: 'json' };
 import negatives from '../fixtures/negative-inputs.json' with { type: 'json' };
 import { createMockServer, MOCK_PASSWORD } from '../src/lib/api/mock/server.js';
 import { csvCell } from '../src/lib/api/mock/csv.js';
 
-const seed = { organisations, users, projects, tasks, comments, notifications };
+const seed = { organisations, users, projects, tasks, comments, notifications, sprints };
 const NOW = new Date('2026-10-16T10:00:00.000Z');
 
 function setup(now = () => NOW) {
@@ -611,4 +612,143 @@ test('work-item types, points, labels and epics mirror the API (issue #74)', () 
 
   assert.equal(call('DELETE', '/tasks/task-002', { token: lead }).status, 204);
   assert.equal(call('GET', '/tasks/task-005', { token: lead }).data.epicId, null);
+});
+
+test('task activity mirrors the API: one entry per change, newest first, isolated (issue #75)', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  const outsider = login('outsider@example.test');
+  const northwind = login('northwind-admin@example.test');
+  const history = (taskId, token = lead) => call('GET', `/tasks/${taskId}/activity`, { token }).data;
+
+  assert.deepEqual(history('task-002').items.map((e) => e.action), ['comment.add', 'comment.add', 'created']);
+  const created = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Ship it' } }).data;
+  call('PATCH', `/tasks/${created.id}`, { token: lead, body: { priority: 'High', storyPoints: 5, labels: ['ui'] } });
+  call('PATCH', `/tasks/${created.id}`, { token: lead, body: { priority: 'High' } });
+  call('PATCH', `/tasks/${created.id}/status`, { token: member, body: { status: 'Done' } });
+  const page = history(created.id);
+  assert.equal(page.total, 5);
+  assert.deepEqual(page.items[0], { ...page.items[0], action: 'status', details: { from: 'To Do', to: 'Done' }, actorId: 'user-member-001' });
+  assert.equal(page.items[0].actor.id, 'user-member-001');
+  assert.deepEqual(page.items.slice(1, 4).map((e) => e.action).sort(), ['labels', 'priority', 'storyPoints']);
+
+  const comment = call('POST', `/tasks/${created.id}/comments`, { token: member, body: { text: 'Private note' } }).data;
+  call('DELETE', `/tasks/${created.id}/comments/${comment.id}`, { token: member });
+  assert.ok(!JSON.stringify(history(created.id)).includes('Private note'));
+
+  assertEnvelope(call('GET', '/tasks/task-001/activity', { token: outsider }), 403, 'FORBIDDEN');
+  assertEnvelope(call('GET', '/tasks/task-001/activity', { token: northwind }), 404, 'NOT_FOUND');
+  call('DELETE', `/tasks/${created.id}`, { token: lead });
+  assertEnvelope(call('GET', `/tasks/${created.id}/activity`, { token: lead }), 404, 'NOT_FOUND');
+});
+
+test('backlog and sprints mirror the API: roles, one active sprint, ranking and completion (issue #76)', () => {
+  const { call, login } = setup();
+  const lead = login('lead@example.test');
+  const member = login('member@example.test');
+  const viewer = login('viewer@example.test');
+  const northwind = login('northwind-admin@example.test');
+  const list = () => call('GET', '/projects/project-alpha/sprints', { token: member }).data;
+  const taskList = () => call('GET', '/projects/project-alpha/tasks', { token: lead }).data;
+
+  assert.deepEqual(list().map((sprint) => [sprint.name, sprint.state]), [['ALPHA Sprint 1', 'completed'], ['ALPHA Sprint 2', 'active']]);
+  assertEnvelope(call('GET', '/projects/project-alpha/sprints', { token: northwind }), 404, 'NOT_FOUND');
+
+  const body = { startDate: '2026-10-28', endDate: '2026-11-10', goal: 'Ship sprints' };
+  assertEnvelope(call('POST', '/projects/project-alpha/sprints', { token: member, body }), 403, 'FORBIDDEN');
+  assertEnvelope(call('POST', '/projects/project-alpha/sprints', { token: lead, body: { startDate: '2026-11-10', endDate: '2026-11-01' } }), 400, 'VALIDATION_ERROR');
+  const created = call('POST', '/projects/project-alpha/sprints', { token: lead, body });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.name, 'ALPHA Sprint 3');
+  assertEnvelope(call('POST', `/sprints/${created.data.id}/start`, { token: lead }), 409, 'ACTIVE_SPRINT_EXISTS');
+
+  // Members plan; Viewers do not; completed sprints take nothing.
+  const moved = call('POST', '/tasks/task-007/move', { token: member, body: { sprintId: created.data.id } });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.data.sprintId, created.data.id);
+  assertEnvelope(call('POST', '/tasks/task-007/move', { token: viewer, body: { sprintId: null } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('POST', '/tasks/task-007/move', { token: member, body: { sprintId: 'sprint-alpha-1' } }), 400, 'VALIDATION_ERROR');
+  const between = call('POST', '/tasks/task-002/move', { token: member, body: { previousId: 'task-004', nextId: 'task-005' } }).data;
+  const rankOf = (id) => taskList().find((task) => task.id === id).rank;
+  assert.ok(between.rank > rankOf('task-004') && between.rank < rankOf('task-005'));
+
+  // Completing keeps finished work and moves the rest on, recording the move.
+  call('PATCH', '/tasks/task-004/status', { token: member, body: { status: 'Done' } });
+  const done = call('POST', '/sprints/sprint-alpha-2/complete', { token: lead, body: { moveTo: created.data.id } });
+  assert.equal(done.status, 200);
+  assert.deepEqual(done.data.report.completed, { taskIds: ['task-004'], count: 1, points: 5 });
+  assert.equal(taskList().find((task) => task.id === 'task-005').sprintId, created.data.id);
+  const history = call('GET', '/tasks/task-005/activity', { token: lead }).data.items;
+  assert.deepEqual(history[0].details, { from: 'sprint-alpha-2', to: created.data.id });
+  assertEnvelope(call('PATCH', '/sprints/sprint-alpha-2', { token: lead, body: { goal: 'x' } }), 409, 'SPRINT_COMPLETED');
+  const started = call('POST', `/sprints/${created.data.id}/start`, { token: lead });
+  assert.equal(started.status, 200);
+  assert.deepEqual(started.data.committed.taskIds.sort(), ['task-001', 'task-005', 'task-007']);
+
+  // Reopening finished work from a completed sprint sends it to the backlog.
+  const reopened = call('PATCH', '/tasks/task-004/status', { token: member, body: { status: 'In Progress' } });
+  assert.equal(reopened.data.sprintId, null);
+
+  // New tasks join the bottom of the backlog.
+  const fresh = call('POST', '/projects/project-alpha/tasks', { token: lead, body: { title: 'Last in line' } }).data;
+  assert.equal(fresh.sprintId, null);
+  assert.equal(Math.max(...taskList().map((task) => task.rank)), fresh.rank);
+});
+
+test('the sprint report mirrors the API: committed, completed, carried over and burndown (issue #77)', () => {
+  const { call, login } = setup();
+  const viewer = login('viewer@example.test');
+  const member = login('member@example.test');
+  const northwind = login('northwind-admin@example.test');
+  const done = call('GET', '/sprints/sprint-alpha-1/report', { token: viewer }).data;
+  assert.deepEqual([done.unit, done.committed.points, done.completed.count, done.carriedOver.movedTo], ['points', 4, 2, 'sprint-alpha-2']);
+  assert.deepEqual(done.days.map((day) => day.remaining), [4, 4, 4, 4, 4, 4, 4, 2, 2, 2]);
+  call('POST', '/tasks/task-007/move', { token: member, body: { sprintId: 'sprint-alpha-2' } });
+  const running = call('GET', '/sprints/sprint-alpha-2/report', { token: viewer }).data;
+  assert.deepEqual(running.added.taskIds, ['task-007']);
+  // The mock's clock is 16 Oct: the burndown runs to today and stops.
+  assert.deepEqual(running.days.slice(0, 4).map((day) => day.remaining), [10, 10, 11, null]);
+  assertEnvelope(call('GET', '/sprints/sprint-alpha-2/report', { token: northwind }), 404, 'NOT_FOUND');
+});
+
+test('invitation links mirror the API: once, for one address, until revoked or expired, Admins only (issue #78)', () => {
+  let clock = NOW;
+  const { call, login } = setup(() => clock);
+  let admin = login('admin@example.test');
+  let member = login('member@example.test');
+  let northwind = login('northwind-admin@example.test');
+  const register = (email, inviteToken) => call('POST', '/auth/register', { body: { name: 'Invited', email, password: 'Password123!', inviteToken } });
+
+  const link = call('POST', '/organisation/invitations', { token: admin, body: { email: 'Invited@example.test' } });
+  assert.equal(link.status, 201);
+  assert.equal(link.data.path, `/register?invite=${link.data.token}`);
+  assert.equal(link.data.expiresAt, new Date(NOW.getTime() + 7 * 86_400_000).toISOString());
+  assert.deepEqual(call('GET', `/auth/invitations/${link.data.token}`).data.organisation, { id: 'org-acme', name: 'Acme Labs' });
+  assert.ok(!JSON.stringify(call('GET', '/organisation/invitations', { token: admin }).data).includes(link.data.token));
+
+  assertEnvelope(register('someone@example.test', link.data.token), 400, 'VALIDATION_ERROR');
+  const joined = register('invited@example.test', link.data.token);
+  assert.deepEqual([joined.status, joined.data.role, joined.data.organisation.id], [201, 'Member', 'org-acme']);
+  assertEnvelope(register('again@example.test', link.data.token), 410, 'INVITATION_USED');
+  assertEnvelope(call('DELETE', `/organisation/invitations/${link.data.id}`, { token: admin }), 409, 'INVITATION_USED');
+
+  const revoked = call('POST', '/organisation/invitations', { token: admin, body: { email: 'gone@example.test' } }).data;
+  assert.equal(call('DELETE', `/organisation/invitations/${revoked.id}`, { token: admin }).data.state, 'revoked');
+  assertEnvelope(call('GET', `/auth/invitations/${revoked.token}`), 410, 'INVITATION_REVOKED');
+  const replaced = call('POST', '/organisation/invitations', { token: admin, body: { email: 'twice@example.test' } }).data;
+  call('POST', '/organisation/invitations', { token: admin, body: { email: 'twice@example.test' } });
+  assertEnvelope(call('GET', `/auth/invitations/${replaced.token}`), 410, 'INVITATION_REVOKED');
+  const late = call('POST', '/organisation/invitations', { token: admin, body: { email: 'late@example.test' } }).data;
+  clock = new Date(NOW.getTime() + 8 * 86_400_000);
+  [admin, member, northwind] = ['admin', 'member', 'northwind-admin'].map((who) => login(`${who}@example.test`));
+  assertEnvelope(register('late@example.test', late.token), 410, 'INVITATION_EXPIRED');
+  assertEnvelope(call('GET', `/auth/invitations/${'A'.repeat(32)}`), 404, 'INVITATION_NOT_FOUND');
+  assert.deepEqual(call('GET', '/organisation/invitations', { token: admin }).data.map((item) => item.state).slice(0, 3), ['expired', 'expired', 'revoked']);
+
+  assertEnvelope(call('POST', '/organisation/invitations', { token: admin, body: { email: 'member@example.test' } }), 409, 'DUPLICATE_EMAIL');
+  assertEnvelope(call('POST', '/organisation/invitations', { token: member, body: { email: 'x@example.test' } }), 403, 'FORBIDDEN');
+  assertEnvelope(call('GET', '/organisation/invitations', { token: member }), 403, 'FORBIDDEN');
+  assert.deepEqual(call('GET', '/organisation/invitations', { token: northwind }).data, []);
+  assertEnvelope(call('DELETE', `/organisation/invitations/${late.id}`, { token: northwind }), 404, 'NOT_FOUND');
 });

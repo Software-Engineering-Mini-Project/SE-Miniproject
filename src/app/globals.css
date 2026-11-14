@@ -1,12 +1,13 @@
 /*
- * Design tokens and base styles for Task Manager v1.0.
- * Light theme only: dark mode is out of v1.0 scope (SRS §11).
+ * Design tokens and base styles for Task Manager.
+ * Light by default; a dark set of the same tokens follows the system setting (issue #77: charts
+ * must work in dark mode). Components use tokens only, so they switch with it.
  * Motion follows the design-engineering rules: strong ease-out curves,
  * UI transitions under 300ms, transform/opacity only, reduced-motion fallbacks.
  */
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
   /* Surfaces: separated by tone steps, not lines or resting shadows */
   --bg: #f3f3f0;
@@ -42,6 +43,10 @@
   --chart-todo: #8a6fd6;
   --chart-progress: #c0670a;
   --chart-done: #1b6fa8;
+  /* One-series chart marks (burndown, velocity) and reference marks (the ideal line, committed
+     outlines: a deliberate neutral, dashed or outlined and labelled). Both >= 3:1 on the surface. */
+  --chart-series: #2350e6;
+  --chart-reference: #6f737c;
 
   /* Priority */
   --priority-high: #b3261e;
@@ -57,10 +62,20 @@
 
   --danger: #b3261e;
   --danger-soft: #fbe5e3;
+  --danger-soft-hover: #f6d3cf;
   --success: #16723a;
 
-  /* Type */
+  /* Project colour dots (the other seeds reuse status and ink tokens) */
+  --project-teal: #145d70;
+
+  /* Type: one sans and one mono family, four weights, one size scale (issue #80) */
   --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -69,7 +84,22 @@
   --text-2xl: 2rem;
   --text-display: clamp(2.5rem, 6vw, 4.75rem);
 
-  /* Space and shape */
+  /* Space: a 4px grid. Spacing uses these steps; 1px, 2px, 6px and 10px remain only as optical
+     half-steps inside small chips and controls. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-11: 44px;
+  --space-12: 48px;
+
+  /* Shape */
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -89,6 +119,66 @@
   --dur-press: 140ms;
   --dur-fast: 160ms;
   --dur-base: 220ms;
+}
+
+/*
+ * Dark theme: the same tokens, stepped for a dark surface. Text pairs keep 4.5:1 (ink-3 on every
+ * surface, status text on its tint, button text on the accent); chart marks keep 3:1 and were
+ * checked as a set with the dataviz palette validator (dark, surface #1a1b1f): lightness band,
+ * chroma, colour-blind separation and contrast all pass.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --surface: #1a1b1f;
+    --surface-2: #232429;
+    --surface-3: #2c2e34;
+    --line: #3a3d44;
+    --line-strong: #555963;
+
+    --ink: #ececef;
+    --ink-2: #bfc2ca;
+    --ink-3: #a3a7b1;
+    --ink-inverse: #15161a;
+
+    --accent: #7b97ff;
+    --accent-hover: #9db2ff;
+    --accent-soft: #1e2a52;
+    --accent-ink: #0b1230;
+
+    --status-todo: #b9a8ff;
+    --status-todo-soft: #2a2347;
+    --status-progress: #f0a560;
+    --status-progress-soft: #3a2614;
+    --status-done: #84c4f7;
+    --status-done-soft: #132b40;
+
+    --chart-todo: #8f76de;
+    --chart-progress: #c9751f;
+    --chart-done: #3d93d1;
+    --chart-series: #5f80f2;
+    --chart-reference: #8b8f99;
+
+    --priority-high: #ff8f85;
+    --priority-medium: #f0a560;
+    --priority-low: #a3a7b1;
+
+    --type-task: #8aa3ff;
+    --type-bug: #ff8f85;
+    --type-story: #62d394;
+    --type-epic: #bb9cff;
+    --type-epic-soft: #2b2147;
+
+    --danger: #ff8f85;
+    --danger-soft: #3d1d1b;
+    --danger-soft-hover: #4d2421;
+    --success: #62d394;
+
+    --project-teal: #3c9db5;
+
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.5);
+    --shadow-drag: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 32px rgb(0 0 0 / 0.6);
+  }
 }
 
 *,
@@ -183,17 +273,33 @@ svg {
   left: 12px;
   top: -48px;
   z-index: 100;
-  padding: 10px 14px;
+  padding: 10px var(--space-3);
   border-radius: var(--radius);
   background: var(--ink);
   color: var(--ink-inverse);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   transition: transform var(--dur-fast) var(--ease-out);
 }
 
 .skip-link:focus-visible {
   transform: translateY(60px);
+}
+
+/*
+ * Content entering: a view's content when it mounts or the view changes, and a task sheet's
+ * tab panel. Movement only, no fade, so nothing is ever drawn at partial opacity (an
+ * accessibility scan mid-animation would read that as low contrast). Short enough not to delay
+ * anyone; removed under reduced motion by the rule below.
+ */
+@keyframes rise-in {
+  from {
+    transform: translateY(6px);
+  }
+}
+
+.view-pane > :not(.skeleton) {
+  animation: rise-in var(--dur-base) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {

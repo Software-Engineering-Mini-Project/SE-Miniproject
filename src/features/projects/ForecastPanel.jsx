@@ -78,7 +78,7 @@ function Throughput({ weeks }) {
  * Delivery forecast for a project (src/lib/forecast.js): a likely finish date with its spread,
  * the throughput it is based on, and the due dates it doubts.
  */
-export function ForecastPanel({ forecast, tasks, onOpenTask }) {
+export function ForecastPanel({ forecast, tasks, byVelocity = null, onOpenTask }) {
   const today = localToday();
   const weeks = useMemo(() => weeklyThroughput(tasks, today, WEEKS), [tasks, today]);
   const atRisk = useMemo(() => {
@@ -104,6 +104,14 @@ export function ForecastPanel({ forecast, tasks, onOpenTask }) {
           <p className="insights-sub">Based on {basis}</p>
         </div>
       </div>
+
+      {byVelocity && byVelocity.remainingPoints > 0 ? (
+        <p className="forecast-velocity">
+          <strong>By velocity:</strong> about {plural(byVelocity.sprints, 'sprint')} for the {plural(byVelocity.remainingPoints, 'open story point')}, at{' '}
+          {byVelocity.average} points a sprint (the average of recent sprints).
+          {byVelocity.unestimated ? ` ${plural(byVelocity.unestimated, 'open task')} without an estimate ${byVelocity.unestimated === 1 ? 'is' : 'are'} not counted.` : ''}
+        </p>
+      ) : null}
 
       {forecast.state === 'complete' ? (
         <p className="forecast-note">Every task in this project is done.</p>

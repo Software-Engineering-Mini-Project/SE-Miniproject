@@ -95,6 +95,8 @@ export async function getDashboardData(projectIds, userId, now, clientToday) {
               storyPoints: 1,
               labels: 1,
               epicId: 1,
+              sprintId: 1,
+              rank: 1,
               assigneeIds: 1,
               createdAt: 1,
               updatedAt: 1,

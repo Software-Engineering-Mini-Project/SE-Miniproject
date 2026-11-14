@@ -30,7 +30,7 @@ export function ProjectsIndex() {
   }, [loadSettings]);
   const [createOpen, setCreateOpen] = useState(false);
   // Until the settings load, only offer creation to roles that always have it, so the button
-  // never appears and then vanishes for a Member in a leads-only workspace.
+  // never appears and then vanishes for a Member in a leads-only organisation.
   const canCreate = settings ? canCreateProject(user, settings) : user?.role === 'Admin' || user?.role === 'Lead';
 
   const createButton = canCreate ? (
@@ -43,7 +43,7 @@ export function ProjectsIndex() {
     <>
       <PageHeader
         title="Projects"
-        description={user?.role === 'Admin' ? 'Every project in the workspace. As an admin you can open and manage all of them.' : 'Projects you are in, and open projects you can join.'}
+        description={user?.role === 'Admin' ? 'Every project in the organisation. As an admin you can open and manage all of them.' : 'Projects you are in, and open projects you can join.'}
         actions={createButton}
       />
 
@@ -110,7 +110,7 @@ function GettingStarted({ canCreate, email, onCreate }) {
           <span className="start-icon" aria-hidden="true"><FolderKanban size={18} /></span>
           <div>
             <h3>Create a project</h3>
-            <p>{canCreate ? 'You become its owner, invite your team and plan the work.' : 'In this workspace only leads and admins create projects. Ask an admin if you need one.'}</p>
+            <p>{canCreate ? 'You become its owner, invite your team and plan the work.' : 'In this organisation only leads and admins create projects. Ask an admin if you need one.'}</p>
           </div>
           {canCreate ? (
             <Button variant="primary" size="sm" onClick={onCreate}>
@@ -179,7 +179,7 @@ function BrowseProjects({ onJoined }) {
       <div className="browse-head">
         <div>
           <h2 id="open-projects-title" className="browse-title">Open projects</h2>
-          <p className="browse-lede">Anyone in the workspace can join these as a member.</p>
+          <p className="browse-lede">Anyone in the organisation can join these as a member.</p>
         </div>
         <div className="input-with-icon browse-search" role="search">
           <Search size={16} aria-hidden="true" />

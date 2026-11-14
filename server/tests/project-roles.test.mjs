@@ -149,7 +149,7 @@ test('any non-owner member can leave a project; the owner cannot', async () => {
   assert.equal((await api().patch('/api/projects/project-alpha/members/user-member-001').set(auth(outsider)).send({ role: 'Viewer' })).status, 403);
 });
 
-test('a workspace Lead has no rights in a project they are not a member of; Admins have all', async () => {
+test('an organisation Lead has no rights in a project they are not a member of; Admins have all', async () => {
   const admin = await login('admin@example.test');
   await api().patch('/api/users/user-outsider-001/role').set(auth(admin)).send({ role: 'Lead' });
   const outsiderLead = await login('outsider@example.test');

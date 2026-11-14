@@ -18,6 +18,7 @@ const FORBIDDEN = {
   'task.edit': 'Viewers cannot edit tasks.',
   'task.delete': 'Only the project owner, a manager or an admin can delete tasks.',
   'task.status': 'Viewers cannot change task status.',
+  'sprint.manage': 'Only the project owner, a manager or an admin can create, start and complete sprints.',
   'comment.create': 'You cannot comment in this project.',
 };
 
@@ -43,7 +44,7 @@ export async function getProjectForUser(user, rawProjectId, { action = 'project.
   if (lean) project.id = String(project._id);
   if (!can(user, 'project.view', project)) {
     // An open project can be joined, so say so (the UI offers a Join button); a private one stays opaque.
-    if (project.visibility === 'open') throw new HttpError(403, 'JOIN_REQUIRED', 'This project is open to everyone in the workspace. Join it to see its work.');
+    if (project.visibility === 'open') throw new HttpError(403, 'JOIN_REQUIRED', 'This project is open to everyone in the organisation. Join it to see its work.');
     throw forbidden('You are not a member of this project.');
   }
   if (action !== 'project.view' && !can(user, action, project)) {
@@ -56,7 +57,7 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
   const taskId = readId(rawTaskId, 'Task');
   const query = Task.findById(taskId);
   const task = lean
-    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId assigneeIds createdAt updatedAt').lean()
+    ? await query.select('_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId sprintId rank assigneeIds createdAt updatedAt').lean()
     : await query;
   if (!task) throw new HttpError(404, 'NOT_FOUND', 'Task not found.');
   if (lean) task.id = String(task._id);
@@ -66,6 +67,6 @@ export async function getTaskForUser(user, rawTaskId, { action = 'project.view',
 
 export async function requireProjectCreator(user) {
   if (!canCreateProject(user, await getWorkspaceSettings(user.organisationId))) {
-    throw forbidden('In this workspace only leads and admins can create projects. Ask an admin, or join an open project.');
+    throw forbidden('In this organisation only leads and admins can create projects. Ask an admin, or join an open project.');
   }
 }

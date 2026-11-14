@@ -62,5 +62,5 @@ test('epic progress, project labels and defaults for old records', () => {
   assert.deepEqual(epicProgress('e', tasks), { total: 3, done: 1, inProgress: 1, points: 8, donePoints: 3, percent: 33 });
   assert.deepEqual(epicProgress('none', tasks).percent, 0);
   assert.deepEqual(projectLabels(tasks).map((l) => l.label), ['api', 'ui', 'zeta']);
-  assert.deepEqual(withWorkItemDefaults({ id: 'x', type: 'Odd', storyPoints: 4 }), { id: 'x', type: 'Task', storyPoints: null, labels: [], epicId: null });
+  assert.deepEqual(withWorkItemDefaults({ id: 'x', type: 'Odd', storyPoints: 4 }), { id: 'x', type: 'Task', storyPoints: null, labels: [], epicId: null, sprintId: null, rank: null });
 });

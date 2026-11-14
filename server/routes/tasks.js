@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { Comment, Notification, Project, Task, User } from '../models/index.js';
+import { Activity, Comment, Notification, Project, Task, User } from '../models/index.js';
 import { CHECKLIST_LIMIT, CHECKLIST_TEXT_MAX } from '../models/task.js';
 import { projectRoleOf, roleAllows } from '../../src/lib/permissions.js';
 import { PROJECT_ACCESS_FIELDS, getProjectForUser, getTaskForUser, inOrganisation, isAdmin } from '../services/access.js';
 import { nextTaskNumber, taskDto, taskDtos } from '../services/work-items.js';
+import { activityDtos, recordActivity, recordTaskChanges, taskSnapshot } from '../services/activity.js';
+import { rankForNewTask, releaseFromCompletedSprint } from '../services/sprints.js';
 import { TASK_TYPES, epicRuleErrors, labelError, normalizeLabel, parseTaskKey, projectAnswersToKey, readWorkItemFields } from '../../src/lib/work-items.js';
 import { tasksToCsv } from '../utils/csv.js';
 import { HttpError } from '../utils/http-error.js';
@@ -23,7 +25,7 @@ import {
 } from '../utils/validation.js';
 
 const STATUSES = ['To Do', 'In Progress', 'Done'];
-const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId assigneeIds createdAt updatedAt';
+const TASK_FIELDS = '_id title description status priority dueDate completedAt checklist projectId number type storyPoints labels epicId sprintId rank assigneeIds createdAt updatedAt';
 // The export leaves out descriptions and checklists (an inclusion projection can't also exclude a field).
 const EXPORT_FIELDS = TASK_FIELDS.replace(' description', '').replace(' checklist', '');
 
@@ -197,7 +199,11 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     await checkEpicRules({ next: { ...input, projectId: project.id } });
     // The number is reserved before the insert; a failed insert leaves a gap, never a duplicate.
     const number = await nextTaskNumber(project.id);
-    const task = await Task.create({ ...input, projectId: project.id, number, completedAt: input.status === 'Done' ? now() : null });
+    // New work joins the bottom of the backlog (issue #76).
+    const rank = await rankForNewTask(project.id);
+    const at = now();
+    const task = await Task.create({ ...input, projectId: project.id, number, rank, sprintId: null, completedAt: input.status === 'Done' ? at : null });
+    await recordActivity({ task, actorId: request.user.id, at, entries: [{ action: 'created', details: { title: task.title, type: task.type } }] });
     const dto = taskDto(task, project.key);
     await notifyNewAssignees({ task, key: dto.key, actorId: request.user.id, now });
     response.status(201).json(dto);
@@ -249,6 +255,18 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     response.json(taskDto(task, project.key));
   });
 
+  // Who changed what on a task, newest first (issue #75). Anyone who can open the task can read it.
+  router.get('/tasks/:taskId/activity', requireAuth, async (request, response) => {
+    const { task } = await getTaskForUser(request.user, request.params.taskId, { lean: true });
+    const options = readListOptions({ page: '1', ...request.query });
+    const filter = { taskId: String(task._id) };
+    const [entries, total] = await Promise.all([
+      Activity.find(filter).sort({ createdAt: -1, _id: -1 }).skip(options.skip).limit(options.pageSize).lean(),
+      Activity.countDocuments(filter),
+    ]);
+    response.json({ items: await activityDtos(entries), page: options.page, pageSize: options.pageSize, total });
+  });
+
   router.get('/tasks/:taskId', requireAuth, async (request, response) => {
     const { task, project } = await getTaskForUser(request.user, request.params.taskId, { lean: true });
     response.json(taskDto(task, project.key));
@@ -268,10 +286,14 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       });
     }
     const previousIds = task.assigneeIds.map(String);
+    const before = taskSnapshot(task);
     const { status, ...rest } = input;
     Object.assign(task, rest);
     if (status) applyStatus(task, status, now);
+    const released = await releaseFromCompletedSprint(task, before.status);
     await task.save();
+    await recordTaskChanges({ task, before, actorId: request.user.id, at: now() });
+    if (released) await recordActivity({ task, actorId: request.user.id, at: now(), entries: [released] });
     const dto = taskDto(task, project.key);
     await notifyNewAssignees({ task, key: dto.key, previousIds, actorId: request.user.id, now });
     response.json(dto);
@@ -282,6 +304,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
     await Promise.all([
       Comment.deleteMany({ taskId: task.id }),
       Notification.deleteMany({ taskId: task.id }),
+      Activity.deleteMany({ taskId: task.id }),
       // Deleting an epic keeps its items; they just no longer belong to an epic.
       Task.updateMany({ projectId: task.projectId, epicId: task.id }, { $set: { epicId: null } }),
     ]);
@@ -305,6 +328,7 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       { returnDocument: 'after', runValidators: true },
     );
     if (!updated) invalid(`A task can have at most ${CHECKLIST_LIMIT} checklist items.`, { text: `A task can have at most ${CHECKLIST_LIMIT} checklist items.` });
+    await recordActivity({ task: updated, actorId: request.user.id, at: now(), entries: [{ action: 'checklist.add', details: { text } }] });
     response.status(201).json(checklistResponse(updated));
   });
 
@@ -326,6 +350,11 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       { returnDocument: 'after', runValidators: true },
     );
     if (!updated) throw itemNotFound();
+    const item = task.checklist?.find((entry) => entry.id === request.params.itemId);
+    const entries = [];
+    if (item && body.done !== undefined && body.done !== item.done) entries.push({ action: 'checklist.check', details: { text: changes['checklist.$.text'] ?? item.text, done: body.done } });
+    if (item && body.text !== undefined && changes['checklist.$.text'] !== item.text) entries.push({ action: 'checklist.rename', details: { from: item.text, to: changes['checklist.$.text'] } });
+    await recordActivity({ task: updated, actorId: request.user.id, at: now(), entries });
     response.json(checklistResponse(updated));
   });
 
@@ -337,15 +366,23 @@ export function createTasksRouter({ jwtSecret, now = () => new Date() } = {}) {
       { returnDocument: 'after' },
     );
     if (!updated) throw itemNotFound();
+    const item = task.checklist?.find((entry) => entry.id === request.params.itemId);
+    await recordActivity({ task: updated, actorId: request.user.id, at: now(), entries: [{ action: 'checklist.remove', details: { text: item?.text ?? '' } }] });
     response.json(checklistResponse(updated));
   });
 
   router.patch('/tasks/:taskId/status', requireAuth, async (request, response) => {
     const { task } = await getTaskForUser(request.user, request.params.taskId, { action: 'task.status' });
     const body = requireObject(request.body);
+    const from = task.status;
     applyStatus(task, readEnum(body, 'status', STATUSES, { label: 'Status' }), now);
+    // Reopening work finished in a completed sprint sends it back to the backlog (issue #76).
+    const released = await releaseFromCompletedSprint(task, from);
     await task.save();
-    response.json({ taskId: task.id, status: task.status, completedAt: task.completedAt, updatedAt: task.updatedAt });
+    if (task.status !== from) {
+      await recordActivity({ task, actorId: request.user.id, at: now(), entries: [{ action: 'status', details: { from, to: task.status } }, ...(released ? [released] : [])] });
+    }
+    response.json({ taskId: task.id, status: task.status, completedAt: task.completedAt, sprintId: task.sprintId ?? null, updatedAt: task.updatedAt });
   });
 
   return router;

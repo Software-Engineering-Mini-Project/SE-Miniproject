@@ -64,7 +64,7 @@ function RoleGuide() {
           </tbody>
         </table>
       </div>
-      <p className="role-guide-note">Workspace admins can do everything in every project.</p>
+      <p className="role-guide-note">Organisation admins can do everything in every project.</p>
     </details>
   );
 }

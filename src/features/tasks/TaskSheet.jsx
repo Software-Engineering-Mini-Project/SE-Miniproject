@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link2, Pencil, Trash2, X, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api/client';
@@ -13,6 +13,7 @@ import { Modal, Sheet, SheetClose, SheetTitle } from '@/components/ui/Dialog';
 import { DueTag, EpicProgress, LabelList, PointsBadge, PriorityTag, RiskTag, StatusChip, TaskKey, TypeIcon } from '@/components/ui/Tags';
 import { Checklist } from './Checklist';
 import { CommentThread } from './CommentThread';
+import { TaskActivity } from './TaskActivity';
 import { TaskForm } from './TaskForm';
 import { useWorkItems } from './work-item-context';
 import './tasks.css';
@@ -24,6 +25,61 @@ import './tasks.css';
  * its items with their progress; `onOpenTask` opens one of them (or an item's epic).
  */
 const READ_ONLY = { edit: false, remove: false, status: false, comment: false, moderate: false };
+
+const TABS = [
+  ['comments', 'Comments'],
+  ['activity', 'Activity'],
+];
+
+/** Comments and the task's history as two tabs (WAI-ARIA tabs: arrow keys move between them). */
+function DiscussionTabs({ task, members, permissions }) {
+  const [tab, setTab] = useState('comments');
+  const tabRefs = useRef({});
+  const id = `task-${task.id}`;
+  const choose = (next) => {
+    setTab(next);
+    tabRefs.current[next]?.focus();
+  };
+  return (
+    <div className="sheet-discussion">
+      <div className="sheet-tabs" role="tablist" aria-label="Comments and activity">
+        {TABS.map(([value, label], index) => (
+          <button
+            key={value}
+            ref={(node) => {
+              tabRefs.current[value] = node;
+            }}
+            type="button"
+            role="tab"
+            id={`${id}-tab-${value}`}
+            aria-selected={tab === value}
+            aria-controls={`${id}-panel-${value}`}
+            tabIndex={tab === value ? 0 : -1}
+            className="sheet-tab"
+            onClick={() => setTab(value)}
+            onKeyDown={(event) => {
+              const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+              if (event.key === 'Home') choose(TABS[0][0]);
+              else if (event.key === 'End') choose(TABS[TABS.length - 1][0]);
+              else if (step) choose(TABS[(index + step + TABS.length) % TABS.length][0]);
+              else return;
+              event.preventDefault();
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div key={tab} role="tabpanel" id={`${id}-panel-${tab}`} aria-labelledby={`${id}-tab-${tab}`} className="sheet-tabpanel">
+        {tab === 'comments' ? (
+          <CommentThread taskId={task.id} canComment={permissions.comment} canModerate={permissions.moderate} />
+        ) : (
+          <TaskActivity task={task} members={members} />
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function TaskSheet({ task, members, assignable = members, permissions = READ_ONLY, risk, open, onOpenChange, onStatusChange, onUpdated, onDeleted, onChecklistChange, onOpenTask }) {
   const [editing, setEditing] = useState(false);
@@ -169,6 +225,12 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
                     </dd>
                   </div>
                 ) : null}
+                {task.sprintId && workItems.sprintsById?.get(task.sprintId) ? (
+                  <div>
+                    <dt>Sprint</dt>
+                    <dd>{workItems.sprintsById.get(task.sprintId).name}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Due</dt>
                   <dd>{task.dueDate ? <DueTag task={task} /> : <span className="muted">{formatDue(null)}</span>}</dd>
@@ -236,7 +298,7 @@ export function TaskSheet({ task, members, assignable = members, permissions = R
                 Created {formatDate(task.createdAt)} · Updated {formatDate(task.updatedAt)}
               </p>
 
-              <CommentThread taskId={task.id} canComment={permissions.comment} canModerate={permissions.moderate} />
+              <DiscussionTabs task={task} members={members} permissions={permissions} />
             </>
           )}
         </div>

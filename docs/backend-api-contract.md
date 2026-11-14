@@ -39,7 +39,7 @@ The web app defaults to HTTP mode. To use the browser mock without MongoDB, set 
 
 Demo users from the fixtures (all use password `Password123!`, synthetic only):
 
-| Email | Workspace role | Project roles |
+| Email | Organisation role | Project roles |
 |---|---|---|
 | `admin@example.test` | Admin | Owner of Beta |
 | `lead@example.test` | Lead | Owner of Alpha, Manager of Beta |
@@ -139,6 +139,12 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Organisation (GET /organisation). `joinCode` and `projectCount` are Admin only.
 { id, name, projectCreation /* "everyone" | "leads" */, createdAt, memberCount, projectCount?, joinCode? /* "ABCDE-FGHJK" */ }
 
+// Invitation (GET /organisation/invitations, Admin only). Never carries the link's secret.
+{ id, email, state /* "pending" | "accepted" | "revoked" | "expired" */, createdAt, expiresAt, acceptedAt, revokedAt, createdBy: { id, name } | null }
+// POST /organisation/invitations adds, once: token /* 32 URL-safe characters */, path /* "/register?invite=<token>" */
+// InvitationPreview (GET /auth/invitations/:token, public)
+{ email, expiresAt, organisation: { id, name } }
+
 // Organisation overview (GET /organisation/overview)
 { projects: [{ id, name, description, visibility, ownerName, memberCount, yourRole /* project role or null */, updatedAt,
                total, counts: { "To Do", "In Progress", Done }, overdue }],
@@ -156,7 +162,7 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 // Directory entry (GET /projects/directory)
 { id, name, description, key, ownerName, memberCount }
 
-// Workspace settings (GET/PATCH /settings)
+// Organisation settings (GET/PATCH /settings)
 { projectCreation /* "everyone" (default) | "leads" */ }
 
 // Task. `number` is given by the server when the task is created and never reused in its project;
@@ -166,13 +172,29 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
   checklist: [{ id, text, done }] /* up to 50 items; changed only through §6.3 checklist routes */,
   type /* "Task" (default) | "Bug" | "Story" | "Epic" */, storyPoints /* 1 | 2 | 3 | 5 | 8 | 13 | 21 | null */,
   labels: [string] /* lower-case, up to 10 */, epicId /* id of an Epic in the same project, or null */,
+  sprintId /* the sprint it is planned into, or null: the backlog (§7.10) */,
+  rank /* number; lower comes first in the backlog and in sprints; null until ranked */,
   projectId, assigneeIds: [id], createdAt, updatedAt }
+
+// Sprint (§7.10). `committed` is set when it starts; `report` when it completes.
+{ id, projectId, number, name, goal, startDate, endDate /* "YYYY-MM-DD" */,
+  state /* "planned" | "active" | "completed" */, startedAt, completedAt /* ISO | null */,
+  committed: { taskIds: [id], points } | null,
+  report: { completed: { taskIds, count, points }, unfinished: { taskIds, count, points }, movedTo /* sprint id | null (backlog) */ } | null,
+  createdAt, updatedAt }
 
 // Checklist change (every checklist route answers with the whole, current list)
 { taskId, checklist: [{ id, text, done }], updatedAt }
 
 // Comment
 { id, taskId, authorId, text, createdAt, author: Member | null }
+
+// Activity entry (GET /tasks/:taskId/activity): one change to a task by one person. `details`
+// depends on the action (§7.9). `actor` is null if the account no longer exists.
+{ id, taskId, projectId, actorId, action, details, createdAt, actor: { id, name } | null }
+
+// Activity page, newest first
+{ items: [Activity], page, pageSize, total }
 
 // Notification (projectId is added so the UI can link straight to the task)
 { id, userId, taskId, projectId, type /* "assignment" | "due-date" */, message, read, createdAt }
@@ -190,7 +212,9 @@ The frontend relies on `status` and `fields`; the `errorCode` values above are w
 |---|---|---|
 | User | `name`, `email` (as typed), `emailNormalized` (trim + lowercase), `passwordHash`, `role` enum, timestamps | **unique** `emailNormalized`. Never serialize `passwordHash`. |
 | Project | `name`, `description`, `key`, `previousKeys[]`, `taskCounter`, `ownerId` → User, `memberIds[]` → User, timestamps | index `memberIds`; **unique** `{organisationId, key}`; index `{organisationId, previousKeys}`. Owner is always in `memberIds`. |
-| Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`. Every assignee must be in the project's `memberIds`. |
+| Sprint | `projectId` → Project, `number`, `name`, `goal`, `startDate`, `endDate`, `state` enum, `startedAt`, `completedAt`, `committed`, `report`, timestamps | **unique** `{projectId, number}`; **unique partial** `{projectId, state}` where `state: "active"` (one active sprint per project) |
+| Task | `number`, `type` enum, `storyPoints`, `labels[]`, `epicId` → Task, `sprintId` → Sprint, `rank`, `title`, `description`, `status` enum, `priority` enum, `dueDate`, `projectId` → Project, `assigneeIds[]` → User, timestamps | index `{projectId, status}`, `assigneeIds`, `{dueDate, status}`; **unique** `{projectId, number}`; index `{projectId, epicId}`, `{projectId, labels}`, `{projectId, sprintId, rank}`. Every assignee must be in the project's `memberIds`. |
+| Invitation | `organisationId` → Organisation, `email`, `emailNormalized`, `tokenHash` (SHA-256 of the link's secret, never selected by default), `createdById` → User, `expiresAt`, `acceptedAt`, `acceptedById` → User, `revokedAt`, timestamps | **unique** `tokenHash`; index `{organisationId, createdAt}`, `{organisationId, emailNormalized}` |
 | Comment | `taskId` → Task, `authorId` → User, `text`, `createdAt` | index `{taskId, createdAt}` |
 | Notification | `userId`, `taskId`, `type` enum, `message`, `read`, `createdAt`, plus `dedupeKey` for reminders | index `{userId, read, createdAt}`. **Unique** `{userId, type, dedupeKey}` for due reminders. |
 
@@ -220,11 +244,17 @@ Base path: `/api` (D1). "Member" below means a member of **that project**. Admin
 
 #### `POST /auth/register` (public)
 - Body: `{ name, email, password }` plus **exactly one** of:
+  - `inviteToken`: the secret from a personal invitation link (§7.12). The account joins the invitation's organisation as a **Member**; `email` must be the invited address (case-insensitive).
   - `joinCode`: an organisation's invite code (case, spaces and dashes are ignored). The account joins that organisation as a **Member**.
   - `organisationName` (1 to 80 characters): starts a new organisation and makes this account its **Admin**.
 - **Any `role` sent in the body is ignored** (SRS §2.2). Registration never makes an Admin inside an organisation that already exists.
 - `201 { userId, email, role, organisation: { id, name } }`
 - `400 VALIDATION_ERROR` (with `fields`): `fields.joinCode` when neither or both are sent, or the code is malformed or not recognised ("That invite code is not recognised."); `fields.organisationName` when too long or empty. `409 DUPLICATE_EMAIL` with `fields.email`. The email check is case-insensitive. A failed registration leaves no organisation behind.
+- With `inviteToken`: `400` with `fields.inviteToken` if a `joinCode` or `organisationName` is sent too; `400` with `fields.email` naming the invited address if `email` is a different one; `404 INVITATION_NOT_FOUND`; `410 INVITATION_USED`, `410 INVITATION_REVOKED` or `410 INVITATION_EXPIRED`. If the account can't be created after the link was claimed, the link is given back.
+
+#### `GET /auth/invitations/:token` (public)
+- `200 InvitationPreview`: who the link is for, when it expires and which organisation it joins, for the register page.
+- `404 INVITATION_NOT_FOUND` (unknown or malformed), `410 INVITATION_USED` / `INVITATION_REVOKED` / `INVITATION_EXPIRED`, each with a message that says what to do next.
 - Limit: **5 registration attempts per client IP per 10 minutes**; excess requests return `429 RATE_LIMITED` before password hashing. Only requests that pass validation count, so typos do not use up the allowance.
 
 #### `POST /auth/login` (public)
@@ -256,7 +286,7 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /projects` | any signed-in user | optional `page`, `pageSize` | `200 Project[]`: projects of the caller's organisation where the user is in `memberIds` (Admin: all of the organisation's) | |
-| `POST /projects` | anyone signed in; only Lead and Admin when the workspace setting is `leads` | `{ name, description?, visibility?, key? }` (`private` default, or `open`). Without `key` the server picks a free one from the name. | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` (with `fields.key` for a malformed key), `409 KEY_TAKEN` with `fields.key` when the organisation already uses that key, now or before |
+| `POST /projects` | anyone signed in; only Lead and Admin when the organisation's setting is `leads` | `{ name, description?, visibility?, key? }` (`private` default, or `open`). Without `key` the server picks a free one from the name. | `201 Project`. The caller becomes its Owner. | `403` for a Member when creation is limited to leads, `400` (with `fields.key` for a malformed key), `409 KEY_TAKEN` with `fields.key` when the organisation already uses that key, now or before |
 | `GET /projects/key-suggestion` | any signed-in user | `name` | `200 { key }`: a key free in the caller's organisation, from the name (`Alpha Launch` → `AL`; no usable letters → `PROJ`) | |
 | `GET /projects/directory` | any signed-in user | optional `q` (name contains, case-insensitive, literal text, max 80) | `200 DirectoryEntry[]`: **open** projects of the caller's organisation that the caller is not in, by name, at most 50. Private projects never appear, and neither does anything from another organisation. | |
 | `POST /projects/:projectId/join` | any signed-in user | | `201 Project` when newly joined as a Member (audited `change: { field: 'projectRole', from: null, to: 'Member' }`); `200 Project` if already in it | `403` private project ("Ask its owner or a manager to add you."), `404` (also for another organisation's project), `400` bad id |
@@ -268,9 +298,9 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 | `PATCH /projects/:projectId/members/:userId` | Owner, Manager, Admin | `{ role }`: `Owner` (transfer), `Manager`, `Member` or `Viewer` | `200 Member[]`. Transfer: the previous owner becomes a Manager. Changing someone to Viewer unassigns them from the project's tasks. Audited (`change: { field: 'projectRole', from, to }`). | `400` bad role, changing the Owner's role, or transferring to a deactivated account; `403` (only an Owner or Admin grants, revokes or removes Manager, and transfers); `404` not a member |
 | `DELETE /projects/:projectId/members/:userId` | Owner, Manager, Admin; **any member for themselves** (leave) | | `200 Member[]`. **Also remove that user from `assigneeIds` of every task in the project** (only tasks they were on change), and delete their notifications for the project. | `400` if removing the Owner, `404` if not a member, `403` |
 
-**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The workspace role only decides who may create projects when an Admin limits it to leads, and who manages accounts and settings (Admin); a workspace Lead has no extra rights inside a project they aren't a member of. Every route under a project (tasks, members, summary, export) answers `403 JOIN_REQUIRED` to a non-member of an open project.
+**Project roles** are stored as `ownerId` plus two subsets of `memberIds`: `managerIds` and `viewerIds`; everyone else in `memberIds` is a Member. The organisation role only decides who may create projects when an Admin limits it to leads, and who manages accounts and settings (Admin); an organisation Lead has no extra rights inside a project they aren't a member of. Every route under a project (tasks, members, summary, export) answers `403 JOIN_REQUIRED` to a non-member of an open project.
 
-#### Workspace settings (per organisation)
+#### Organisation settings
 
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
@@ -279,7 +309,7 @@ Who may do what is defined once, in [`src/lib/permissions.js`](../src/lib/permis
 
 Stored on the organisation document (`projectCreation`); the seed resets it. Changing it in one organisation never affects another.
 
-**Migration.** Before project roles, any workspace Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
+**Migration.** Before project roles, any organisation Lead in a project could manage it. Projects without `managerIds` are migrated once (`server/utils/migrations.js`): their non-owner Lead members become Managers, so nobody loses access. The API runs this on its first database connection; `npm run db:migrate` runs it ahead of a deploy. It never re-promotes someone an owner later demoted.
 
 ### 6.3 Tasks (TM-F-010..012, TM-F-022, TM-F-023, TM-F-040)
 
@@ -289,10 +319,11 @@ Stored on the organisation document (`projectCreation`); the seed resets it. Cha
 | `POST /projects/:projectId/tasks` | Owner, Manager, Admin | `{ title, description?, status?, priority?, dueDate?, assigneeIds?, type?, storyPoints?, labels?, epicId? }` | `201 Task`. Defaults: `status "To Do"`, `priority "Medium"`, `assigneeIds []`, `type "Task"`, `storyPoints null`, `labels []`, `epicId null`. Creates assignment notifications (§7.1). | `400` (including assigning a Viewer, and the work-item rules of §7.8), `403` |
 | `GET /tasks` | any signed-in user | query `q, status, priority, assigneeId, projectId, type, label, epicId, page, pageSize` | `200 Task[]` from **every project the caller can access** | `400` |
 | `GET /tasks/:taskId` | member of the task's project | | `200 Task` | `403`, `404` |
+| `GET /tasks/:taskId/activity` | any project role, Viewers included | `page` (default 1), `pageSize` (default 50, max 100) | `200` Activity page, **newest first** (§7.9) | `401`, `403`, `404` (also another organisation's task), `400` bad paging |
 | `GET /tasks/by-key/:key` | member of the task's project | `key` such as `ALPHA-12`, any case; an old project key works too | `200 Task` (the `/browse/ALPHA-12` page uses it) | `404` "No task has that key." (also a malformed key, or another organisation's), `403` / `403 JOIN_REQUIRED` as for the project |
 | `PATCH /tasks/:taskId` | Owner, Manager, Admin | any of the create fields; `dueDate: null` clears it | `200 Task`. Notify only **newly added** assignees. | `400`, `403`, `404` |
 | `DELETE /tasks/:taskId` | Owner, Manager, Admin | | `204`, cascades comments and notifications (D11). Deleting an epic keeps its items, with `epicId` cleared. | `403`, `404` |
-| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, updatedAt }` | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
+| `PATCH /tasks/:taskId/status` | Owner, Manager, Member, Admin (D12); **not Viewer** | `{ status }` | `200 { taskId, status, completedAt, sprintId, updatedAt }` (`sprintId` changes when reopening work from a completed sprint, §7.10) | `400` invalid status (`"Doing"`, `"DONE"`, `"$ne"` and objects), `403`, `404` |
 | `POST /tasks/:taskId/checklist` | Owner, Manager, Admin | `{ text }` (1–200 chars, trimmed) | `201` checklist change | `400` empty, too long, not text, or the task already has 50 items; `403`, `404` |
 | `PATCH /tasks/:taskId/checklist/:itemId` | `done`: Owner, Manager, Member, Admin (**not Viewer**); `text`: Owner, Manager, Admin | `{ done?: boolean, text?: string }` | `200` checklist change | `400` neither field, `done` not boolean; `403`; `404` task or item |
 | `DELETE /tasks/:taskId/checklist/:itemId` | Owner, Manager, Admin | | `200` checklist change | `403`, `404` task or item |
@@ -315,6 +346,14 @@ For these three list endpoints, `page` starts at 1 and `pageSize` defaults to 50
 | Method and path | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /tasks/:taskId/comments` | member | | `200 Comment[]`, **oldest first**, each with `author` (D6) | `403`, `404` |
+| `GET /projects/:projectId/sprints` | any project role | | `200 Sprint[]`, by `number` | `403`, `404` |
+| `POST /projects/:projectId/sprints` | Owner, Manager, Admin (`sprint.manage`) | `{ name?, goal?, startDate, endDate }` | `201 Sprint`, `state "planned"`. Name defaults to "ALPHA Sprint 3". | `400` (missing or invalid dates, end before start, name over 80, goal over 500), `403` |
+| `GET /sprints/:sprintId/report` | any project role | | `200 SprintReport`: `unit` (`"points"`, or `"items"` when nothing committed is estimated), `days[]` of `{ date, remaining, ideal }` (`remaining` is `null` for days still ahead), and `committed`, `added`, `removed`, `completed`, `carriedOver` (each `{ taskIds, count, points }`; `carriedOver.movedTo`) | `403`, `404` (another organisation's sprint) |
+| `PATCH /sprints/:sprintId` | Owner, Manager, Admin | any of `{ name, goal, startDate, endDate }` | `200 Sprint` | `400`, `403`, `404`, `409 SPRINT_COMPLETED` |
+| `DELETE /sprints/:sprintId` | Owner, Manager, Admin | | `204`; its tasks go back to the backlog | `403`, `404`, `409 SPRINT_NOT_PLANNED` (active or completed) |
+| `POST /sprints/:sprintId/start` | Owner, Manager, Admin | | `200 Sprint`, `state "active"`, `committed` set | `403`, `404`, `409 ACTIVE_SPRINT_EXISTS` (names the running sprint), `409 SPRINT_NOT_PLANNED` |
+| `POST /sprints/:sprintId/complete` | Owner, Manager, Admin | `{ moveTo?: "backlog" (default) \| plannedSprintId }` | `200 Sprint`, `state "completed"`, `report` set | `400` (moveTo not a planned sprint of this project), `403`, `404`, `409 SPRINT_NOT_ACTIVE` |
+| `POST /tasks/:taskId/move` | Owner, Manager, Member, Admin (`task.edit`); **not Viewer** | `{ sprintId?: id \| null, previousId?: id \| null, nextId?: id \| null }` | `200 Task`. `sprintId` plans it (null: the backlog); `previousId`/`nextId` place it between two tasks of the project. | `400` (completed sprint, another project's sprint or task, itself as a neighbour, finished work out of a completed sprint), `403`, `404` |
 | `POST /tasks/:taskId/comments` | any project role, Viewers included | `{ text }` | `201 Comment` with `author` | `400` empty or over 1000 chars, `403`, `404` |
 | `DELETE /tasks/:taskId/comments/:commentId` | comment author, Owner, Manager or Admin; project membership is required | | `204`; comment must belong to the specified task | `403` for a different member's comment, `404` for a missing/cross-task comment |
 
@@ -365,6 +404,9 @@ Every account and project belongs to one organisation ([docs/organisations.md](o
 | `GET /organisation` | any signed-in user | | `200 Organisation`. `joinCode` and `projectCount` only for an Admin. `memberCount` counts active accounts. | `401`, `404` |
 | `PATCH /organisation` | Admin | `{ name }` (1 to 80 characters) | `200 Organisation`. Audited with `change: { field: 'organisationName', from, to }`. | `403`, `400` |
 | `POST /organisation/join-code` | Admin | | `200 Organisation` with a new `joinCode`; the old code stops working at once, people already in are unaffected. Audited as `change: { field: 'joinCode', from: 'previous', to: 'rotated' }`: **the codes themselves are never logged.** | `403` |
+| `GET /organisation/invitations` | Admin | | `200 Invitation[]`, newest first, at most 200 | `401`, `403` |
+| `POST /organisation/invitations` | Admin | `{ email }` | `201 Invitation` plus `token` and `path`: **the only time the link is returned**. Any pending link for the same address in this organisation is revoked first. Audited as `change: { field: 'invitation', from: null, to: 'created' }` (no email, no link). | `400` (invalid email), `403`, `409 DUPLICATE_EMAIL` (an account with that email exists) |
+| `DELETE /organisation/invitations/:invitationId` | Admin | | `200 Invitation`, `state "revoked"`; revoking again (or an expired link) is harmless and keeps the first `revokedAt` | `403`, `404` (another organisation's), `409 INVITATION_USED` |
 | `GET /organisation/overview` | any signed-in user | optional `today=YYYY-MM-DD` (as for the dashboard) | `200 OrganisationOverview`: Admins get every project of the organisation; everyone else the projects they are in plus the **open** ones, by name, at most 200. Each row has task counts and `overdue`; `yourRole` is `null` for a project the caller is not in. | |
 
 Invite codes are 10 characters from an alphabet without look-alikes (`0 O 1 I L`), generated from a cryptographic random source, stored upper-case, and displayed as `ABCDE-FGHJK`. They behave like a shared password for joining: registration is limited to 5 attempts per client IP per 10 minutes, so guessing is not practical, and an Admin can replace the code at any time.
@@ -405,15 +447,15 @@ The frontend hides buttons by role, but **that is not security**. Check role and
 
 ### 7.5 Authorization matrix
 
-Workspace roles (on the account):
+Organisation roles (on the account):
 
-| Workspace role | Can |
+| Organisation role | Can |
 |---|---|
-| Admin | Everything in every project; list users, change workspace roles, deactivate and reactivate accounts; change workspace settings |
+| Admin | Everything in every project; list users, change organisation roles, deactivate and reactivate accounts; change organisation settings |
 | Lead | Create projects (becoming their Owner), always; join open projects |
-| Member | Create projects unless the workspace setting is `leads`; join open projects; work in the projects they belong to |
+| Member | Create projects unless the organisation's setting is `leads`; join open projects; work in the projects they belong to |
 
-Project roles (per project, from `src/lib/permissions.js`). A workspace Admin can do every action in every project, but can only be assigned tasks where they are a member.
+Project roles (per project, from `src/lib/permissions.js`). An organisation Admin can do every action in every project, but can only be assigned tasks where they are a member.
 
 | Action | Owner | Manager | Member | Viewer | Non-member |
 |---|---|---|---|---|---|
@@ -423,6 +465,8 @@ Project roles (per project, from `src/lib/permissions.js`). A workspace Admin ca
 | Be assigned tasks | ✅ | ✅ | ✅ | 400 | 400 |
 | Create, edit and assign tasks; add, rename and remove checklist items | ✅ | ✅ | ✅ | 403 ("Viewers cannot create tasks." / "Viewers cannot edit tasks.") | 403 |
 | Delete tasks | ✅ | ✅ | 403 | 403 | 403 |
+| Plan tasks into sprints and the backlog; rank them | ✅ | ✅ | ✅ | 403 | 403 |
+| Create, edit, start, complete and delete sprints (`sprint.manage`) | ✅ | ✅ | 403 | 403 | 403 |
 | Delete anyone's comment | ✅ | ✅ | 403 | 403 | 403 |
 | Edit project details, including visibility | ✅ | ✅ | 403 | 403 | 403 |
 | Change the project key (`project.key`) | ✅ | 403 | 403 | 403 | 403 |
@@ -459,6 +503,62 @@ Shared rules: [`src/lib/work-items.js`](../src/lib/work-items.js) (`readWorkItem
 - An Epic that still holds items can't change type (`fields.type`: "Move the 2 items out of this epic first."). Deleting an epic clears `epicId` on its items.
 - Who may change these fields is who may edit the task (`task.edit`, §7.5); Viewers get `403`.
 - Epic progress (done / total items, and story points) is computed by the web app from the project's tasks (`epicProgress`), so it needs no endpoint.
+
+### 7.9 Task activity history
+
+Every route that changes a task writes **one entry per change**, naming the caller as `actorId` (rules and wording: [`src/lib/activity.js`](../src/lib/activity.js)). A change that changes nothing writes nothing: moving a task to the column it is already in, or saving the same priority.
+
+| Route | Entries (`action`: `details`) |
+|---|---|
+| `POST /projects/:projectId/tasks` | `created`: `{ title, type }` |
+| `PATCH /tasks/:taskId` | one per changed field: `title`, `status`, `priority`, `dueDate`, `type`, `storyPoints`, `epicId` (each `{ from, to }`); `description` (`{}`); `assignees` and `labels` (`{ added, removed }`) |
+| `PATCH /tasks/:taskId/status` | `status`: `{ from, to }` |
+| Checklist routes | `checklist.add` `{ text }`, `checklist.check` `{ text, done }`, `checklist.rename` `{ from, to }`, `checklist.remove` `{ text }` |
+| `POST /tasks/:taskId/comments` | `comment.add`: `{ commentId, excerpt }` (the first 120 characters) |
+| `DELETE /tasks/:taskId/comments/:commentId` | `comment.delete`: `{ commentId }`; the matching `comment.add` loses its `excerpt`, so deleted text does not live on in the history |
+| Removing a member, or making them a Viewer | `assignees` `{ added: [], removed: [userId] }` on each task they were on |
+| `POST /tasks/:taskId/move`, completing or deleting a sprint, reopening work from a completed sprint | `sprint`: `{ from, to }` (sprint ids; null is the backlog). Reordering alone writes nothing. |
+
+- Entries are deleted with their task and with their project. A fresh seed adds `created` entries (by the project owner) and `comment.add` entries for the fixture comments.
+- Reading the history needs the same access as reading the task: another organisation's task is `404`, a project you are not in is `403`.
+- The web app turns entries into sentences, e.g. "Mina Member moved ALPHA-12 from To Do to In Progress · 5 min ago".
+
+### 7.10 Backlog and sprints
+
+Rules live in [`src/lib/sprints.js`](../src/lib/sprints.js); the API, the mock API and the web app share them.
+
+- A task is in **one sprint** (`sprintId`) or in the **backlog** (`sprintId: null`). New tasks join the bottom of the backlog.
+- **Rank.** One ranked order per project (`rank`, lower first) gives the order of the backlog and of every sprint. `POST /tasks/:taskId/move` with `previousId`/`nextId` gives the task the midpoint of its neighbours' ranks; without neighbours it keeps its rank. When a gap gets too small to split, the project is renumbered (1024, 2048, ...). Tasks from before ranking get ranks, in their current order, the first time a project needs them. Ranking is not an edit: it leaves `updatedAt` alone.
+- A sprint is **planned**, then **active**, then **completed**. Only Owners, Managers and Admins create, edit, start, complete and delete sprints; Members (not Viewers) plan tasks into and out of sprints.
+- **One active sprint per project**, enforced by the route (`409 ACTIVE_SPRINT_EXISTS`, naming the running sprint) and by a unique partial index, so two starts at the same moment can't both win.
+- **Starting** records `committed`: the sprint's tasks and their points at that moment.
+- **Completing** keeps finished (`Done`) tasks in the sprint as its record and moves unfinished ones to the backlog or a planned sprint (`moveTo`), writing a `sprint` activity entry for each. `report` keeps both lists with counts and points, so the record survives later changes. A completed sprint can't be edited, restarted, completed again or deleted, and takes no new tasks.
+- **Reopening** a task finished in a completed sprint (moving it out of `Done`) sends it back to the backlog; finished work can't otherwise be moved out of a completed sprint.
+- Deleting a **planned** sprint sends its tasks to the backlog. Deleting a project deletes its sprints.
+- A fresh seed has `ALPHA Sprint 1` (completed: 2 finished, ALPHA-1 carried over) and `ALPHA Sprint 2` (active: ALPHA-5, ALPHA-6, ALPHA-1).
+
+### 7.11 Burndown, sprint report and velocity
+
+Built by [`src/lib/sprint-report.js`](../src/lib/sprint-report.js), shared by the API, the mock API and the web app. The report is worked out from the activity history (§7.9), not stored, so it always matches what happened.
+
+- **Membership** comes from `sprint` activity entries: a task is in the sprint from the moment it was moved in until it was moved out. Tasks with no such entries count from the sprint's start if they are in it now (or are in a completed sprint's `report`).
+- **Committed** is the sprint's work when it started; **added** joined after the start; **removed** was moved out while the sprint ran; **completed** reached `Done` inside the sprint; **carried over** was unfinished at completion and went to `movedTo` (the backlog is `null`).
+- **Unit.** The burndown counts story points; if none of the committed work is estimated it counts items instead and says so.
+- **Days** run from the start date to the end date (end of day, UTC). `remaining` is the work in the sprint not yet `Done` at the end of that day; days after today, or after completion, are `null`. `ideal` falls in a straight line from the committed amount to 0, rounded to one decimal.
+- **Velocity** is the completed points of each completed sprint (the last six are shown) against what it committed; the **average** is over the last three. The Insights forecast divides the open story points by that average to say "about N sprints". Unestimated open work is named, not guessed.
+- In the web app the burndown is one focusable chart: the left and right arrows (and Home and End) read each day aloud, and a table shows the same numbers. Velocity has a table too.
+
+### 7.12 Personal invitation links
+
+Rules live in [`src/lib/invitations.js`](../src/lib/invitations.js); the API, the mock API and the web app share them. Issue #78.
+
+- An **Admin** makes a link for **one email address**. Only Admins can create, list or revoke links, and only in their own organisation; checks are on the server.
+- A link is `<origin>/register?invite=<token>`. The token is 32 characters from a cryptographic random source (192 bits), so it can't be guessed. The database keeps only its **SHA-256 hash**; the link is returned once, when it is created, and is never logged. If it's lost, make a new one.
+- It works **once**, only for **its address**, for **7 days**, and not after it is **revoked**. Using it claims it in one conditional write (`acceptedAt` set only while it is still pending), so two registrations racing on the same link can't both join.
+- A new link for the same address revokes the earlier pending one: one live link per person.
+- Whoever registers with a link is a **Member**, whatever role the request asks for. Admins can promote them afterwards on the Users page.
+- No email is sent: the Admin copies the link and shares it. Sending it by email waits for a team decision on a mail provider.
+- The organisation's invite code (§6.8) keeps working alongside; links are for when the code shouldn't be shared.
 
 ---
 
@@ -497,7 +597,7 @@ server/
   tests/                  # node:test + Supertest + mongodb-memory-server (.test.mjs)
 ```
 
-Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtoken`, `cors`, `helmet`, `express-rate-limit`, `dotenv`. The API workspace currently uses Node's built-in `node:test` runner with `supertest` and `mongodb-memory-server`.
+Suggested packages: `express`, `mongoose`, `bcrypt` (or `bcryptjs`), `jsonwebtoken`, `cors`, `helmet`, `express-rate-limit`, `dotenv`. The API currently uses Node's built-in `node:test` runner with `supertest` and `mongodb-memory-server`.
 
 ---
 
@@ -548,6 +648,7 @@ The only file in the web app that knows about URLs is [`src/lib/api/client.js`](
 | Contract tests (STP IDs) | `tests/mock-api.test.mjs` |
 | Synthetic seed data (two organisations: Acme Labs and Northwind Studio) | `fixtures/*.json` |
 | Organisations: model, routes, migration | `server/models/organisation.js`, `server/routes/organisation.js`, `server/utils/migrations.js`, `src/lib/organisation.js` |
+| Invitation links | `server/models/invitation.js`, `server/services/invitations.js`, `src/lib/invitations.js`, `src/features/organisation/InvitationsPanel.jsx` |
 | Requirements and design | `Templates/SRS_*.pdf`, `Templates/SAD_*.pdf`, `Templates/STP_*.pdf` (on the `Templates` branch) |
 
 Questions or disagreements: message me. If a requirement is genuinely ambiguous, open a GitHub issue and label it `decision` so the whole team can see it.

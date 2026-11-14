@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "test": "npm run test:api && npm run test:web",
     "test:api": "node --test \"server/tests/*.test.mjs\"",
-    "test:web": "node --test tests/fixtures.test.mjs tests/permissions.test.mjs tests/forecast.test.mjs tests/quick-add.test.mjs tests/work-item-fields.test.mjs tests/mock-api.test.mjs && vitest run",
+    "test:web": "node --test tests/fixtures.test.mjs tests/permissions.test.mjs tests/forecast.test.mjs tests/quick-add.test.mjs tests/work-item-fields.test.mjs tests/activity.test.mjs tests/sprints.test.mjs tests/sprint-report.test.mjs tests/mock-api.test.mjs && vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:load": "node scripts/load-test.mjs"

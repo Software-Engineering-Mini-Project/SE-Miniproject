@@ -2,6 +2,8 @@ import { RegisterForm } from '@/features/auth/RegisterForm';
 
 export const metadata = { title: 'Create account' };
 
-export default function RegisterPage() {
-  return <RegisterForm />;
+// `/register?invite=...` is a personal invitation link (issue #78).
+export default async function RegisterPage({ searchParams }) {
+  const { invite } = await searchParams;
+  return <RegisterForm inviteToken={typeof invite === 'string' && invite ? invite : null} />;
 }
