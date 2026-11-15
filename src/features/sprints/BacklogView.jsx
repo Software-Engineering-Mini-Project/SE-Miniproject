@@ -191,7 +191,8 @@ function SprintRecord({ sprint, tasksById, sprintsById }) {
  * record of completed sprints. Drag rows (or use each row's menu) to rank work and plan it into
  * sprints; Owners and Managers create, start, edit, complete and delete sprints.
  */
-export function BacklogView({ project, tasks, allTasks, sprints, members, today, canPlan, canManage, onPlan, onOpen, onSprintsChange, filtered = false }) {
+/** `sprintDay` is the day the sprint report is on (UTC), so "days left" here agrees with it. */
+export function BacklogView({ project, tasks, allTasks, sprints, members, today, sprintDay = today, canPlan, canManage, onPlan, onOpen, onSprintsChange, filtered = false }) {
   const [activeId, setActiveId] = useState(null);
   const [form, setForm] = useState(null); // 'new' | sprint
   const [completing, setCompleting] = useState(null);
@@ -363,7 +364,7 @@ export function BacklogView({ project, tasks, allTasks, sprints, members, today,
               meta={
                 <>
                   {formatSprintDates(sprint)}
-                  {sprint.state === 'active' ? ` · ${daysLeft(sprint, today)}` : ''} · <TotalsText tasks={list} />
+                  {sprint.state === 'active' ? ` · ${daysLeft(sprint, sprintDay)}` : ''} · <TotalsText tasks={list} />
                 </>
               }
               goal={sprint.goal}

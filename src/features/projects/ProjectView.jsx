@@ -17,7 +17,7 @@ import { useSession } from '@/lib/session';
 import { useWorkspace } from '@/lib/workspace';
 import { can, projectRoleOf } from '@/lib/permissions';
 import { forecastProject } from '@/lib/forecast';
-import { localToday } from '@/lib/dates';
+import { localToday, utcToday } from '@/lib/dates';
 import { rankBetween } from '@/lib/sprints';
 import { AvatarStack } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -494,6 +494,7 @@ export function ProjectView({ projectId }) {
                 sprints={sprints.data}
                 members={p.members}
                 today={localToday()}
+                sprintDay={utcToday()}
                 canPlan={allowed('task.edit')}
                 canManage={allowed('sprint.manage')}
                 onPlan={planTask}
