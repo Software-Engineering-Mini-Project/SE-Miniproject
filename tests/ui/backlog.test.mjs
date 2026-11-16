@@ -58,6 +58,12 @@ const section = (name) => screen.getByRole('region', { name: new RegExp(`^${name
 const rows = (name) => within(within(section(name)).getByRole('list')).getAllByRole('listitem').map((item) => item.querySelector('.backlog-title')?.textContent ?? item.textContent);
 
 describe('the Backlog view', () => {
+  it('counts the days left from the day the sprint report is on, not the day where the viewer is', () => {
+    // Just after midnight in India the viewer's day is a day ahead of the report's (issue #85).
+    renderBacklog({ today: '2026-10-20', sprintDay: '2026-10-19' });
+    expect(within(section('ALPHA Sprint 2')).getByText(/14 Oct – 27 Oct 2026 · 8 days left/)).toBeInTheDocument();
+  });
+
   it('shows the active sprint, planned sprints, the ranked backlog and the completed sprints', () => {
     renderBacklog();
     const active = section('ALPHA Sprint 2');
