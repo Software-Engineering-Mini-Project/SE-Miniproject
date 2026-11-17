@@ -11,7 +11,10 @@ export async function startMonolith({ dev = process.argv.includes('--dev'), conf
   app.use((request, response, nextMiddleware) => request.path === '/api' || request.path.startsWith('/api/')
     ? api(request, response, nextMiddleware)
     : web.getRequestHandler()(request, response));
-  return app.listen(config.port, () => console.info(`Task Manager listening on ${config.port}`));
+  const onListening = () => console.info(`Task Manager listening on ${config.port}`);
+  return dev
+    ? app.listen(config.port, '127.0.0.1', onListening)
+    : app.listen(config.port, onListening);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
