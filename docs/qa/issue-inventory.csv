@@ -1,0 +1,41 @@
+number,title,state,labels,closed_at_utc,url
+1,[SETUP] Initialize repository and development,closed,documentation;setup,2026-10-26T09:18:10Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/1
+2,[BACKEND] Build Express API and database foundation,closed,setup;backend,2026-10-30T15:19:58Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/2
+3,[FRONTEND] Build React application foundation,closed,accessibility;setup;frontend,2026-10-26T09:20:35Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/3
+4,[CI/QA] Establish automated checks and synthetic test data,closed,documentation,2026-11-02T15:53:30Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/4
+5,[FEATURE] Implement task creation from UI to database,closed,enhancement;question;backend;frontend,2026-10-30T16:57:27Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/5
+6,[QA/DOCS] Establish requirement traceability and test evidence,closed,documentation;question,2026-11-02T15:53:32Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/6
+7,[FEATURE] Implement authentication and user management,closed,enhancement;question;backend;frontend;security,2026-11-02T14:49:16Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/7
+8,[FEATURE] Implement task editing and status updates,closed,enhancement;backend;frontend;QA,2026-11-02T15:14:25Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/8
+9,Project and Member Management,closed,backend;frontend;security;QA;testing,2026-11-02T15:23:20Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/9
+10,"[FEATURE] Implement search, filters, dashboard, and CSV export",closed,accessibility;enhancement;backend;frontend;QA,2026-11-02T15:26:23Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/10
+17,[DEVOPS] Select and document a staging deployment target,closed,documentation;setup;security,2026-11-02T16:36:29Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/17
+18,[DEVOPS] Add automated deployment to the staging environment,closed,setup;security;testing,2026-11-02T16:18:21Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/18
+19,[QA] Run integrated release acceptance and reconcile the initial backlog,closed,documentation;QA;testing,2026-11-02T16:36:34Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/19
+20,[PRODUCT/SECURITY] Decide the Admin account onboarding approach,closed,documentation;question;security,2026-11-02T16:36:37Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/20
+21,[FEATURE] Implement task comments and in-app notifications,closed,enhancement;security;testing,2026-11-02T18:49:15Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/21
+22,[SECURITY] Verify application security controls before staging,closed,security;testing,2026-11-02T18:57:30Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/22
+23,[QA] Verify accessibility and responsive behavior,closed,accessibility;testing,2026-11-02T18:51:58Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/23
+42,[SECURITY] Replace process-local login throttling with a deploy-safe limit,closed,,2026-11-02T18:57:29Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/42
+46,[SECURITY] Remediate high PostCSS advisory in the Next.js dependency tree,closed,,2026-11-02T19:03:03Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/46
+48,Prepare a safe Vercel staging migration for the task manager,closed,,2026-11-03T05:22:05Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/48
+50,Migrate the staging API from Render to Vercel,closed,,2026-11-03T16:14:01Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/50
+65,"[FEATURE] Admin user management, insights and end-to-end validation fixes",closed,enhancement;security;testing,2026-11-11T15:44:18Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/65
+66,"[SECURITY] Per-project roles, ownership transfer and account deactivation",closed,enhancement;security;testing,2026-11-11T15:44:22Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/66
+67,[FEATURE] Delivery forecast from the team's own pace,closed,enhancement;frontend;testing,2026-11-11T15:44:26Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/67
+68,"[FEATURE] Quick add, task checklists and an Upcoming agenda",closed,enhancement;backend;frontend;testing,2026-11-12T03:22:42Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/68
+69,"[FEATURE] Open workspace: anyone creates projects, open projects can be joined",closed,enhancement;backend;frontend;security,2026-11-12T03:22:44Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/69
+70,"[FEATURE] Organisations: same sign-in page, organisation page, nothing crosses organisations",closed,enhancement;backend;frontend;security;testing,2026-11-12T03:22:45Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/70
+71,[DOCS] Document the new features and organisations,closed,documentation,2026-11-12T03:22:47Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/71
+72,"[QA] Manually accept organisations, quick add, checklists, open workspace and roles",closed,QA;testing,2026-11-15T09:41:05Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/72
+73,[FEATURE] Work-item keys (e.g. ALPHA-12),closed,enhancement;backend;frontend,2026-11-13T05:37:37Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/73
+74,"[FEATURE] Work-item types, story points, labels and epics",closed,enhancement;backend;frontend,2026-11-13T05:37:38Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/74
+75,[FEATURE] Task activity history,closed,enhancement;backend;frontend,2026-11-14T15:32:59Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/75
+76,[FEATURE] Backlog and sprints,closed,enhancement;backend;frontend,2026-11-14T15:32:59Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/76
+77,[FEATURE] Burndown chart and sprint report,closed,enhancement;frontend,2026-11-14T15:33:00Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/77
+78,[FEATURE] Personal invite links for organisations,closed,enhancement;backend;frontend;security,2026-11-14T15:33:01Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/78
+79,"[CHORE] Say ""organisation"" instead of ""workspace"" everywhere",closed,documentation;frontend,2026-11-14T15:33:01Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/79
+80,[UX] Interface redesign and motion polish,closed,accessibility;enhancement;frontend,2026-11-14T15:33:01Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/80
+81,"[QA] Manually accept work items, sprints, burndown and invite links",closed,QA;testing,2026-11-17T16:20:44Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/81
+84,[BUG] A card can't be moved into a long board column from the top or with the keyboard,closed,bug;accessibility;frontend,2026-11-16T08:32:39Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/84
+85,"[BUG] Sprint report and Backlog disagree by a day on ""days left"" after midnight (UTC vs local date)",closed,bug;backend;frontend,2026-11-16T08:32:39Z,https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/85
