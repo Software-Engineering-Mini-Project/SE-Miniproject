@@ -64,7 +64,7 @@ The first #81 comment marked expiry BLOCKED and advised keeping the issue open. 
 ## Defect and remediation register
 
 | Reference | Trigger and impact | Cause / change | Current recorded status | Evidence limit |
-|---|---|---|---|
+|---|---|---|---|---|
 | [#84](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/84) | Drop at the top of a long Done column, or keyboard transfer, returns card to the old column | closestCorners favored the adjacent shorter column; collision selection changed in ca27cc5 | Closed; [PR #86](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/86) merged | PR reports regression component tests and manual local mouse/keyboard checks; no new deployed retest here |
 | [#85](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/issues/85) | Backlog and report differ by one day between midnight and 05:30 IST | Local day versus UTC; 718de49 aligns Backlog days-left with report UTC day | Closed; [PR #86](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/86) merged | PR says unit/component coverage, not browser retest |
 | [PR #83](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/pull/83), 64fefee | Admin updates role/deactivation while search is loading; Users page crashes | Avoid mutating an unloaded list, then reload; regression component coverage | Merged | Product race identified in PR, separate from test-only flake |
