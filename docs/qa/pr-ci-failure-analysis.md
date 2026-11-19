@@ -14,7 +14,7 @@ Source snapshot: `efd89fc0195a4ea03d8bade50985b0bd95930bbc` (`origin/main`). Thi
 ## Evidence rules and access limits
 
 - Run/job APIs establish outcomes, SHA, job/step and timestamps. Check-run annotations establish only the messages they actually contain. Public run HTML establishes workflow-validation errors.
-- Full Actions log ZIP retrieval returned HTTP 403 without working GitHub authentication. Exact test traces unavailable through public annotations remain **unverified**; no raw log contents are invented.
+- Initial unauthenticated log-ZIP access returned HTTP 403. After the GitHub connection was restored, decoded logs were recovered for 11 relevant jobs. The authenticated diagnostic evidence below supersedes the initial access limit. Remaining uncertainty concerns root-cause attribution where a log only establishes a timeout, not missing log access.
 - A failed step completion timestamp is the observable failure endpoint, not necessarily the instant the first assertion failed. For invalid workflow runs with no job, updated_at is used and explicitly labelled. UTC and IST (+05:30) are both recorded.
 - PR matching uses exact SHA membership returned by `/pulls/{number}/commits`. A SHA can occur in multiple PRs. This is not a claim that the run was triggered separately by each PR. Empty membership means no exact match, not missing history.
 - GitHub latest run records hide older attempts; those were queried separately. Cancelled runs are not counted as failed tests. Statuses are the historical snapshot, not a promise about future runs or deployed behavior.
@@ -47,11 +47,11 @@ PR #41 adds comments.remove to the UI test mock. Fix reference: [769169da87e5](h
 
 ### F04: Next.js 16 lint/config migration (2 failed attempts)
 
-**Evidence:** Failed lint step confirmed; cause inferred from follow-up diff.
+**Evidence:** Confirmed job logs and matching fix.
 
-Lint exited 2 after the Next.js dependency upgrade. Follow-up changes migrate ESLint configuration and adapt components to new lint rules. The exact diagnostic is unavailable without full logs.
+Both lint jobs fail with `TypeError: Converting circular structure to JSON`; the configuration validator reports the React plugin closing the circle. Commit `f398b1562d11c1a683eaac369e34ed291136f8cd` replaces FlatCompat with direct Next.js flat-config imports and updates affected components.
 
-PR #47 includes the lint migration. Do not treat the inferred explanation as a recovered log message. Fix reference: [f398b1562d11](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/commit/f398b1562d11c1a683eaac369e34ed291136f8cd).
+PR #47 contains the repair. This is confirmed by authenticated logs for jobs 125467126841 and 125467007800, not just an inference from exit code 2.
 
 ### F05: Dashboard invalidation test mock (3 failed attempts)
 
@@ -63,35 +63,35 @@ Fix on the PR #58 branch; the initial intermediate SHA 6192a052 is not returned 
 
 ### F06: Vitest configuration/API-mode mismatch (2 failed attempts)
 
-**Evidence:** Cause reported in fix commit and PR #59; individual raw log unavailable.
+**Evidence:** Confirmed job logs, fix commit and PR #59.
 
-Commit 1826269 states that @fixtures alias resolution and HTTP mode for UI tests caused PR #58 CI failure while CI exported mock mode. Public annotations only expose exit code 1.
+Jobs 126744360220 and 126744332233 fail resolving `@fixtures/users.json` and `@fixtures/projects.json`, respectively, from `src/lib/api/mock/browser.js` in the dashboard invalidation test. Commit `1826269b60a0408bf95e9506959df985469b26cd` adds the fixture alias and pins UI tests to HTTP mode while CI builds in mock mode.
 
-Fixed in PR #59 while incorporating PR #58. This is an author-documented diagnosis, not an independently recovered failure trace. Fix reference: [1826269b60a0](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/commit/1826269b60a0408bf95e9506959df985469b26cd).
+PR #59 incorporated PR #58 and the configuration fix. The import-resolution errors are directly observed; API-mode diagnosis is also documented in the fix commit.
 
-### F07: Organisation integration unit-test failure (3 failed attempts)
+### F07: Organisation mock isolation regression (3 failed attempts)
 
-**Evidence:** Failed step confirmed; exact cause unverified.
+**Evidence:** Confirmed assertions in all three job logs and matching mock repair.
 
-The unit/contract test step exited 1 at 8f8397c3. Later commit 06c967c updates organisation mocks, registration tests and dashboard invalidation expectations, but no public assertion identifies which caused these runs.
+All three jobs fail two assertions in `tests/mock-api.test.mjs`: the open-project directory unexpectedly includes `project-northwind`, and Admin role counts are 2 instead of 1. The API/fixture organisation change at `8f8397c3` precedes organisation scoping in the browser mock.
 
-PR #64 later passes at its final head. Candidate repair evidence only; exact root cause remains unavailable. Fix reference: [06c967cdf4de](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/commit/06c967cdf4de8b0da771fe231afb002e9f35b034).
+Commit `40dd0198a240b3843d6758eaee99f86f6cacc7fd` scopes mock list/lookups to the caller organisation and updates its tests. This is the relevant repair in PR #64; the later UI commit 06c967c is not attributed as the root fix.
 
 ### F08: Sprint 5 real-API E2E failure (1 failed attempts)
 
-**Evidence:** Failed step confirmed; two causes reported in PR #83.
+**Evidence:** Confirmed job log symptoms and PR-documented fixes.
 
-PR #83 reports a Users-page race during a pending search and pointer interference with the burndown keyboard test. It identifies fixes 64fefee and 00f3a1f. Public job annotations do not identify the failing test names.
+Job 131814821983 contains failed checks for the Deactivated Users-list entry and burndown keyboard readouts. The mock phase reports both scenarios as flaky/retried; the real-API phase ultimately fails `e2e/sprint-report.spec.mjs:25` after both the Home-key initial readout and ArrowRight readout assertions time out.
 
-64fefee fixes the product race; 00f3a1f moves the test pointer away. Preserve the distinction between a product bug and a flaky test. Fix reference: [00f3a1f16a6d](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/commit/00f3a1f16a6d77dc722a674a210cce461838eb13).
+PR #83 identifies `64fefee324670f7986364b0d3238c1edef035706` for the Users-page pending-search race and `00f3a1f16a6d77dc722a674a210cce461838eb13` for pointer/keyboard interference. The former is a product bug, the latter a test reliability correction.
 
 ### F09: E2E attempt failed, unchanged-SHA rerun passed (3 failed attempts)
 
-**Evidence:** Failed step and rerun outcome confirmed; root cause unknown.
+**Evidence:** Failed assertions and retry recovery confirmed; underlying cause not fully established.
 
-The browser step exited 1, but accessible annotations contain no test-level trace. Attempt 2 passed at the identical SHA. This establishes recovery on retry, not the cause of the failure.
+Jobs 126151076628 and 130972459049 fail TC-E2E-01 while waiting for “Write release notes is over In Progress.” Their in-job retry remains on `/register` instead of reaching `/dashboard`. Job 127768014102 fails the Admin-deactivation scenario because the expected Deactivated label is not visible within ten seconds, including its in-job retry.
 
-No code fix can be attributed. Do not automatically label these as flakiness or product defects.
+Each Actions run later passes on attempt 2 at the identical SHA. This confirms recovery without a source change, but does not prove why the keyboard move/registration timed out. The deactivation symptom matches the later Users-page race signature, but direct attribution of that earlier run to the same race is unverified.
 
 ## Failure register
 
@@ -197,4 +197,22 @@ History also contains 14 `Deploy staging` runs. Their Actions conclusions do not
 
 ## Review limitations
 
-This report reviews PR descriptions, commit lists/diffs relevant to failure explanations, Actions metadata, annotations and QA evidence. It is not an exhaustive line-by-line code audit of every PR. Missing exact diagnostics in F04/F07/F09 and raw-log confirmation for F06/F08 remain explicit evidence gaps. A same-SHA rerun passing alone does not establish the cause. Historic source documents may describe then-open findings that are now closed; the QA summary reconciles them.
+This report reviews PR descriptions, commit lists/diffs relevant to failure explanations, Actions metadata, annotations and QA evidence. It is not an exhaustive line-by-line code audit of every PR. Authenticated logs now identify the F04/F06/F07 failures and F08/F09 assertion symptoms. Underlying causes of the F09 keyboard/registration timeouts and exact attribution of its earlier deactivation symptom remain unverified. A same-SHA rerun passing alone does not establish the cause. Historic source documents may describe then-open findings that are now closed; the QA summary reconciles them.
+
+## Authenticated diagnostic follow-up
+
+On 20 November 2026 IST, the connected GitHub account allowed retrieval of these job logs. Only diagnostic summaries are reproduced; signed download URLs, raw environment dumps and unrelated log content are excluded. No test was rerun to obtain this evidence.
+
+| Job log | Observed diagnostic |
+|---|---|
+| [125467126841](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41500706035/job/125467126841) | ESLint circular-structure JSON error, React plugin configuration. |
+| [125467007800](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41500670880/job/125467007800) | Same ESLint circular-structure failure. |
+| [126744360220](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41878462692/job/126744360220) | Cannot resolve @fixtures/users.json in the dashboard invalidation test. |
+| [126744332233](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41878454067/job/126744332233) | Cannot resolve @fixtures/projects.json in the dashboard invalidation test. |
+| [128803952371](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/42504451088/job/128803952371) | Mock directory includes Northwind; Admin count 2 versus expected 1. |
+| [128805055995](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/42504816168/job/128805055995) | Same two mock organisation isolation assertions fail. |
+| [128805107584](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/42504832843/job/128805107584) | Same two mock organisation isolation assertions fail. |
+| [131814821983](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/43404334634/job/131814821983) | Users deactivation readout and keyboard burndown failures; real-API sprint-report test remains failed after in-job retry. |
+| [126151076628](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/41703058953/job/126151076628) | Attempt 1: drag announcement timeout; in-job retry stays on /register. |
+| [127768014102](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/42180271812/job/127768014102) | Attempt 1: Deactivated label not visible within 10 seconds. |
+| [130972459049](https://github.com/Software-Engineering-Mini-Project/SE-Miniproject/actions/runs/43154904783/job/130972459049) | Attempt 1: drag announcement timeout; in-job retry stays on /register. |

@@ -15,7 +15,7 @@ Repository baseline: [`efd89fc0195a`](https://github.com/Software-Engineering-Mi
 |---|---|---|
 | Personally recorded manual QA | Safari issue comments explicitly describing actions, observations and screenshots | Covers the recorded scenarios only; do not relabel all API checks as personal manual tests |
 | Assisted live browser/API checks | Initial #72/#81 comments distinguish Chromium automation and direct live API checks | Sampled permissions/fields, not every matrix combination; no multi-day chart evolution |
-| CI execution | GitHub run/attempt/job results and available annotations | Raw log ZIP retrieval unavailable (HTTP 403); details in CI report |
+| CI execution | GitHub run/attempt/job results and available annotations | Authenticated logs recovered for 11 diagnostic jobs after initial HTTP 403; unresolved root-cause limits remain in CI report |
 | Team-provided local automation | Supplied qa-precheck-for-trisha.md and taskline-feature-check.pdf | Historical author-reported results; not rerun for this report and not live-site evidence |
 | Existing repository reports | Acceptance, security, accessibility, performance and traceability documents | Scoped to their stated commit/environment; some status prose is stale |
 
