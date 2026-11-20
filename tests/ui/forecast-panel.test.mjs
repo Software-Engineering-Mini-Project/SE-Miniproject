@@ -1,6 +1,6 @@
 // Delivery forecast UI: the Insights panel and the task risk flag.
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ForecastPanel } from '../../src/features/projects/ForecastPanel.jsx';
@@ -76,6 +76,24 @@ describe('ForecastPanel', () => {
     // Three completions in six weeks cannot clear 400 tasks within a year.
     renderPanel([doneOn(-1, 'c'), doneOn(-2, 'd'), doneOn(-3, 'e'), ...Array.from({ length: 400 }, (_, i) => open(`o${i}`, null))]);
     expect(screen.getByText(/would take more than a year/)).toBeInTheDocument();
+  });
+
+  it('says "more than a year" when the 85% or 95% finish is past the horizon, without crashing', () => {
+    // Three completions in six weeks: the median run clears 20 or 25 open tasks within a year,
+    // but the slower runs do not, so the later percentiles have no date.
+    const slow = (count) => [doneOn(-1, 'c'), doneOn(-2, 'd'), doneOn(-3, 'e'), ...Array.from({ length: count }, (_, i) => open(`o${i}`, null))];
+
+    const { forecast: past95 } = renderPanel(slow(20));
+    expect(past95.state).toBe('ready');
+    expect(past95.finish.p95).toBeNull();
+    expect(screen.getByText(/95% in more than a year/)).toBeInTheDocument();
+    cleanup();
+
+    const { forecast: past85 } = renderPanel(slow(25));
+    expect(past85.state).toBe('ready');
+    expect(past85.finish.p85).toBeNull();
+    expect(screen.getByText('85% likely to take')).toBeInTheDocument();
+    expect(screen.getByText('More than a year')).toBeInTheDocument();
   });
 
   it('confirms when every dated task is on track', () => {

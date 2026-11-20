@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Gauge } from 'lucide-react';
-import { MIN_COMPLETIONS, WINDOW_DAYS, weeklyThroughput } from '@/lib/forecast';
+import { HORIZON_DAYS, MIN_COMPLETIONS, WINDOW_DAYS, weeklyThroughput } from '@/lib/forecast';
 import { localToday } from '@/lib/dates';
 import { formatDue, plural } from '@/lib/format';
 import { RiskTag } from '@/components/ui/Tags';
@@ -16,13 +16,18 @@ const toLocal = (dateOnly) => {
 const daysBetween = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 const WEEKS = WINDOW_DAYS / 7;
 
-/** Today → P95 on one axis, with the three confidence levels marked and labelled. */
+/**
+ * Today → P95 on one axis, with the three confidence levels marked and labelled. A percentile past
+ * the forecast's one-year horizon has no date (null): the band then runs to the end of the axis
+ * and that percentile gets no mark.
+ */
 function FinishRange({ today, finish }) {
-  const span = Math.max(1, daysBetween(today, finish.p95));
-  const at = (date) => (daysBetween(today, date) / span) * 100;
+  const span = Math.max(1, finish.p95 ? daysBetween(today, finish.p95) : HORIZON_DAYS + 1);
+  const at = (date) => (date ? (daysBetween(today, date) / span) * 100 : 100);
   // Percentiles that land on the same day share one mark and one label ("50–95%").
   const marks = [];
   for (const [key, label, date] of [['p50', '50', finish.p50], ['p85', '85', finish.p85], ['p95', '95', finish.p95]]) {
+    if (!date) continue;
     const same = marks.find((mark) => mark.date === date);
     if (same) same.labels.push(label);
     else marks.push({ key, date, labels: [label] });
@@ -127,11 +132,11 @@ export function ForecastPanel({ forecast, tasks, byVelocity = null, onOpenTask }
       ) : (
         <div className="forecast-body">
           <div className="forecast-hero">
-            <p className="forecast-kicker">85% likely to be done by</p>
-            <p className="forecast-date">{dayFmt.format(toLocal(forecast.finish.p85))}</p>
+            <p className="forecast-kicker">{forecast.finish.p85 ? '85% likely to be done by' : '85% likely to take'}</p>
+            <p className="forecast-date">{forecast.finish.p85 ? dayFmt.format(toLocal(forecast.finish.p85)) : 'More than a year'}</p>
             <p className="forecast-spread">
-              {plural(forecast.remaining, 'open task')} · 50% by {shortFmt.format(toLocal(forecast.finish.p50))} · 95% by{' '}
-              {shortFmt.format(toLocal(forecast.finish.p95))}
+              {plural(forecast.remaining, 'open task')} · 50% by {shortFmt.format(toLocal(forecast.finish.p50))} · 95%{' '}
+              {forecast.finish.p95 ? `by ${shortFmt.format(toLocal(forecast.finish.p95))}` : 'in more than a year'}
             </p>
             <FinishRange today={today} finish={forecast.finish} />
           </div>
