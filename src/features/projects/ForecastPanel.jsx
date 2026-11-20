@@ -128,12 +128,12 @@ export function ForecastPanel({ forecast, tasks, byVelocity = null, onOpenTask }
         <div className="forecast-body">
           <div className="forecast-hero">
             <p className="forecast-kicker">85% likely to be done by</p>
-            <p className="forecast-date">{dayFmt.format(toLocal(forecast.finish.p85))}</p>
+            <p className="forecast-date">{forecast.finish.p85 ? dayFmt.format(toLocal(forecast.finish.p85)) : 'Beyond one year'}</p>
             <p className="forecast-spread">
               {plural(forecast.remaining, 'open task')} · 50% by {shortFmt.format(toLocal(forecast.finish.p50))} · 95% by{' '}
-              {shortFmt.format(toLocal(forecast.finish.p95))}
+              {forecast.finish.p95 ? shortFmt.format(toLocal(forecast.finish.p95)) : 'beyond one year'}
             </p>
-            <FinishRange today={today} finish={forecast.finish} />
+            {forecast.finish.p85 && forecast.finish.p95 ? <FinishRange today={today} finish={forecast.finish} /> : null}
           </div>
           <div className="forecast-history">
             <h3 className="forecast-subtitle">Completed per week</h3>

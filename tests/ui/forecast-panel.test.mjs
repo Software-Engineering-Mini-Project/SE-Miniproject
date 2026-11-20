@@ -26,6 +26,13 @@ function renderPanel(tasks, onOpenTask = vi.fn()) {
 }
 
 describe('ForecastPanel', () => {
+  it('handles forecast percentiles beyond the simulation horizon', () => {
+    const tasks = [open('a', null)];
+    const forecast = { state: 'ready', completedInWindow: 3, averagePerWeek: 0.5, remaining: 1, simulations: 500, risk: new Map(), finish: { p50: today, p85: null, p95: null } };
+    render(h(ForecastPanel, { forecast, tasks }));
+    expect(screen.getByText('Beyond one year')).toBeInTheDocument();
+    expect(screen.getByText(/95% by beyond one year/)).toBeInTheDocument();
+  });
   it('shows the 85% finish date, weekly throughput and the due dates it doubts', async () => {
     const user = userEvent.setup();
     // One completion a day for six weeks, so open tasks finish one a day, in queue order, in
